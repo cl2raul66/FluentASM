@@ -143,7 +143,7 @@ Los valores por defecto de la tabla se aplican cuando el bloque está ausente.
 | Almacenamiento | El nombre tal cual lo escribió el usuario, sin normalizar a minúsculas |
 
 Un archivo `.fasm` o `.bin` referenciado debe existir **dentro** del mismo directorio del `.fproj` o
-en un subdirectorio de este, tal como exige [VISION.md](../../VISION.md).
+en un subdirectorio de este, tal como exige [VISION.md](../VISION.md).
 
 ---
 

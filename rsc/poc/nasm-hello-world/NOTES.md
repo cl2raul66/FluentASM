@@ -23,7 +23,7 @@ recursos, son salidas de compilación.
    no la va a usar, porque la visión exige un ensamblador autocontenido sin dependencias externas.
 2. **Llamar a `printf` exige el CRT y un enlazador**: es decir, hace falta un ejecutable del SO con
    tabla de importaciones. Eso confirmó que la Fase 1 debía limitarse a imágenes planas sin símbolos
-   externos (ver [ADR 0003](../../docs/adr/0003-salidas-imagen-plana.md)).
+   externos (ver [ADR 0003](../../../docs/adr/0003-salidas-imagen-plana.md)).
 3. **NASM sirve como oráculo.** Este es el hallazgo más útil: se puede ensamblar un fragmento con
    `nasm -f bin` y comparar los bytes con los que genera FluentASM. Todas las tablas de bytes de la
    documentación se verificaron así.
