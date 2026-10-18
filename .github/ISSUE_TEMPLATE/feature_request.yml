@@ -1,0 +1,56 @@
+name: Nueva funcionalidad o instrucción
+description: Proponer una instrucción, una directiva, un formato de salida o una herramienta
+labels:
+  - tipo/feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ten en cuenta el orden de las fases: propuestas de fases lejanas son bienvenidas, pero
+        se priorizan las que desbloquean la fase actual (ver `roadmap.md`).
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qué problema resuelve
+      description: Describe el caso de uso real, no la solución técnica.
+    validations:
+      required: true
+  - type: textarea
+    id: propuesta
+    attributes:
+      label: Cómo se escribiría
+      description: Un ejemplo en sintaxis fluida de cómo quedaría el código.
+      render: fasm
+    validations:
+      required: true
+  - type: textarea
+    id: bytes
+    attributes:
+      label: Qué bytes debería generar
+      description: |
+        Si es una instrucción, indica su codificación según el manual de Intel, o cómo lo genera NASM
+        (puedes comprobarlo con `nasm -f bin`).
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      options:
+        - Sintaxis y directivas
+        - Catálogo de instrucciones
+        - Codificador y layout
+        - Formatos de salida (.x64, PE, ELF)
+        - Proyectos y soluciones (.fproj, .fworkspace, fasm_admin)
+        - Herramientas (CLI, IDE)
+        - Documentación
+    validations:
+      required: true
+  - type: checkboxes
+    id: aporto
+    attributes:
+      label: ¿Te gustaría implementarlo?
+      options:
+        - label: Puedo abrir un PR para esta funcionalidad
+        - label: Puedo ayudar con las pruebas
+        - label: Necesito orientación para empezar

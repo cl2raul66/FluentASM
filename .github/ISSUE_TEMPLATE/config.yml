@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentación del proyecto
+    url: https://github.com/cl2raul66/FluentASM/blob/main/README.md
+    about: Visión, sintaxis, roadmap y especificaciones antes de abrir un issue.
+  - name: Preguntas y dudas
+    url: https://github.com/cl2raul66/FluentASM/discussions
+    about: Para dudas abiertas, mejor una discusión que un issue.

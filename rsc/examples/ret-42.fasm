@@ -1,0 +1,22 @@
+; ---------------------------------------------------------------------------
+;  ret-42.fasm  -  El ejemplo mínimo de FluentASM
+;
+;  Fase: 1 (API de C#) y 2 (este archivo, cuando exista el analizador).
+;  Bytes esperados: b8 2a 00 00 00 c3
+;  Comprobación: cargado en memoria y llamado como 'long f()' devuelve 42.
+;
+;  Nota: 'main' no declara parámetros, locales ni llamadas, así que es una
+;  rutina hoja y no lleva prólogo ni epílogo. De ahí que sean 6 bytes exactos.
+; ---------------------------------------------------------------------------
+
+program Ret42
+
+    section .text
+    entry main
+
+    routine main
+        .Mov(Eax, 42)       ; RAX = 42 (mov r32, imm32 pone a cero la mitad alta)
+        .Ret()              ; ret
+    end
+
+end

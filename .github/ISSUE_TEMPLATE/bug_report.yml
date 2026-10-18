@@ -1,0 +1,47 @@
+name: Error o comportamiento inesperado
+description: Algo no funciona como debería o no coincide con lo documentado
+labels:
+  - tipo/bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de abrir el issue, busca uno similar y revisa la documentación
+        (`FLUENT_SYNTAX.md`, `docs/IR.md`, `docs/ABI.md`).
+  - type: textarea
+    id: esperado
+    attributes:
+      label: Qué esperabas que pasara
+      description: Incluye la cita del documento o el comportamiento documentado.
+    validations:
+      required: true
+  - type: textarea
+    id: real
+    attributes:
+      label: Qué pasó en realidad
+      description: Pega el mensaje exacto: el código de diagnóstico (`FASMxxxx`) y el texto completo.
+    validations:
+      required: true
+  - type: textarea
+    id: reproducir
+    attributes:
+      label: Cómo reproducirlo
+      description: El fragmento `.fasm` más pequeño posible, o el código de C# que lo provoca.
+      render: fasm
+    validations:
+      required: true
+  - type: input
+    id: fase
+    attributes:
+      label: Fase del roadmap
+      description: ¿En qué fase creías que estaba esta función? (ver roadmap.md)
+      placeholder: "Fase 1"
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Versión de FluentASM y del SDK de .NET
+      placeholder: "FluentASM 0.1.0-preview, .NET SDK 10.0.402"
+    validations:
+      required: true

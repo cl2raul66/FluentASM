@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# FluentASM
+# ---------------------------------------------------------------------------
+
+# Compilación .NET
+bin/
+obj/
+artifacts/
+TestResults/
+*.trx
+*.coverage
+*.nupkg
+
+# Entorno de usuario / IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---------------------------------------------------------------------------
+# Salidas del ensamblador
+# Los binarios generados NO se versionan: se regeneran con el ensamblador.
+# Las bibliotecas nativas (rsc/**/*.bin) SÍ son recursos de origen y se versionan.
+# No agregues "*.bin" a este archivo.
+# ---------------------------------------------------------------------------
+*.x64
+*.x86
+*.arm
+*.x64.reloc
+*.x86.reloc
+*.arm.reloc
+
+# Objetos intermedios de herramientas externas (NASM, MSVC...) usados solo en
+# pruebas de concepto dentro de rsc/poc/.
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exe
+
+# Temporales
+*.tmp
+*.log
+*.bak
+~$*
+Thumbs.db
+desktop.ini

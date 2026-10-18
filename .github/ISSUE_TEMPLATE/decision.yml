@@ -1,0 +1,38 @@
+name: Decisión de diseño
+description: Cambiar algo que ya está decidido en un ADR o decidir algo nuevo que afecta a varios archivos
+labels:
+  - tipo/decision
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Las decisiones se registran como ADR en `docs/adr/`. Un ADR **no se edita**: si cambia una
+        decisión, se escribe uno nuevo que reemplaza al anterior. Ver `CONTRIBUTING.md`.
+  - type: textarea
+    id: contexto
+    attributes:
+      label: Contexto
+      description: Qué situación obliga a decidir. Si reemplaza un ADR existente, indica cuál y por qué.
+    validations:
+      required: true
+  - type: textarea
+    id: opciones
+    attributes:
+      label: Opciones consideradas
+      description: Al menos dos, con su coste y su beneficio.
+    validations:
+      required: true
+  - type: textarea
+    id: consecuencias
+    attributes:
+      label: Consecuencias de la opción preferida
+      description: Qué se gana, qué se pierde y cómo se mitiga lo que se pierde.
+    validations:
+      required: true
+  - type: input
+    id: adr
+    attributes:
+      label: Número de ADR propuesto
+      placeholder: "0006"
+    validations:
+      required: false

@@ -1,0 +1,49 @@
+; ---------------------------------------------------------------------------
+;  hola-mundo-win64.fasm  -  OBJETIVO DE LA FASE 5. ESTE ARCHIVO TODAVÍA NO COMPILA.
+;
+;  Es un boceto de diseño: sirve para fijar qué aspecto debe tener la superficie
+;  del lenguaje cuando existan los ejecutables del SO y la tabla de importaciones.
+;  Hoy fallaría con FASM5001 ('GetStdHandle' es un símbolo externo).
+;
+;  Objetivo: un .exe que escribe en la consola usando solo la API de Windows,
+;  sin CRT y sin runtime .NET (la ruta "sin runtime" de la visión).
+;
+;  Puntos que este boceto fija:
+;   - 'extern' declara la función importada (Fase 5).
+;   - El llamante reserva el espacio de sombra de 32 bytes (lo genera el prólogo).
+;   - El quinto argumento en adelante va en la pila; el primero de ellos en [Rsp + 32].
+; ---------------------------------------------------------------------------
+
+program HolaMundo
+
+    section .data
+        mensaje     Db "Hola mundo desde FluentASM", 13, 10
+        longitud    Equ $ - mensaje
+        escritos    Dd 0
+
+    section .text
+    entry main
+
+    extern GetStdHandle, WriteFile, ExitProcess
+
+    routine main
+        ; HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE = -11)
+        .Mov(Ecx, -11)
+        .Call(GetStdHandle)
+        .Mov(R12, Rax)                      ; guardamos el handle (R12 se preserva)
+
+        ; WriteFile(h, mensaje, longitud, &escritos, NULL)
+        ;   Rcx, Rdx, R8, R9 y el 5.º en la pila, sobre el espacio de sombra
+        .Mov(Rcx, R12)
+        .Lea(Rdx, [Rel mensaje])
+        .Mov(R8d, longitud)
+        .Lea(R9, [Rel escritos])
+        .Mov(DWord [Rsp + 32], 0)
+        .Call(WriteFile)
+
+        ; ExitProcess(0)
+        .Xor(Ecx, Ecx)
+        .Call(ExitProcess)
+    end
+
+end

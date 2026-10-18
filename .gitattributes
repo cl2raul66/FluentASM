@@ -1,0 +1,17 @@
+# Normaliza finales de línea a LF en el repositorio y respeta los binarios.
+* text=auto eol=lf
+
+# Imágenes binarias generadas por FluentASM y bibliotecas nativas: nunca tocar.
+*.x64  binary
+*.x86  binary
+*.arm  binary
+*.bin  binary
+*.fproj binary
+*.fworkspace binary
+
+# Documentación y código: texto normal.
+*.md   text
+*.fasm text
+*.cs   text
+*.yml  text
+*.json text

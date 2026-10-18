@@ -1,0 +1,62 @@
+; ---------------------------------------------------------------------------
+;  button-winui.fasm  -  OBJETIVO DE LA FASE 5. ESTE ARCHIVO TODAVÍA NO COMPILA.
+;
+;  Es la traducción a sintaxis fluida de un control real del proyecto
+;  WinUIAsmCtrl (src/ImmediateActionModule/Button.asm): un botón con contador de
+;  clics. Sirve para comprobar si el lenguaje aguanta código de verdad.
+;
+;  Hallazgos de diseño que este boceto deja a la vista:
+;
+;   1. WinUIAsmCtrl usa macros de NASM (CHILD, SENDI, PROLOGUE, HANDLED) para no
+;      repetir bloques. Aquí están expandidas a mano porque FluentASM todavía no
+;      tiene macros (ver "Próximos pasos" en FLUENT_SYNTAX.md). Sin macros, este
+;      tipo de código no es viable: es un requisito de la Fase 5, no un adorno.
+;
+;   2. La llamada a CreateWindowExA tiene 10 argumentos. En Win64 los cuatro
+;      primeros van en registro y el resto en la pila, lo que supera el límite de
+;      4 parámetros de la Fase 1. Por eso se escribe aquí el cuerpo completo, o se
+;      usa una rutina con parámetros por pila (Fase 6).
+;
+;   3. Los identificadores de control (101, 102) son constantes con nombre: 'Equ'
+;      en sintaxis fluida, en lugar de números sueltos dentro del código.
+; ---------------------------------------------------------------------------
+
+program ControlButton
+
+    section .data
+        claseBoton  Db "BUTTON", 0
+        titulo      Db "Click me", 0
+        claseTexto  Db "STATIC", 0
+        inicial     Db "Clicks: 0", 0
+        formato     Db "Clicks: %d", 0
+        tituloVent  Db "Button - clon FluentASM", 0
+
+        idBoton     Equ 101
+        idCasilla   Equ 102
+
+    section .bss
+        hBoton      Resq 1
+        hCasilla    Resq 1
+        hTexto      Resq 1
+        clics       Resd 1
+
+    section .text
+    entry main
+
+    extern CreateWindowExA, EnableWindow, SetWindowTextA, GetDlgItem, SendMessageA
+
+    ; Crea los tres hijos del control: el botón, la casilla y el texto de estado.
+    routine CrearControles
+        parameter padre
+        ; hBoton = CreateWindowExA(0, "BUTTON", "Click me", WS_CHILD|WS_VISIBLE|WS_TABSTOP,
+        ;                          20, 20, 140, 32, padre, 101, 0, 0)
+        ; ... los argumentos 5 y siguientes van en la pila (Fase 5/6)
+        .Ret()
+    end
+
+    routine main
+        ; Sigue el bucle de mensajes hasta WM_QUIT
+        .Ret()
+    end
+
+end
