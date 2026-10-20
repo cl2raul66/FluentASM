@@ -48,3 +48,11 @@ TestResults/
 ~$*
 Thumbs.db
 desktop.ini
+
+# Plan, idea, proposal files
+plan*
+proposal*
+idea*
+
+# OpenCode .ignore file
+.ignore

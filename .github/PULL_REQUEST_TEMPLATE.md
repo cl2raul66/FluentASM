@@ -17,7 +17,7 @@ closes #
 - [ ] Nueva funcionalidad
 - [ ] Corrección de errores
 - [ ] Documentación
-- [ ] Decisión de diseño (incluye ADR)
+- [ ] Decisión de diseño (incluye sección en CONTRIBUTING.md)
 - [ ] Pruebas o integración continua
 - [ ] Refactorización sin cambio de comportamiento
 
@@ -44,7 +44,7 @@ Los cambios de sintaxis o de formato exigen ejemplos ejecutados.
 
 ## Decisión de diseño (si cambia el comportamiento del lenguaje)
 
-<!-- Enlaza el ADR nuevo en docs/adr/ y explica por qué el anterior ya no sirve. -->
+<!-- Describe la decisión en CONTRIBUTING.md ("Decisiones de diseño") y explica por qué la anterior ya no sirve. -->
 
 no aplica
 
