@@ -43,7 +43,7 @@ La superficie canónica es el DSL: define el lenguaje. La API de C# es la misma 
 Por eso ambas usan los mismos mnemónicos y el mismo orden de operandos:
 
 ```fasm
-.Mov(Rax, 42)          ; DSL .fasm
+.Mov(Rax, 42)          // DSL .fasm
 ```
 ```csharp
 .Mov(Rax, 42)          // API de C#
@@ -57,20 +57,20 @@ punto, y la API encadena métodos hasta llamar a `.Build()`.
 ## 2. Estructura de un archivo `.fasm`
 
 ```fasm
-program MiPrograma              ; nombre del programa (opcional)
-    section .text               ; declaración de sección
-    entry main                  ; símbolo de entrada (opcional)
+program MiPrograma              // nombre del programa (opcional)
+    section .text               // declaración de sección
+    entry main                  // símbolo de entrada (opcional)
 
-    routine Doblar              ; una rutina con parámetro
+    routine Doblar              // una rutina con parámetro
         parameter n
         .Mov(Rax, n)
         .Add(Rax, Rax)
         .Ret()
     end
 
-    routine main                ; punto de entrada
+    routine main                // punto de entrada
         .Mov(Rcx, 21)
-        .Call(Doblar)           ; devuelve 42 en RAX
+        .Call(Doblar)           // devuelve 42 en RAX
         .Ret()
     end
 end
@@ -139,7 +139,9 @@ hexadecimal         = "0x" hexdigito { hexdigito | "_" } ;
 binario             = "0b" ("0" | "1") { ("0" | "1") | "_" } ;
 caracter            = "'" ( caracterSimple | escape ) "'" ;
 cadena              = '"' { caracterSimple | escape } '"' ;
-finLinea            = ? fin de línea o comentario ? ;
+comentarioLinea   = "//" { ? carácter salvo fin de línea ? } ;
+comentarioBloque  = "/*" { ? cualquier carácter salvo "*/" ? } "*/" ;
+comentarioDoc     = "///" { ? carácter salvo fin de línea ? } ;
 ```
 
 Notas de la gramática:
@@ -163,7 +165,9 @@ Notas de la gramática:
 | Registro | No distingue mayúsculas ni minúsculas | `Rax`, `rax`, `RAX` |
 | Directiva | No distingue mayúsculas ni minúsculas | `Section`, `section` |
 | Símbolo definido por el usuario | **Sí** distingue mayúsculas | `Total` y `total` son distintos |
-| Comentario | `;` hasta el final de la línea | `; copiamos a` |
+| Comentario de línea | `//` hasta el final de la línea | `// copiamos a` |
+| Comentario de bloque | `/* ... */`; no se anida | `/* esto es un bloque */` |
+| Documentación | `///`; texto guardado en `fasm.fdoc`, clave `Parte.Símbolo` | `/// Punto de arranque del sistema` |
 | Entero decimal | Dígitos, con `_` opcional como separador | `42`, `1_000_000` |
 | Entero hexadecimal | `0x` + dígitos | `0x2A`, `0xDEAD_BEEF` |
 | Entero binario | `0b` + dígitos | `0b1010_1010` |
@@ -171,8 +175,109 @@ Notas de la gramática:
 | Cadena | Comillas dobles con escapes | `"Hola"`, `"a\tb"` |
 | Escapes | `\n` `\t` `\r` `\0` `\\` `\"` `\'` `\xNN` | `"\x41"` es `"A"` |
 
-No hay comentarios de bloque: solo `;` de línea. Tampoco hay literales de coma flotante (ver
-"Próximos pasos").
+No hay literales de coma flotante (ver "Próximos pasos").
+
+---
+
+## 6. Comentarios y documentación
+
+FluentASM distingue tres formas de comentario en el código fuente:
+
+| Tipo | Sintaxis | ¿Se traduce? | ¿Va al binario? |
+|---|---|---|---|
+| Línea | `// texto` | No | No |
+| Bloque | `/* texto */` (no se anida) | No | No |
+| Documentación | `///` (texto en `fasm.fdoc`) | Sí | Solo la clave |
+
+### 6.1 Comentario de línea `//`
+
+Ignorado por el ensamblador. Todo lo que sigue a `//` hasta el final de la línea es comentario:
+
+```fasm
+.Mov(Rax, n)   // n es el parámetro de entrada
+```
+
+### 6.2 Comentario de bloque `/* ... */`
+
+Ignorado por el ensamblador. Puede ocupar varias líneas. **No se anida**: el primer `*/` cierra el bloque.
+
+```fasm
+/* Inicializa el registro
+   con el valor recibido */
+.Mov(Rax, n)
+```
+
+### 6.3 Documentación `///`
+
+`///` marca documentación de una declaración (`program` o `routine`). El texto **no se escribe en el fuente**: el IDE lo guarda en `fasm.fdoc` con la clave automática `Parte.Símbolo`.
+
+```fasm
+///
+/// El punto de entrada del bootloader. Inicializa la pila y
+/// salta al núcleo del lenguaje.
+///
+routine start
+    ...
+end
+```
+
+La clave es `bootloader.start`. Renombrar la rutina mueve la entrada del catálogo automáticamente desde el IDE, así que las traducciones no se rompen.
+
+### 6.4 `fasm.fdoc` — Catálogo de documentación
+
+Es un archivo binario indexado, almacenado en la raíz del workspace. Cada clave tiene su texto por idioma (BCP 47: `es`, `en`, `fr-CA`, …). La búsqueda es O(1) mediante tabla hash mapeada en memoria: el lector solo carga la entrada pedida, nunca el archivo entero.
+
+**Estructura v1.0:**
+
+| Campo | Tamaño | Descripción |
+|---|---|---|
+| Magic `FDOC` | 4 bytes | Identificador |
+| `VersionMajor`/`VersionMinor` | 2 + 2 bytes | `1.0` |
+| `EntryCount` | 4 bytes | Nº de claves documentadas |
+| `LangCount` | 2 bytes | Nº de idiomas definidos |
+| Tabla de idiomas | variable | `Tag` BCP 47 + dirección (LTR/RTL) |
+| Índice de claves | variable | Tabla hash: `hash(clave) → offset` |
+| Datos de clave | variable | Clave UTF-8 NFC + campos estructurados |
+
+**Campos de cada entrada:**
+
+| Tipo | Significado |
+|---|---|
+| 1 | Resumen (una línea) |
+| 2 | Notas (texto largo) |
+| 3 | Parámetro (`Name` = nombre del parámetro) |
+| 4 | Retorno |
+| 5 | Véase también (referencia a otra clave) |
+
+Los datos usan UTF-8 normalizado NFC para que `á` precompuesta y `á` combinada no dupliquen entradas.
+
+### 6.5 Resolución de idioma
+
+1. `.fworkspace` → `DefaultLanguage`
+2. `.fproj` → `DocumentationLanguages`
+3. Idioma del sistema operativo
+4. Cadena de respaldo: `fr-CA` → `fr` → idioma por defecto → primero disponible
+
+### 6.6 `.bin` v1.1 — Tabla de metadatos de la Parte
+
+Para que la clave automática `Parte.Símbolo` sea estable, el `.bin` versión 1.1 lleva una **tabla de metadatos** aparte de las representaciones:
+
+| Tag | Nombre | Contenido |
+|---|---|---|
+| `0x0001` | `PartName` | Nombre estable de la Parte (`bootloader`) |
+| `0x0002` | `Description` | Descripción breve de la Parte |
+| `0x0003` | `DocSymbols` | Símbolos documentados de la Parte |
+
+Solo se guardan los nombres de símbolos, no el texto. La cabecera del `.bin` v1.1 añade `MetaCount` y `MetaOffset`. Al compilar, el texto de documentación se valida y **se descarta**: nunca entra en la imagen ejecutable. Una traducción nueva solo edita `fasm.fdoc`; no obliga a recompilar.
+
+### 6.7 Diagnósticos de documentación
+
+| Código | Situación |
+|---|---|
+| `FASM3006` | `///` sin `program` o `routine` inmediatamente después |
+| `FASM3007` | `@param` que no coincide con ningún `parameter` de la rutina |
+| `FASM3008` | Clave `Parte.Símbolo` sin entrada en `fasm.fdoc` |
+| `FASM3009` | Entrada de documentación sin el idioma por defecto del proyecto |
 
 ---
 
@@ -288,7 +393,7 @@ Ejemplo de datos:
 ```fasm
 section .data
     mensaje  Db "Hola mundo", 0
-    longitud Equ $ - mensaje          ; 10
+    longitud Equ $ - mensaje          // 10
     tabla    Dq 1, 2, 3, 4
 ```
 
@@ -298,11 +403,11 @@ section .data
 
 ```fasm
 routine AddTwoNumbers
-    parameter a, b          ; Win64: a -> Rcx, b -> Rdx
+    parameter a, b          // Win64: a -> Rcx, b -> Rdx
 
     .Mov(Rax, a)
     .Add(Rax, b)
-    .Ret()                  ; el valor de retorno es Rax
+    .Ret()                  // el valor de retorno es Rax
 end
 ```
 
@@ -522,7 +627,7 @@ program AddTwoNumbersPortable
 
     routine AddTwoNumbers
         parameter a, b
-        .Mov(R0q, a)         ; R0q mapea a Rax (x64) o X0 (ARM)
+        .Mov(R0q, a)         // R0q mapea a Rax (x64) o X0 (ARM)
         .Add(R0q, b)
         .Ret()
     end
@@ -558,6 +663,10 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 | `FASM3003` | Símbolo duplicado | "`main` ya está definido en la línea 12" |
 | `FASM3004` | Símbolo desconocido | "No existe `mensaje1`. ¿Querías decir `mensaje`?" |
 | `FASM3005` | Tamaño ambiguo | "No se puede deducir el tamaño. Escribe `Byte [Rbx]`" |
+| `FASM3006` | Documentación sin declaración | "`///` sin `program` o `routine` inmediatamente después" |
+| `FASM3007` | `@param` sin declararlo | "`@param x` pero la rutina no declara `parameter x`" |
+| `FASM3008` | Clave de documentación no resuelta | "`bootloader.start` no existe en `fasm.fdoc`" |
+| `FASM3009` | Falta idioma por defecto | "Entrada de documentación sin el idioma por defecto del proyecto" |
 | `FASM4001` | Combinación no válida | "No existe la forma `.Add(Rax, Rbx, Rcx)`" |
 | `FASM4002` | Escala no válida | "La escala debe ser 1, 2, 4 u 8, no 3" |
 | `FASM4003` | Índice prohibido | "`Rsp` no puede usarse como índice" |
@@ -585,6 +694,7 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 
 1. Coma flotante y SIMD (`Xmm`), necesaria para código numérico y de gráficos.
 2. Directiva para incrustar fragmentos de archivos `.bin` (Fase 5) y su resolución de saltos.
+Documentación de símbolos (Fase 5): `///` resuelve texto desde `fasm.fdoc`.
 3. `Movsx`, `Div`, `Idiv`, multiplicación de un operando y desplazamientos (`Shl`, `Shr`, `Sar`).
 4. Modo de entrada con sintaxis Intel/NASM clásica, para migrar código existente
    (`WinUIAsmCtrl`) sin reescribirlo a mano.

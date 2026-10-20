@@ -73,7 +73,7 @@ Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
 - Usa **PascalCase** para clases, métodos y propiedades: `Mov`, `Add`, `Rax`.
 - Usa **camelCase** para variables locales y parámetros: `valorOrigen`, `registroDestino`.
 - Usa `var` cuando el tipo sea obvio, igual que en C# moderno.
-- Comenta el código usando `//` en español o inglés, sé claro y directo.
+- Comenta el código fuente (C# y `.fasm`) usando `//`, `/* */` o `///`. En `.fasm`, `///` documenta símbolos (`program`, `routine`) y guarda el texto en `fasm.fdoc` con clave automática `Parte.Símbolo`.
 - No uses abreviaturas crípticas. `registroDestino` es mejor que `rd`.
 - Espacios de nombres con ámbito de archivo (`namespace FluentASM.Core;`) y tipos de referencia
   anulables activados (`<Nullable>enable</Nullable>`).
@@ -204,10 +204,9 @@ Entrada API C# ─────────────┘
 |---|---|---|
 | `FASM1xxx` | Léxico | `FASM1002` carácter inesperado |
 | `FASM2xxx` | Sintáctico | `FASM2001` falta paréntesis de cierre |
-| `FASM3xxx` | Semántico y ABI | `FASM3001` más de 4 parámetros; `FASM3002` registro 8 bits alto con REX |
+| `FASM3xxx` | Semántico y ABI | `FASM3001` más de 4 parámetros; `FASM3002` registro 8 bits alto con REX; `FASM3006` documentación sin declaración; `FASM3008` clave no resuelta en `fasm.fdoc` |
 | `FASM4xxx` | Codificación | `FASM4001` no existe forma para esos operandos |
 | `FASM5xxx` | Layout y relocalizaciones | `FASM5001` símbolo externo en imagen plana |
-| `FASM9xxx` | Errores internos | `FASM9001` layout no converge |
 
 ---
 
@@ -264,25 +263,57 @@ Estrictamente binario, tabla de índice al inicio para lectura selectiva. No se 
 
 Misma estructura que `.fproj` con magic `FWKS`. Agrupa múltiples `.fproj` con grafo de dependencias y orden topológico determinista.
 
-### `.bin` — Parte
+### `.bin` — Parte (v1.1)
 
-Contenedor de representaciones (portable y nativas) de un mismo código.
+Contenedor de representaciones (portable y nativas) de un mismo código. Incluye una tabla de metadatos para que la documentación `///` tenga una clave estable (`Parte.Símbolo`).
 
-**Cabecera (16 bytes):**
-- `Magic`: `FPRT`
-- `VersionMajor`, `VersionMinor`: u16
-- `RepCount`: u16
-- `Flags`: u16 (reservado)
-- `IndexOffset`: u32
+**Cabecera (24 bytes):**
 
-**Entrada de representación (16 bytes):** `RepType` (u8: 0=portable, 1=nativo), `Arch` (u8), `Flags` (u16), `Offset` (u32), `Size` (u32), `CRC32` (u32)
+| Offset | Bytes | Campo | Tipo | Valor / Descripción |
+|---|---|---|---|---|
+| 0 | 4 | `Magic` | ASCII | `FPRT` |
+| 4 | 2 | `VersionMajor` | u16 | 1 |
+| 6 | 2 | `VersionMinor` | u16 | 1 |
+| 8 | 2 | `RepCount` | u16 | Nº de representaciones |
+| 10 | 2 | `MetaCount` | u16 | Nº de entradas de metadatos |
+| 12 | 2 | `Flags` | u16 | Reservado (0) |
+| 14 | 4 | `RepOffset` | u32 | Offset a la tabla de representaciones |
+| 18 | 4 | `MetaOffset` | u32 | Offset a la tabla de metadatos |
 
-### Reglas comunes
+**Entrada de representación (16 bytes):** `RepType` (u8: 0=portable, 1=nativo), `Arch` (u8), `Flags` (u16), `Offset` (u32), `Size` (u32), `CRC32` (u32).
 
-- Little-endian siempre, anchuras fijas, sin varints, sin BOM, sin finales de línea.
-- Bloques alineados a 8 bytes. Relleno con `00`.
-- Cadenas: u32 longitud + bytes UTF-8.
-- Versión del producto vive en archivo de texto (`VERSION` / `Directory.Build.props`), **no** en el `.fproj`.
+**Tabla de metadatos (entradas de 16 bytes):**
+
+| Tag | Nombre | Obligatorio | Contenido |
+|---|---|---|---|
+| `0x0001` | `PartName` | Sí | Nombre estable de la Parte (`bootloader`) |
+| `0x0002` | `Description` | No | Descripción breve de la Parte |
+| `0x0003` | `DocSymbols` | No | Lista de símbolos documentados (`start`, `putc`, …) |
+
+Solo se guardan los nombres de símbolos, no el texto. La clave de documentación es `PartName.Símbolo`. El texto vive en `fasm.fdoc`.
+
+### `fasm.fdoc` — Catálogo de documentación
+
+Almacenado en la raíz del workspace. Es un archivo binario indexado con texto por idioma (BCP 47). Cada clave `Parte.Símbolo` guarda sus campos estructurados por idioma:
+
+| Tipo | Significado |
+|---|---|
+| 1 | Resumen (una línea) |
+| 2 | Notas (texto largo) |
+| 3 | Parámetro (`Name` = nombre del parámetro) |
+| 4 | Retorno |
+| 5 | Véase también (referencia a otra clave) |
+
+El lector usa una tabla hash mapeada en memoria: búsqueda O(1), solo se carga la entrada pedida, nunca el archivo entero. UTF-8 NFC para evitar duplicados por normalización.
+
+**Resolución de idioma:**
+1. `.fworkspace` → `DefaultLanguage`
+2. `.fproj` → `DocumentationLanguages`
+3. Idioma del sistema operativo
+4. Respaldo: `fr-CA` → `fr` → idioma por defecto → primero disponible
+
+Al compilar, el texto de documentación se valida y se descarta: nunca entra en la imagen ejecutable. Traducir solo edita `fasm.fdoc`; no recompila nada.
+
 
 ---
 

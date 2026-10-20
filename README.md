@@ -12,7 +12,7 @@ program MiPrograma
     entry main
 
     routine main
-        .Mov(Rax, 42)
+        .Mov(Rax, 42)   // el valor de retorno viaja en RAX
         .Ret()
     end
 end
@@ -24,6 +24,7 @@ end
 - Genera **código máquina nativo**, no bytecode ni intermedio. No hay máquina virtual ni runtime.
 - Soporta múltiples arquitecturas (empezando por x64) y puede ejecutarse sobre sistema operativo o directamente sobre hardware (bare metal).
 - Los archivos de proyecto (`.fproj`) y de solución (`.fworkspace`) son estrictamente binarios para lectura rápida por herramientas.
+- La documentación de símbolos (`///`) vive en `fasm.fdoc` y nunca afecta a los bytes ejecutables.
 
 ## Estado del proyecto
 
