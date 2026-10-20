@@ -2,6 +2,19 @@
 
 Gracias por interesarte en contribuir a FluentASM. Este proyecto está diseñado para ser accesible, especialmente si vienes de C# y no tienes experiencia previa con compiladores o ensambladores.
 
+## Requisitos previos
+
+Para trabajar en FluentASM necesitas:
+
+| Herramienta | Versión | Para qué |
+|---|---|---|
+| .NET SDK | 10.0 (o superior) | Compilar y probar el ensamblador en C# |
+| Git | cualquier reciente | Control de versiones |
+| Editor | VS 2022 / VS Code / Rider | Escribir código |
+| NASM | 2.16+ | Referencia opcional para verificar bytes x64 |
+
+Siempre usamos la versión más reciente estable de cada herramienta; no se pinchan versiones antiguas.
+
 ## Cómo contribuir
 
 1. **Bifurca el repositorio** (haz un *fork*) en GitHub.
@@ -10,7 +23,14 @@ Gracias por interesarte en contribuir a FluentASM. Este proyecto está diseñado
 4. **Sube tu rama** al repositorio: `git push origin nombre-de-la-rama`
 5. **Abre un Pull Request** para fusionar tu rama en `develop`.
 
-## Estrategia de ramas
+## Primeros pasos en el repositorio
+
+1. Clona tu fork: `git clone https://github.com/<tu-usuario>/FluentASM.git`
+2. Entra al directorio: `cd FluentASM`
+3. Verifica que compila: `dotnet build`
+4. Crea un workspace de prueba: `fasm_admin init`
+5. Crea un archivo `.fasm` mínimo y ensámblalo con el compilador de FluentASM
+6. Trabaja en una rama propia creada desde `develop`, nunca directamente en `main` ni en `develop`
 
 El repositorio utiliza únicamente dos ramas principales:
 
@@ -82,14 +102,6 @@ Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
 - `.editorconfig` en la raíz es obligatorio y las advertencias del compilador se tratan como errores
   en la integración continua.
 
-### Pruebas
-
-- Todo cambio en el codificador, el layout o los emisores exige una **prueba de bytes dorados**:
-  los bytes esperados escritos literalmente en la prueba.
-- Cuando exista un oráculo disponible (NASM para x86/x64), la prueba **compara** la salida propia con
-  la suya. Un byte de diferencia es un fallo, no una preferencia.
-- Todo mensaje de diagnóstico nuevo necesita su prueba con el caso que lo provoca.
-
 ## Estructura del código fuente (`src/`)
 
 La carpeta `src/` contiene varios proyectos independientes:
@@ -99,12 +111,13 @@ src/
   FluentASM.Core/           → Modelo intermedio, catálogo de instrucciones, codificador, layout y emisores
   FluentASM.Compiler/       → El ensamblador (fluentasm): lee .fasm y .fproj y genera la salida
   FluentASM.Admin/          → El CLI administrador de producto (fasm_admin)
-  FluentASM.Core.Tests/     → Pruebas de Core: bytes dorados, oráculo NASM, ejecución en memoria
-  FluentASM.Compiler.Tests/ → Pruebas del ensamblador de extremo a extremo
+  FluentASM.Sample/         → Proyecto de pruebas manuales: varía con cada función y con cada commit
   FluentASM.IDE/            → Entorno de desarrollo integrado (Fase 9)
 ```
 
 Cada proyecto es independiente pero forma parte del mismo ecosistema. Puedes ampliar esta estructura según se necesiten más herramientas.
+
+**No hay proyectos de pruebas formales** (`*Tests.csproj`). El proyecto `Sample` se usa para probar funciones sueltas y cambia con cada commit y cada función que se quiera probar; **no se toma en cuenta para el versionado**, pues cada proyecto tiene su propio versionado independiente.
 
 ---
 
@@ -459,10 +472,8 @@ Comandos principales:
 En FluentASM usamos GitHub Actions para la CI. **Se habilita en la Fase 1**, cuando exista código; hasta entonces no hay nada que construir. Cada Pull Request:
 
 1. Compila todos los proyectos de `src/` con el SDK de .NET del repositorio.
-2. Ejecuta las pruebas unitarias, incluidas las de **bytes dorados** y las de **ejecución en memoria**.
-3. Instala **NASM** y ejecuta las pruebas del **oráculo**: el mismo código ensamblado por FluentASM y por NASM debe producir bytes idénticos.
-4. Ensambla los ejemplos de `rsc/` de extremo a extremo.
-5. Trata las advertencias como errores y falla si algún archivo no respeta `.editorconfig`.
+2. Ensambla los ejemplos de `rsc/` de extremo a extremo.
+3. Trata las advertencias como errores y falla si algún archivo no respeta `.editorconfig`.
 
 En la Fase 7 se añade un paso que **ejecuta** el `.exe` generado y comprueba su código de salida.
 
