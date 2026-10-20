@@ -1,5 +1,5 @@
 name: Decisión de diseño
-description: Cambiar algo que ya está decidido en un ADR o decidir algo nuevo que afecta a varios archivos
+description: Cambiar algo que ya está decidido o decidir algo nuevo que afecta a varios archivos
 labels:
   - tipo/decision
 body:
@@ -12,7 +12,7 @@ body:
     id: contexto
     attributes:
       label: Contexto
-      description: Qué situación obliga a decidir. Si reemplaza un ADR existente, indica cuál y por qué.
+      description: Qué situación obliga a decidir. Si reemplaza una decisión existente, indica cuál y por qué.
     validations:
       required: true
   - type: textarea
@@ -30,7 +30,7 @@ body:
     validations:
       required: true
   - type: input
-    id: adr
+    id: decision
     attributes:
       label: Número de decisión propuesto
       placeholder: "0006"

@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Antes de abrir el issue, busca uno similar y revisa la documentación
-        (`FLUENT_SYNTAX.md`, `docs/IR.md`, `docs/ABI.md`).
+        ([CONTRIBUTING.md](CONTRIBUTING.md), [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md)).
   - type: textarea
     id: esperado
     attributes:
@@ -34,7 +34,7 @@ body:
     id: fase
     attributes:
       label: Fase del roadmap
-      description: ¿En qué fase creías que estaba esta función? (ver roadmap.md)
+      description: ¿En qué fase creías que estaba esta función? (ver Roadmap en CONTRIBUTING.md)
       placeholder: "Fase 1"
     validations:
       required: false

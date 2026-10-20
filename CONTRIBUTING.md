@@ -66,17 +66,6 @@ nunca el `.fproj` binario—, de modo que no hace falta instalar FluentASM para 
 está publicando. Cuando `fasm_admin` escribe un `.fproj`, **copia** ese valor al bloque
 `ProductVersion`.
 
-## Decisiones de diseño
-
-Una decisión que afecte a más de un archivo (formato, sintaxis, arquitectura de código, compatibilidad)
-no se decide en un comentario de PR: se registra como **decisión de diseño** en CONTRIBUTING.md (sección "Decisiones de diseño").
-
-1. Abre un issue de tipo **decisión** explicando el problema y las opciones.
-2. Escribe la decisión con formato: contexto, decisión, consecuencias y alternativas descartadas.
-3. Al fusionarse, la decisión es obligatoria y los documentos afectados se actualizan en el mismo PR.
-
-Los ADR no se editan: si una decisión cambia, se escribe uno nuevo que la reemplaza.
-
 ## Estándares de código (estilo C#)
 
 Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
@@ -329,14 +318,17 @@ Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memori
 | Fase | Objetivo |
 |---|---|
 | 1 | Núcleo x64, imagen plana, ejecución en memoria |
-| 2 | Frontend `.fasm` (parser léxico, sintáctico, semántico) |
-| 3 | Partes y composición (`.bin`) |
-| 4 | Equivalencia multi-arquitectura (ARM64 via QEMU, validación portable) |
-| 5 | Proyectos y soluciones (`.fproj`, `fasm_admin`) |
-| 6 | Ejecutables del SO (PE/ELF) |
-| 7 | Bare metal: frontera mínima |
-| 8 | Auto-albergue (self-hosting) |
-| 9 | IDE |
+| 2 | Frontend `.fasm`: léxico, sintáctico y semántico |
+| 3 | ARM64 en QEMU: segunda implementación nativa |
+| 4 | Extracción del núcleo portable (comparar x64 y ARM64) |
+| 5 | Partes (`.bin`): contenedor de representaciones |
+| 6 | Proyectos y soluciones (`.fproj`, `.fworkspace`, `fasm_admin`) |
+| 7 | Ejecutables del SO (PE/ELF) |
+| 8 | RISC-V en QEMU: tercera implementación nativa |
+| 9 | Bare metal en QEMU (x64, ARM64, RISC-V) |
+| 10 | ESP32 / Xtensa sobre hardware |
+| 11 | Auto-albergue (*self-hosting*) |
+| 12 | IDE |
 
 **Criterio de salida Fase 0:** una persona ajena al diseño puede implementar la Fase 1 leyendo solo la documentación, sin hacer preguntas.
 
@@ -438,10 +430,10 @@ En FluentASM usamos GitHub Actions para la CI. **Se habilita en la Fase 1**, cua
 1. Compila todos los proyectos de `src/` con el SDK de .NET del repositorio.
 2. Ejecuta las pruebas unitarias, incluidas las de **bytes dorados** y las de **ejecución en memoria**.
 3. Instala **NASM** y ejecuta las pruebas del **oráculo**: el mismo código ensamblado por FluentASM y por NASM debe producir bytes idénticos.
-4. Ensambla los ejemplos de `rsc/examples/` de extremo a extremo.
+4. Ensambla los ejemplos de `rsc/` de extremo a extremo.
 5. Trata las advertencias como errores y falla si algún archivo no respeta `.editorconfig`.
 
-En la Fase 5 se añade un paso que **ejecuta** el `.exe` generado y comprueba su código de salida.
+En la Fase 7 se añade un paso que **ejecuta** el `.exe` generado y comprueba su código de salida.
 
 Cada merge a `develop` genera automáticamente una versión `x.x.x-preview` mediante GitHub Actions.
 La versión se lee del archivo de texto del repositorio (`VERSION` / `Directory.Build.props`), **no**

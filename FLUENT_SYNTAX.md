@@ -7,7 +7,7 @@ FluentASM es un **ensamblador** con una sintaxis fluida.
 Un ensamblador es una herramienta que traduce instrucciones escritas por personas a los bytes que el
 procesador ejecuta directamente. FluentASM es el ensamblador; el programa en C# que lo implementa es
 su **bootstrap** (la primera implementación, que más adelante se sustituirá por el propio lenguaje,
-ver Fase 8 en el [roadmap](roadmap.md)).
+ver Fase 11 en la sección "Roadmap" de [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Si vienes de C#:
 
@@ -553,7 +553,7 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 | Código | Situación | Mensaje esperado |
 |---|---|---|
 | `FASM2001` | Falta un paréntesis | "Falta el ')' de la instrucción `.Mov(`" |
-| `FASM3001` | Quinto parámetro | "Win64 admite 4 parámetros en registro; el paso por pila llega en la Fase 5" |
+| `FASM3001` | Quinto parámetro | "Win64 admite 4 parámetros en registro; el paso por pila llega en la Fase 7" |
 | `FASM3002` | `Ah` con `R8` | "`Ah` no puede combinarse con registros que exigen prefijo REX" |
 | `FASM3003` | Símbolo duplicado | "`main` ya está definido en la línea 12" |
 | `FASM3004` | Símbolo desconocido | "No existe `mensaje1`. ¿Querías decir `mensaje`?" |
@@ -561,7 +561,7 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 | `FASM4001` | Combinación no válida | "No existe la forma `.Add(Rax, Rbx, Rcx)`" |
 | `FASM4002` | Escala no válida | "La escala debe ser 1, 2, 4 u 8, no 3" |
 | `FASM4003` | Índice prohibido | "`Rsp` no puede usarse como índice" |
-| `FASM5001` | Símbolo externo en imagen plana | "`printf` es externo: hace falta un ejecutable del SO (Fase 5)" |
+| `FASM5001` | Símbolo externo en imagen plana | "`printf` es externo: hace falta un ejecutable del SO (Fase 7)" |
 | `FASM5002` | Dirección absoluta | "En Fase 1 usa `[Rel símbolo]`" |
 
 ---
@@ -571,7 +571,7 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 | Antes | Ahora | Motivo |
 |---|---|---|
 | Ejemplos x64 con `Eax` | `Rax` para valores de 64 bits, `Eax` solo para 32 | `Eax` significa exactamente 32 bits y pone a cero la mitad alta |
-| "El `.x64` se ejecuta como un programa nativo" | Imagen plana ejecutada por el arrancador o sobre el hardware; `.exe` en Fase 5 | Un binario crudo no es un formato que el SO sepa cargar ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
+| "El `.x64` se ejecuta como un programa nativo" | Imagen plana ejecutada por el arrancador o sobre el hardware; `.exe` en Fase 7 | Un binario crudo no es un formato que el SO sepa cargar ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | Instrucciones mínimas: `Mov`, `Add`, `Sub`, `Jmp`, `Call`, `Ret`, `Int` | 30+ mnemónicos con sus formas, tablas de datos y directivas | El conjunto anterior no bastaba ni para el "hola mundo" del propio repositorio |
 | `program AddTwoNumbers` con `parameter` | `program` y `routine` son bloques distintos | Un programa no es una función; mezclarlos impedía definir la ABI |
 | `parameter a, b` sin destino | Parámetros asignados por ABI, con prólogo y epílogo generados | Sin esto, cada implementación inventaba su convención ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
@@ -584,7 +584,7 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 ## 16. Próximos pasos de sintaxis
 
 1. Coma flotante y SIMD (`Xmm`), necesaria para código numérico y de gráficos.
-2. Directiva para incrustar fragmentos de archivos `.bin` (Fase 4) y su resolución de saltos.
+2. Directiva para incrustar fragmentos de archivos `.bin` (Fase 5) y su resolución de saltos.
 3. `Movsx`, `Div`, `Idiv`, multiplicación de un operando y desplazamientos (`Shl`, `Shr`, `Sar`).
 4. Modo de entrada con sintaxis Intel/NASM clásica, para migrar código existente
    (`WinUIAsmCtrl`) sin reescribirlo a mano.
