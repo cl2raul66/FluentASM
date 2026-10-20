@@ -61,28 +61,105 @@ program MiPrograma              // nombre del programa (opcional)
     section .text               // declaración de sección
     entry main                  // símbolo de entrada (opcional)
 
-    routine Doblar              // una rutina con parámetro
-        parameter n
-        .Mov(Rax, n)
-        .Add(Rax, Rax)
-        .Ret()
+    routine Doblar              // una rutina con un parámetro
+        parameter n             // n es el nombre del 1.er parámetro (ABI: Rcx en Win64)
+        .Mov(Rax, n)            // copia el valor del parámetro en Rax
+        .Add(Rax, Rax)          // Rax = Rax + Rax
+        .Ret()                  // devuelve Rax
     end
 
     routine main                // punto de entrada
-        .Mov(Rcx, 21)
-        .Call(Doblar)           // devuelve 42 en RAX
-        .Ret()
+        .Mov(Rcx, 21)           // pone el argumento 1 en Rcx (donde Doblar lo espera)
+        .Call(Doblar)           // llama a Doblar; el resultado queda en Rax
+        .Ret()                  // devuelve Rax (que ahora vale 42)
     end
 end
 ```
 
-Reglas de estructura:
+### 2.1 Cómo se lee el ejemplo
+
+| Paso | Instrucción | Qué ocurre |
+|---|---|---|
+| 1 | `.Mov(Rcx, 21)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
+| 2 | `.Call(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
+| 3 | `parameter n` | `n` no es un valor ni una variable: es el **nombre** del registro que la ABI asigna al primer parámetro. En Win64, `n` ≡ `Rcx`. |
+| 4 | `.Mov(Rax, n)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
+| 5 | `.Add(Rax, Rax)` | `Rax = 21 + 21 = 42`. |
+| 6 | `.Ret()` | `Doblar` devuelve `Rax` (42). |
+| 7 | `.Ret()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
+
+**Conclusión:** `n` es `Rcx`; el `21` es el contenido de `Rcx` en ese momento. El valor de retorno de `main` viaja en `Rax`, no en `Rcx`.
+
+### 2.2 Reglas de estructura
 
 1. La **indentación es cosmética**: los bloques terminan con `End`, nunca con espacio en blanco.
 2. Puede haber **un** `Program` por archivo; es opcional si el archivo solo tiene rutinas.
 3. Sin `Section` explícita, todo va a `.text`.
 4. Sin `Entry`, el punto de entrada es el primer símbolo de `.text`.
 5. El orden de las secciones en la imagen es el orden de declaración, con `.text` primero.
+6. `parameter n` declara un parámetro nombrado; la ABI activa decide en qué registro físico llega.
+
+### 2.3 Más casos de uso
+
+#### A) Rutina con dos parámetros y retorno usado por el llamante
+
+```fasm
+program SumaDos
+    section .text
+    entry main
+
+    routine AddTwoNumbers
+        parameter a, b        // a ≡ Rcx, b ≡ Rdx (Win64)
+        .Mov(Rax, a)          // Rax = a
+        .Add(Rax, b)          // Rax = a + b
+        .Ret()                // devuelve Rax
+    end
+
+    routine main
+        .Mov(Rcx, 10)         // argumento 1 -> Rcx
+        .Mov(Rdx, 32)         // argumento 2 -> Rdx
+        .Call(AddTwoNumbers)  // Rax = 42
+        .Ret()                // main devuelve 42
+    end
+end
+```
+
+#### B) Sin `parameter` (rutina hoja, sin argumentos)
+
+```fasm
+program RetornaCuarentaYDos
+    section .text
+    entry main
+
+    routine main
+        .Mov(Rax, 42)         // fija el valor de retorno directamente
+        .Ret()
+    end
+end
+```
+
+#### C) El mismo código, núcleo portable (funciona en x64 y ARM)
+
+```fasm
+program SumaDosPortable
+    section .text
+    entry main
+
+    routine AddTwoNumbers
+        parameter a, b        // sin registros nativos; el compilador los mapea
+        .Mov(R0q, a)          // R0q ≡ Rax (x64) o X0 (ARM64)
+        .Add(R0q, b)
+        .Ret()
+    end
+
+    routine main
+        .Mov(R0q, 10)
+        .Mov(R1q, 32)
+        .Call(AddTwoNumbers)
+        .Ret()
+    end
+end
+```
 
 ---
 
@@ -146,12 +223,9 @@ comentarioDoc     = "///" { ? carácter salvo fin de línea ? } ;
 
 Notas de la gramática:
 
-- **`$`** es la posición actual (offset dentro de la sección). Permite escribir
-  `longitud equ $ - mensaje`.
-- **`.Text`, `.Data`, `.Bss`**: nombres de sección entre comillas no; los `Section` de la versión
-  anterior se mantienen. Los nombres personalizados son válidos y siempre deben empezar por `.`.
-- Las instrucciones **exigen** el prefijo `.`, lo que las distingue de etiquetas y directivas sin
-  ambigüedad. Las etiquetas locales usan `@` (no `.`), precisamente para no chocar con ese prefijo.
+- **`$`** es la posición actual (offset dentro de la sección). Permite escribir `longitud equ $ - mensaje`.
+- Los nombres de sección empiezan por `.` (ej: `.text`, `.data`, `.bss`). Los nombres personalizados son válidos y siempre deben empezar por `.`.
+- Las instrucciones **exigen** el prefijo `.`, lo que las distingue de etiquetas y directivas sin ambigüedad. Las etiquetas locales usan `@` (no `.`), precisamente para no chocar con ese prefijo.
 
 ---
 
@@ -179,115 +253,13 @@ No hay literales de coma flotante (ver "Próximos pasos").
 
 ---
 
-## 6. Comentarios y documentación
-
-FluentASM distingue tres formas de comentario en el código fuente:
-
-| Tipo | Sintaxis | ¿Se traduce? | ¿Va al binario? |
-|---|---|---|---|
-| Línea | `// texto` | No | No |
-| Bloque | `/* texto */` (no se anida) | No | No |
-| Documentación | `///` (texto en `fasm.fdoc`) | Sí | Solo la clave |
-
-### 6.1 Comentario de línea `//`
-
-Ignorado por el ensamblador. Todo lo que sigue a `//` hasta el final de la línea es comentario:
-
-```fasm
-.Mov(Rax, n)   // n es el parámetro de entrada
-```
-
-### 6.2 Comentario de bloque `/* ... */`
-
-Ignorado por el ensamblador. Puede ocupar varias líneas. **No se anida**: el primer `*/` cierra el bloque.
-
-```fasm
-/* Inicializa el registro
-   con el valor recibido */
-.Mov(Rax, n)
-```
-
-### 6.3 Documentación `///`
-
-`///` marca documentación de una declaración (`program` o `routine`). El texto **no se escribe en el fuente**: el IDE lo guarda en `fasm.fdoc` con la clave automática `Parte.Símbolo`.
-
-```fasm
-///
-/// El punto de entrada del bootloader. Inicializa la pila y
-/// salta al núcleo del lenguaje.
-///
-routine start
-    ...
-end
-```
-
-La clave es `bootloader.start`. Renombrar la rutina mueve la entrada del catálogo automáticamente desde el IDE, así que las traducciones no se rompen.
-
-### 6.4 `fasm.fdoc` — Catálogo de documentación
-
-Es un archivo binario indexado, almacenado en la raíz del workspace. Cada clave tiene su texto por idioma (BCP 47: `es`, `en`, `fr-CA`, …). La búsqueda es O(1) mediante tabla hash mapeada en memoria: el lector solo carga la entrada pedida, nunca el archivo entero.
-
-**Estructura v1.0:**
-
-| Campo | Tamaño | Descripción |
-|---|---|---|
-| Magic `FDOC` | 4 bytes | Identificador |
-| `VersionMajor`/`VersionMinor` | 2 + 2 bytes | `1.0` |
-| `EntryCount` | 4 bytes | Nº de claves documentadas |
-| `LangCount` | 2 bytes | Nº de idiomas definidos |
-| Tabla de idiomas | variable | `Tag` BCP 47 + dirección (LTR/RTL) |
-| Índice de claves | variable | Tabla hash: `hash(clave) → offset` |
-| Datos de clave | variable | Clave UTF-8 NFC + campos estructurados |
-
-**Campos de cada entrada:**
-
-| Tipo | Significado |
-|---|---|
-| 1 | Resumen (una línea) |
-| 2 | Notas (texto largo) |
-| 3 | Parámetro (`Name` = nombre del parámetro) |
-| 4 | Retorno |
-| 5 | Véase también (referencia a otra clave) |
-
-Los datos usan UTF-8 normalizado NFC para que `á` precompuesta y `á` combinada no dupliquen entradas.
-
-### 6.5 Resolución de idioma
-
-1. `.fworkspace` → `DefaultLanguage`
-2. `.fproj` → `DocumentationLanguages`
-3. Idioma del sistema operativo
-4. Cadena de respaldo: `fr-CA` → `fr` → idioma por defecto → primero disponible
-
-### 6.6 `.bin` v1.1 — Tabla de metadatos de la Parte
-
-Para que la clave automática `Parte.Símbolo` sea estable, el `.bin` versión 1.1 lleva una **tabla de metadatos** aparte de las representaciones:
-
-| Tag | Nombre | Contenido |
-|---|---|---|
-| `0x0001` | `PartName` | Nombre estable de la Parte (`bootloader`) |
-| `0x0002` | `Description` | Descripción breve de la Parte |
-| `0x0003` | `DocSymbols` | Símbolos documentados de la Parte |
-
-Solo se guardan los nombres de símbolos, no el texto. La cabecera del `.bin` v1.1 añade `MetaCount` y `MetaOffset`. Al compilar, el texto de documentación se valida y **se descarta**: nunca entra en la imagen ejecutable. Una traducción nueva solo edita `fasm.fdoc`; no obliga a recompilar.
-
-### 6.7 Diagnósticos de documentación
-
-| Código | Situación |
-|---|---|
-| `FASM3006` | `///` sin `program` o `routine` inmediatamente después |
-| `FASM3007` | `@param` que no coincide con ningún `parameter` de la rutina |
-| `FASM3008` | Clave `Parte.Símbolo` sin entrada en `fasm.fdoc` |
-| `FASM3009` | Entrada de documentación sin el idioma por defecto del proyecto |
-
----
-
 ## 5. Registros
 
 Los registros son ranuras dentro del procesador: rapidísimos y muy pocos.
 
 ### 5.1 Registros Portables (Nivel 1)
 
-Para escribir código que funcione en cualquier arquitectura sin cambios, FluentASM utiliza una numeración canónica independiente de la ISA. 
+Para escribir código que funcione en cualquier arquitectura sin cambios, FluentASM utiliza una numeración canónica independiente de la ISA.
 
 **Sintaxis:** `R` + `Número (0-15)` + `Sufijo de Ancho`.
 
@@ -298,9 +270,9 @@ Para escribir código que funcione en cualquier arquitectura sin cambios, Fluent
 | `w` | 16 bits | Word | `R0w` |
 | `b` | 8 bits | Byte | `R0b` |
 
-**Mapeo:** El compilador traduce estos registros a los nativos de la ISA destino (ej: `R0q` $\to$ `Rax` en x64, `X0` en ARM64).
+**Mapeo:** El compilador traduce estos registros a los nativos de la ISA destino (ej: `R0q` → `Rax` en x64, `X0` en ARM64).
 
-> **IMPORTANTE:** No confundas la numeración canónica con los parámetros. La directiva `parameter` asigna nombres a los registros según la ABI. En x64, el primer parámetro llega en `Rcx` (`R1` canónico), mientras que en ARM64 llega en `X0` (`R0` canónico). Usa siempre los nombres de los parámetros para asegurar la portabilidad.
+> **IMPORTANTE:** No confundas la numeración canónica con los parámetros. La directiva `parameter` asigna nombres a los registros según la ABI. En x64, el primer parámetro llega en `Rcx` (`R1` canónico); en ARM64, llega en `X0` (`R0` canónico). Usa siempre los nombres de los parámetros para asegurar la portabilidad.
 
 ### 5.2 Uso general x64 (Nivel 3: Nativo)
 
@@ -325,21 +297,15 @@ Cuando necesitas control total o instrucciones específicas de x64, usas los reg
 | `R14` | `R14d` | `R14w` | `R14b` | 14 | Se debe preservar |
 | `R15` | `R15d` | `R15w` | `R15b` | 15 | Se debe preservar |
 
-Bytes altos (solo con los registros originales): `Ah`, `Ch`, `Dh`, `Bh`. **Prohibido** combinarlos
-con `R8`–`R15` o con `Spl`/`Bpl`/`Sil`/`Dil`: comparten codificación y el prefijo REX los invalida.
-FluentASM lo detecta y emite `FASM3002`.
+Bytes altos (solo con los registros originales): `Ah`, `Ch`, `Dh`, `Bh`. **Prohibido** combinarlos con `R8`–`R15` o con `Spl`/`Bpl`/`Sil`/`Dil`: comparten codificación y el prefijo REX los invalida. FluentASM lo detecta y emite `FASM3002`.
 
-Otros registros: `Rip` (solo como base de un operando `[Rip + desplazamiento]`) y `Rflags`
-(Fase 2).
+Otros registros: `Rip` (solo como base de un operando `[Rip + desplazamiento]`) y `Rflags` (Fase 2).
 
-> **Nota para quien viene de la documentación anterior:** los ejemplos de 64 bits usaban `Eax`, que
-> es el registro de **32 bits**. En x64, un valor de 64 bits se maneja con `Rax`. `Eax` sigue siendo
-> válido, pero significa exactamente "los 32 bits bajos" y **pone a cero la mitad alta**.
+> **Nota para quien viene de la documentación anterior:** los ejemplos de 64 bits usaban `Eax`, que es el registro de **32 bits**. En x64, un valor de 64 bits se maneja con `Rax`. `Eax` sigue siendo válido, pero significa exactamente "los 32 bits bajos" y **pone a cero la mitad alta**.
 
-### 5.2 Correspondencia con la ABI
+### 5.3 Correspondencia con la ABI
 
-Cuando una rutina declara `parameter`, los nombres de los parámetros son **alias** de los registros
-que dicta la ABI: no se eligen a mano. Ver "Modelo de ejecución y ABI" en [CONTRIBUTING.md](CONTRIBUTING.md).
+Cuando una rutina declara `parameter`, los nombres de los parámetros son **alias** de los registros que dicta la ABI: no se eligen a mano. El llamante coloca los argumentos en esos registros antes de `.Call`; el llamado los lee a través de los nombres de `parameter`. No hay paso de argumentos implícito.
 
 ---
 
@@ -361,13 +327,9 @@ Reglas:
 
 1. La **escala** solo puede ser 1, 2, 4 u 8. Otro valor es `FASM4002`.
 2. `Rsp` y `R12` no pueden ser índice (`FASM4003`).
-3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir
-   `.Mov([Rbx], 1)` es `FASM3005`; se escribe `.Mov(Byte [Rbx], 1)`.
-4. En Fase 1, el direccionamiento a símbolos es **siempre relativo** (`[Rel símbolo]`). Una dirección
-   absoluta es `FASM5002` con la sugerencia de cómo reescribirla.
-5. `.Mov(Rax, símbolo)` carga la **dirección** (equivalente a `.Lea(Rax, símbolo)`), mientras que
-   `.Mov(Rax, [símbolo])` carga el **contenido**. Es la misma distinción que en un ensamblador
-   clásico entre `offset` y `[ ]`.
+3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.Mov([Rbx], 1)` es `FASM3005`; se escribe `.Mov(Byte [Rbx], 1)`.
+4. En Fase 1, el direccionamiento a símbolos es **siempre relativo** (`[Rel símbolo]`). Una dirección absoluta es `FASM5002` con la sugerencia de cómo reescribirla.
+5. `.Mov(Rax, símbolo)` carga la **dirección** (equivalente a `.Lea(Rax, símbolo)`), mientras que `.Mov(Rax, [símbolo])` carga el **contenido**. Es la misma distinción que en un ensamblador clásico entre `offset` y `[ ]`.
 
 ---
 
@@ -427,12 +389,85 @@ Detalle completo, incluidas las pilas y la alineación, en "Modelo de ejecución
 
 ---
 
-## 9. Catálogo de instrucciones de la Fase 1
+## 9. Documentación de símbolos y `fasm.fdoc`
 
-La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (misma técnica que se
-usará como oráculo en las pruebas). `rel` significa que el desplazamiento depende del layout.
+`///` marca documentación de una declaración (`program` o `routine`). El texto **no se escribe en el fuente**: el IDE lo guarda en `fasm.fdoc` con la clave automática `Parte.Símbolo`.
 
-### 9.1 Movimiento de datos
+```fasm
+///
+/// El punto de entrada del bootloader. Inicializa la pila y
+/// salta al núcleo del lenguaje.
+///
+routine start
+    ...
+end
+```
+
+La clave es `bootloader.start`. Renombrar la rutina mueve la entrada del catálogo automáticamente desde el IDE, así que las traducciones no se rompen.
+
+### 9.1 `fasm.fdoc` — Catálogo de documentación
+
+Es un archivo binario indexado, almacenado en la raíz del workspace. Cada clave tiene su texto por idioma (BCP 47: `es`, `en`, `fr-CA`, …). La búsqueda es O(1) mediante tabla hash mapeada en memoria: el lector solo carga la entrada pedida, nunca el archivo entero.
+
+**Estructura v1.0:**
+
+| Campo | Tamaño | Descripción |
+|---|---|---|
+| Magic `FDOC` | 4 bytes | Identificador |
+| `VersionMajor`/`VersionMinor` | 2 + 2 bytes | `1.0` |
+| `EntryCount` | 4 bytes | Nº de claves documentadas |
+| `LangCount` | 2 bytes | Nº de idiomas definidos |
+| Tabla de idiomas | variable | `Tag` BCP 47 + dirección (LTR/RTL) |
+| Índice de claves | variable | Tabla hash: `hash(clave) → offset` |
+| Datos de clave | variable | Clave UTF-8 NFC + campos estructurados |
+
+**Campos de cada entrada:**
+
+| Tipo | Significado |
+|---|---|
+| 1 | Resumen (una línea) |
+| 2 | Notas (texto largo) |
+| 3 | Parámetro (`Name` = nombre del parámetro) |
+| 4 | Retorno |
+| 5 | Véase también (referencia a otra clave) |
+
+Los datos usan UTF-8 normalizado NFC para que `á` precompuesta y `á` combinada no dupliquen entradas.
+
+### 9.2 Resolución de idioma
+
+1. `.fworkspace` → `DefaultLanguage`
+2. `.fproj` → `DocumentationLanguages`
+3. Idioma del sistema operativo
+4. Cadena de respaldo: `fr-CA` → `fr` → idioma por defecto → primero disponible
+
+### 9.3 `.bin` v1.1 — Tabla de metadatos de la Parte
+
+Para que la clave automática `Parte.Símbolo` sea estable, el `.bin` versión 1.1 lleva una **tabla de metadatos** aparte de las representaciones:
+
+| Tag | Nombre | Contenido |
+|---|---|---|
+| `0x0001` | `PartName` | Nombre estable de la Parte (`bootloader`) |
+| `0x0002` | `Description` | Descripción breve de la Parte |
+| `0x0003` | `DocSymbols` | Símbolos documentados de la Parte |
+
+Solo se guardan los nombres de símbolos, no el texto. La cabecera del `.bin` v1.1 añade `MetaCount` y `MetaOffset`. Al compilar, el texto de documentación se valida y **se descarta**: nunca entra en la imagen ejecutable. Una traducción nueva solo edita `fasm.fdoc`; no obliga a recompilar.
+
+### 9.4 Diagnósticos de documentación
+
+| Código | Situación |
+|---|---|
+| `FASM3006` | `///` sin `program` o `routine` inmediatamente después |
+| `FASM3007` | `@param` que no coincide con ningún `parameter` de la rutina |
+| `FASM3008` | Clave `Parte.Símbolo` sin entrada en `fasm.fdoc` |
+| `FASM3009` | Entrada de documentación sin el idioma por defecto del proyecto |
+
+---
+
+## 10. Catálogo de instrucciones de la Fase 1
+
+La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (misma técnica que se usará como oráculo en las pruebas). `rel` significa que el desplazamiento depende del layout.
+
+### 10.1 Movimiento de datos
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
@@ -451,7 +486,7 @@ usará como oráculo en las pruebas). `rel` significa que el desplazamiento depe
 | `Lea` | `.Lea(Rcx, [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
 | `Lea` (de símbolo) | `.Lea(Rcx, mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.Mov(Rcx, mensaje)` |
 
-### 9.2 Aritmética y lógica
+### 10.2 Aritmética y lógica
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
@@ -471,7 +506,7 @@ usará como oráculo en las pruebas). `rel` significa que el desplazamiento depe
 | `Dec` | `.Dec(Ecx)` | 1 | `ff c9` | |
 | `Imul` (r32, r32) | `.Imul(Eax, Ebx)` | 1 | `0f af c3` | Dos operandos |
 
-### 9.3 Pila
+### 10.3 Pila
 
 | Instrucción | Ejemplo | Nivel | Bytes |
 |---|---|---|---|
@@ -480,7 +515,7 @@ usará como oráculo en las pruebas). `rel` significa que el desplazamiento depe
 | `Push` (acumulador) | `.Push(Rax)` | 1 | `50` |
 | `Pop` | `.Pop(Rbp)` | 1 | `5d` |
 
-### 9.4 Control de flujo
+### 10.4 Control de flujo
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
@@ -504,7 +539,7 @@ usará como oráculo en las pruebas). `rel` significa que el desplazamiento depe
 | `Call` (indirecto) | `.Call(Rax)` | 1 | `ff d0` | |
 | `Ret` | — | 1 | `c3` | Dentro de una rutina se escribe `.Ret()` |
 
-### 9.5 Sistema y relleno
+### 10.5 Sistema y relleno
 
 | Instrucción | Bytes | Notas |
 |---|---|---|
@@ -514,37 +549,28 @@ usará como oráculo en las pruebas). `rel` significa que el desplazamiento depe
 | `Int3` | `cc` | Punto de parada del depurador |
 | `Syscall` | `0f 05` | Codificable, pero **fuera** del alcance útil de la Fase 1 |
 
-Fuera del catálogo de Fase 1: `Div`, `IdiV`, multiplicación de un operando, `Movsx`, cadenas,
-`Cmpxchg`, y toda la familia de coma flotante y SIMD. Ver "Próximos pasos".
+Fuera del catálogo de Fase 1: `Div`, `IdiV`, multiplicación de un operando, `Movsx`, cadenas, `Cmpxchg`, y toda la familia de coma flotante y SIMD. Ver "Próximos pasos".
 
 ---
 
-## 10. Reglas de codificación
+## 11. Reglas de codificación
 
 Son **obligatorias** porque hacen que los bytes sean predecibles y comparables con NASM:
 
-1. **Forma más corta y determinista.** Para los mismos operandos, siempre la misma secuencia de
-   bytes, la más corta posible. No hay opciones de usuario.
-2. **Inmediatos con signo.** Si el inmediato cabe en 8 bits con signo y existe esa forma, se usa:
-   `.Add(Rax, 5)` son 4 bytes, `.Add(Rax, 1000)` son 6.
-3. **`Mov` con inmediato en 64 bits**, en este orden: si el valor cabe en 32 bits sin signo →
-   `mov r32, imm32` (`b8`); si cabe con signo en 32 bits → `mov r/m64, imm32` (`48 c7 /0`); si no →
-   `mov r64, imm64` (`48 b8`).
+1. **Forma más corta y determinista.** Para los mismos operandos, siempre la misma secuencia de bytes, la más corta posible. No hay opciones de usuario.
+2. **Inmediatos con signo.** Si el inmediato cabe en 8 bits con signo y existe esa forma, se usa: `.Add(Rax, 5)` son 4 bytes, `.Add(Rax, 1000)` son 6.
+3. **`Mov` con inmediato en 64 bits**, en este orden: si el valor cabe en 32 bits sin signo → `mov r32, imm32` (`b8`); si cabe con signo en 32 bits → `mov r/m64, imm32` (`48 c7 /0`); si no → `mov r64, imm64` (`48 b8`).
 4. **Desplazamientos**: `disp8` cuando cabe con signo, `disp32` en caso contrario.
-5. **Direccionamiento relativo a la instrucción** por defecto para todo símbolo (PIC). Nunca
-   absoluto en Fase 1.
-6. **Prefijo REX** cuando el tamaño es 64 bits o el registro es `R8`–`R15`, más los casos especiales
-   `Spl`/`Bpl`/`Sil`/`Dil`.
-7. **Saltos**: forma corta (`rel8`) y promoción automática a cercana (`rel32`) cuando el destino no
-   cabe, con el algoritmo iterativo descrito en "Modelo intermedio (IR)" en [CONTRIBUTING.md](CONTRIBUTING.md), sección Layout.
-8. **Tamaño de la instrucción** se conoce antes de emitir y queda registrado para poder explicar
-   cualquier diferencia con otro ensamblador.
+5. **Direccionamiento relativo a la instrucción** por defecto para todo símbolo (PIC). Nunca absoluto en Fase 1.
+6. **Prefijo REX** cuando el tamaño es 64 bits o el registro es `R8`–`R15`, más los casos especiales `Spl`/`Bpl`/`Sil`/`Dil`.
+7. **Saltos**: forma corta (`rel8`) y promoción automática a cercana (`rel32`) cuando el destino no cabe, con el algoritmo iterativo descrito en "Modelo intermedio (IR)" en [CONTRIBUTING.md](CONTRIBUTING.md), sección Layout.
+8. **Tamaño de la instrucción** se conoce antes de emitir y queda registrado para poder explicar cualquier diferencia con otro ensamblador.
 
 ---
 
-## 11. Semántica de ejecución
+## 12. Semántica de ejecución
 
-### 11.1 Salida de la Fase 1: imagen plana
+### 12.1 Salida de la Fase 1: imagen plana
 
 | Aspecto | Regla |
 |---|---|
@@ -557,7 +583,7 @@ Son **obligatorias** porque hacen que los bytes sean predecibles y comparables c
 | Independencia de posición | **Obligatoria**: la misma imagen debe funcionar en cualquier dirección |
 | Llamadas externas | **Prohibidas** (`FASM5001`) |
 
-### 11.2 Qué **no** se puede hacer en la Fase 1, y cuándo llega
+### 12.2 Qué **no** se puede hacer en la Fase 1, y cuándo llega
 
 | Lo que quieres hacer | ¿Fase 1? | Fase |
 |---|---|---|
@@ -573,7 +599,7 @@ Esta limitación es deliberada y está registrada en "Decisiones de diseño" en 
 
 ---
 
-## 12. Formatos de salida
+## 13. Formatos de salida
 
 | Fase | Salida | Extensión | Se ejecuta con |
 |---|---|---|---|
@@ -583,17 +609,14 @@ Esta limitación es deliberada y está registrada en "Decisiones de diseño" en 
 | 5 | Ejecutable Linux | (sin extensión, ELF) | Linux |
 | 7 | Imagen de arranque | `.img` | Firmware, hardware o emulador |
 
-> **Corrección respecto a la versión anterior de este documento:** una imagen plana **no** se puede
-> ejecutar con doble clic ni desde una terminal. El cargador del sistema operativo necesita un
-> formato (PE o ELF) con cabeceras y tabla de importaciones; hasta que exista ese emisor, la imagen
-> plana se ejecuta desde el arrancador de FluentASM o directamente sobre el hardware. El espíritu de
-> la visión —binario nativo, sin máquina virtual, sin runtime instalado— no cambia.
+> **Corrección respecto a la versión anterior de este documento:** una imagen plana **no** se puede ejecutar con doble clic ni desde una terminal. El cargador del sistema operativo necesita un formato (PE o ELF) con cabeceras y tabla de importaciones; hasta que exista ese emisor, la imagen plana se ejecuta desde el arrancador de FluentASM o directamente sobre el hardware. El espíritu de la visión —binario nativo, sin máquina virtual, sin runtime instalado— no cambia.
 
 ---
 
-## 13. Ejemplos verificados (Fase 1)
+## 14. Ejemplos verificados (Fase 1)
 
-### 13.1 Ejemplo Nativo (Nivel 3)
+### 14.1 Ejemplo Nativo (Nivel 3)
+
 Este ejemplo utiliza registros concretos de x64. No es portable.
 
 ```fasm
@@ -617,7 +640,21 @@ program AddTwoNumbers
 end
 ```
 
-### 13.2 Ejemplo Portable (Nivel 1)
+**Traza de ejecución:**
+
+| Paso | Instrucción | Estado de `Rcx` | Estado de `Rdx` | Estado de `Rax` |
+|---|---|---|---|---|
+| 1 | `.Mov(Rcx, 10)` | 10 | — | — |
+| 2 | `.Mov(Rdx, 32)` | 10 | 32 | — |
+| 3 | `.Call(AddTwoNumbers)` | 10 | 32 | — |
+| 4 | (dentro) `.Mov(Rax, a)` | 10 | 32 | 10 |
+| 5 | (dentro) `.Add(Rax, b)` | 10 | 32 | 42 |
+| 6 | `.Ret()` de `main` | 10 | 32 | 42 |
+
+Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(long, long)` devuelve **42**, y el mismo binario funciona cargado en dos direcciones distintas.
+
+### 14.2 Ejemplo Portable (Nivel 1)
+
 Este ejemplo es idéntico en resultado, pero utiliza el núcleo portable. Funcionará en x64, ARM y x86.
 
 ```fasm
@@ -641,19 +678,9 @@ program AddTwoNumbersPortable
 end
 ```
 
-**Bytes generados para la versión Nativa (x64):**
-
-| Parte | Instrucciones | Bytes |
-|---|---|---|
-| Prólogo de `AddTwoNumbers` | `push rbp` / `mov rbp, rsp` / `sub rsp, 32` | `55 48 89 e5 48 83 ec 20` |
-| Cuerpo | `mov rax, rcx` / `add rax, rdx` | `48 89 c8 48 01 d0` |
-| Epílogo | `leave` / `ret` | `c9 c3` |
-
-Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(long, long)` devuelve **42**, y el mismo binario funciona cargado en dos direcciones distintas.
-
 ---
 
-## 14. Diagnósticos
+## 15. Diagnósticos
 
 | Código | Situación | Mensaje esperado |
 |---|---|---|
@@ -675,7 +702,7 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 
 ---
 
-## 15. Cambios respecto a la versión anterior de este documento
+## 16. Cambios respecto a la versión anterior de este documento
 
 | Antes | Ahora | Motivo |
 |---|---|---|
@@ -687,20 +714,16 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 | Etiquetas locales con `.` | Etiquetas locales con `@` | El `.` está reservado para las instrucciones y no debía ser ambiguo |
 | Sin gramática formal | EBNF en la sección 3 | Permite implementar el analizador sin interpretar ejemplos |
 | Dos superficies sin jerarquía | DSL `.fasm` canónica, API de C# derivada | Evita mantener dos lenguajes ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
+| Sin definición de `parameter` en §2 | `parameter` definido como alias del registro de la ABI, con traza de ejemplo | El lector no sabía qué era `n` ni de dónde salía el valor |
 
 ---
 
-## 16. Próximos pasos de sintaxis
+## 17. Próximos pasos de sintaxis
 
 1. Coma flotante y SIMD (`Xmm`), necesaria para código numérico y de gráficos.
 2. Directiva para incrustar fragmentos de archivos `.bin` (Fase 5) y su resolución de saltos.
-Documentación de símbolos (Fase 5): `///` resuelve texto desde `fasm.fdoc`.
-3. `Movsx`, `Div`, `Idiv`, multiplicación de un operando y desplazamientos (`Shl`, `Shr`, `Sar`).
-4. Modo de entrada con sintaxis Intel/NASM clásica, para migrar código existente
-   (`WinUIAsmCtrl`) sin reescribirlo a mano.
-5. **Sistema de macros.** El corpus de `WinUIAsmCtrl` usa macros de NASM (`%include`, `%define`,
-   `CHILD`, `SENDI`, `PROLOGUE`) para no repetir bloques de creación de controles. Sin macros,
-   FluentASM solo puede expresar ese código expandido a mano, lo que lo hace inviable en la
-   práctica. Es un requisito **de la fase de ejecutables**, no un adorno.
-6. Condiciones compuestas del lenguaje (`If`/`While`) como azúcar sobre `.Cmp` + salto,
-   solo si no esconden los bytes generados.
+3. Documentación de símbolos (Fase 5): `///` resuelve texto desde `fasm.fdoc`.
+4. `Movsx`, `Div`, `Idiv`, multiplicación de un operando y desplazamientos (`Shl`, `Shr`, `Sar`).
+5. Modo de entrada con sintaxis Intel/NASM clásica, para migrar código existente (`WinUIAsmCtrl`) sin reescribirlo a mano.
+6. **Sistema de macros.** El corpus de `WinUIAsmCtrl` usa macros de NASM (`%include`, `%define`, `CHILD`, `SENDI`, `PROLOGUE`) para no repetir bloques de creación de controles. Sin macros, FluentASM solo puede expresar ese código expandido a mano, lo que lo hace inviable en la práctica. Es un requisito **de la fase de ejecutables**, no un adorno.
+7. Condiciones compuestas del lenguaje (`If`/`While`) como azúcar sobre `.Cmp` + salto, solo si no esconden los bytes generados.
