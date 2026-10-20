@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Las decisiones se registran como ADR en `docs/adr/`. Un ADR **no se edita**: si cambia una
-        decisión, se escribe uno nuevo que reemplaza al anterior. Ver `CONTRIBUTING.md`.
+        Las decisiones se registran en CONTRIBUTING.md (sección "Decisiones de diseño"). Una decisión
+        **no se edita**: si cambia, se escribe una nueva que reemplaza a la anterior.
   - type: textarea
     id: contexto
     attributes:
@@ -32,7 +32,7 @@ body:
   - type: input
     id: adr
     attributes:
-      label: Número de ADR propuesto
+      label: Número de decisión propuesto
       placeholder: "0006"
     validations:
       required: false

@@ -50,7 +50,7 @@ x.x.x-preview
 Dos reglas adicionales según lo que cambie el PR:
 
 - Si toca un archivo `.fproj` o `.fworkspace`, pega en el cuerpo el resultado de `fasm_admin dump <archivo>` y explica el cambio. Como son binarios, ese volcado es la única forma de revisarlos en GitHub.
-- Si cambia una decisión de diseño, incluye o enlaza el **ADR** correspondiente en `docs/adr/` (ver "Decisiones de diseño").
+- Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente de "Decisiones de diseño" en este documento.
 
 La versión de la sugerencia es una propuesta; la fuente de verdad del número de versión se explica en la sección de versionado.
 
@@ -69,11 +69,10 @@ está publicando. Cuando `fasm_admin` escribe un `.fproj`, **copia** ese valor a
 ## Decisiones de diseño
 
 Una decisión que afecte a más de un archivo (formato, sintaxis, arquitectura de código, compatibilidad)
-no se decide en un comentario de PR: se registra como **ADR** en `docs/adr/`.
+no se decide en un comentario de PR: se registra como **decisión de diseño** en CONTRIBUTING.md (sección "Decisiones de diseño").
 
 1. Abre un issue de tipo **decisión** explicando el problema y las opciones.
-2. Escribe el ADR con el formato de `docs/adr/0001-nombres-fasm.md`: contexto, decisión, consecuencias
-   y alternativas descartadas.
+2. Escribe la decisión con formato: contexto, decisión, consecuencias y alternativas descartadas.
 3. Al fusionarse, la decisión es obligatoria y los documentos afectados se actualizan en el mismo PR.
 
 Los ADR no se editan: si una decisión cambia, se escribe uno nuevo que la reemplaza.
@@ -118,10 +117,281 @@ src/
 
 Cada proyecto es independiente pero forma parte del mismo ecosistema. Puedes ampliar esta estructura según se necesiten más herramientas.
 
-Los documentos de diseño viven en la raíz (`VISION.md`, `FLUENT_SYNTAX.md`, `roadmap.md`,
-`CONTRIBUTING.md`) y las especificaciones en `docs/`. Los ejemplos y pruebas de concepto en `rsc/`:
-**los ejemplos de `rsc/examples/` son casos de prueba vivos**, no adornos, y se ejecutan en la
-integración continua.
+---
+
+## Visión del proyecto
+
+### Qué es FluentASM
+
+FluentASM es un lenguaje ensamblador con sintaxis fluida, escrito en C#. Traduce instrucciones encadenadas con aspecto de método de C# a **código máquina nativo** y genera imágenes binarias que no necesitan ningún runtime.
+
+### Principios rectores
+
+1. **Claridad sobre brevedad.** Prefiere `.Mov(Eax, 10)` sobre `mov eax, 10`.
+2. **Empatía con quien aprende.** Cada concepto nuevo viene con analogía y ejemplo.
+3. **Sintaxis fluida y encadenada.** Inspirado en LINQ y builders de C#.
+4. **C# como lengua franca.** El proyecto está en C# y su API refleja la experiencia de .NET.
+5. **Educación antes que potencia.** Primero que la base sea clara, luego se añade potencia.
+
+### Qué FluentASM NO es
+
+- No es un lenguaje de alto nivel como C# o Java.
+- No intenta reemplazar a C#.
+- No es un compilador optimizador complejo (por ahora).
+- No requiere entender pipelines de CPU, caché o memoria virtual para empezar.
+- No es una máquina virtual: no ejecuta bytecode intermedio ni necesita runtime instalado.
+
+**Principio fundamental:** nada en FluentASM es una "caja negra". Todo debe ser reducible a instrucciones y bytes visibles.
+
+---
+
+## Modelo de ejecución y ABI
+
+### ABI objetivo de la Fase 1: Microsoft x64 (Win64)
+
+| Concepto | Valor |
+|---|---|
+| Parámetro 1 | `Rcx` |
+| Parámetro 2 | `Rdx` |
+| Parámetro 3 | `R8` |
+| Parámetro 4 | `R9` |
+| Valor de retorno entero | `Rax` |
+| Espacio de sombra | 32 bytes, reservado por el llamante |
+| Alineación de pila en la llamada | 16 bytes |
+| Callee-saved | `Rbx`, `Rbp`, `Rdi`, `Rsi`, `R12`–`R15`, `Rsp` |
+| Caller-saved (volátiles) | `Rax`, `Rcx`, `Rdx`, `R8`–`R11` |
+
+La ABI activa se declara siempre (en `.fproj` o línea de comandos). Nunca se adivina.
+
+### `parameter`, prólogo y epílogo
+
+- `parameter` **no elige registros**: los asigna la ABI, en orden. El nombre es un alias legible.
+- El compilador **genera** el prólogo (guardar `Rbp`, establecer marco, reservar locales alineado a 16) y el epílogo alrededor del cuerpo.
+- `.Ret()` ejecuta el epílogo y el `ret`. No se escribe `ret` a mano en rutinas con `parameter`.
+- Límite Fase 1: máximo 4 parámetros por rutina.
+- `naked` fuerza ausencia de prólogo/epílogo aunque haya parámetros o locales.
+
+### Modelo de ejecución
+
+- Salida Fase 1: **imagen plana** (bytes puros, sin cabecera) cargada en memoria.
+- Código independiente de posición (PIC). No puede llamar a nada externo.
+- Lo observable: valor de retorno en `Rax`.
+
+### Pila
+
+- Crece hacia abajo.
+- Al momento de `call`, `Rsp` debe ser múltiplo de 16.
+- Espacio de sombra de 32 bytes en Win64 cumple el ajuste de alineación tras empujar la dirección de retorno.
+- No existe "zona roja" (red zone) en Win64.
+
+---
+
+## Modelo intermedio (IR)
+
+### Etapas del proceso
+
+```
+Entrada .fasm → IR de origen → Layout → Codificación → Emisión → Imagen .x64
+Entrada API C# ─────────────┘
+```
+
+| Etapa | Invariante al terminar |
+|---|---|
+| IR de origen | Cada símbolo tiene dueño; cada sección tiene nombre, flags, alineación |
+| Layout | Cada símbolo tiene `Offset`; cada sección tiene `VirtualAddress` |
+| Codificación | Cada instrucción tiene codificación seleccionada y tamaño conocido |
+| Emisión | Todas las relocalizaciones resueltas; ninguna pendiente |
+
+### Layout y ajuste de saltos
+
+1. Todos los saltos se codifican en forma corta (`Rel8`).
+2. Se asignan direcciones.
+3. Si un desplazamiento no cabe en `Rel8` (-128..127), se promociona a `Rel32`.
+4. Se repite hasta convergencia (monótono, termina).
+
+### Diagnósticos
+
+| Rango | Etapa | Ejemplo |
+|---|---|---|
+| `FASM1xxx` | Léxico | `FASM1002` carácter inesperado |
+| `FASM2xxx` | Sintáctico | `FASM2001` falta paréntesis de cierre |
+| `FASM3xxx` | Semántico y ABI | `FASM3001` más de 4 parámetros; `FASM3002` registro 8 bits alto con REX |
+| `FASM4xxx` | Codificación | `FASM4001` no existe forma para esos operandos |
+| `FASM5xxx` | Layout y relocalizaciones | `FASM5001` símbolo externo en imagen plana |
+| `FASM9xxx` | Errores internos | `FASM9001` layout no converge |
+
+---
+
+## Formatos binarios
+
+### `.fproj` — Archivo de proyecto
+
+Estrictamente binario, tabla de índice al inicio para lectura selectiva. No se edita a mano; se crea y modifica con `fasm_admin`.
+
+**Cabecera (16 bytes):**
+- `Magic`: `FPRJ` (4 bytes ASCII)
+- `VersionMajor`, `VersionMinor`: u16 (actual: 1.1)
+- `EntryCount`: u16
+- `Flags`: u16 (reservado, 0)
+- `IndexOffset`: u32
+
+**Entrada de índice (16 bytes):** `Tag` (u16), `Flags` (u16), `Offset` (u32), `Size` (u32), `Reserved` (u32)
+
+**Etiquetas principales:**
+
+| Tag | Nombre | Obligatorio |
+|---|---|---|
+| `0x0001` | `ProgramName` | Sí |
+| `0x0002` | `ProductVersion` | Sí |
+| `0x0003` | `Architecture` | Sí |
+| `0x0004` | `TargetSystem` | Sí |
+| `0x0005` | `Abi` | Sí |
+| `0x0006` | `Sources` | Sí |
+| `0x0007` | `Libraries` | No |
+| `0x0008` | `OutputName` | Sí |
+| `0x0009` | `EntrySymbol` | No |
+| `0x000A` | `Description` | No |
+| `0x000B` | `BuildOptions` | No |
+| `0x000C` | `ToolVersion` | Sí |
+| `0x000D` | `CreatedUtc` | Sí |
+| `0x000E` | `ModifiedUtc` | Sí |
+| `0x000F` | `Destinations` | No |
+| `0x0010` | `Representations` | No |
+| `0x0011` | `ServiceParts` | No |
+
+**Valores de enumeración:**
+- `Architecture`: 1=x64, 2=x86, 3=arm
+- `TargetSystem`: 0=bare-metal, 1=windows, 2=linux, 3=macos
+- `Abi`: 0=none, 1=win64, 2=systemv
+- `Representations`: 0=portable-only, 1=native-only, 2=both
+
+**BuildOptions (u32, campo de bits):**
+- Bit 0: PIC (defecto: 1)
+- Bit 1: Ajuste automático de saltos (defecto: 1)
+- Bit 2: Símbolos de depuración (defecto: 0)
+- Bit 3: Prohibir símbolos externos (defecto: 1)
+
+### `.fworkspace` — Archivo de solución
+
+Misma estructura que `.fproj` con magic `FWKS`. Agrupa múltiples `.fproj` con grafo de dependencias y orden topológico determinista.
+
+### `.bin` — Parte
+
+Contenedor de representaciones (portable y nativas) de un mismo código.
+
+**Cabecera (16 bytes):**
+- `Magic`: `FPRT`
+- `VersionMajor`, `VersionMinor`: u16
+- `RepCount`: u16
+- `Flags`: u16 (reservado)
+- `IndexOffset`: u32
+
+**Entrada de representación (16 bytes):** `RepType` (u8: 0=portable, 1=nativo), `Arch` (u8), `Flags` (u16), `Offset` (u32), `Size` (u32), `CRC32` (u32)
+
+### Reglas comunes
+
+- Little-endian siempre, anchuras fijas, sin varints, sin BOM, sin finales de línea.
+- Bloques alineados a 8 bytes. Relleno con `00`.
+- Cadenas: u32 longitud + bytes UTF-8.
+- Versión del producto vive en archivo de texto (`VERSION` / `Directory.Build.props`), **no** en el `.fproj`.
+
+---
+
+## Modelo de portabilidad
+
+Cuatro niveles de promesa:
+
+| Nivel | Nombre | Promesa | Restricción |
+|---|---|---|---|
+| 1 | Núcleo Portable | Mismo resultado en cualquier arquitectura | No nombrar registros nativos ni banderas específicas |
+| 2 | Servicios del Lenguaje | Misma interfaz, distinta implementación por plataforma | Depende de una "Parte" de servicio compatible |
+| 3 | Extensiones ISA | Control total sobre la CPU | Sin promesa de portabilidad |
+| 4 | Artefactos del Lenguaje | Independencia de herramientas externas | Formatos propios `.fasm`, `.bin`, `.fproj`, `.fworkspace` |
+
+### Registros portables (Nivel 1)
+
+Numeración canónica independiente de ISA con ancho explícito: `R0q`, `R1d`, `R0w`, `R0b`. El compilador los mapea a registros nativos (`R0q` → `Rax` en x64, `X0` en ARM64).
+
+**Regla importante:** `parameter` asigna nombres según la ABI. En x64 el parámetro 1 llega en `Rcx` (`R1` canónico); en ARM64 llega en `X0` (`R0` canónico). Nunca asumas que `parameter 1` es `R0`.
+
+### Parte (`.bin`)
+
+Unidad de composición. Contiene representación portable por defecto y opcionalmente representaciones nativas para una o varias ISAs. El compilador extrae los bytes de la representación nativa del destino y los incrusta en la imagen final.
+
+### Frontera mínima (bare metal)
+
+Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memoria básica. Implementados como Partes de Servicio (`metal.bin`, `win32.bin`, etc.).
+
+---
+
+## Roadmap
+
+| Fase | Objetivo |
+|---|---|
+| 1 | Núcleo x64, imagen plana, ejecución en memoria |
+| 2 | Frontend `.fasm` (parser léxico, sintáctico, semántico) |
+| 3 | Partes y composición (`.bin`) |
+| 4 | Equivalencia multi-arquitectura (ARM64 via QEMU, validación portable) |
+| 5 | Proyectos y soluciones (`.fproj`, `fasm_admin`) |
+| 6 | Ejecutables del SO (PE/ELF) |
+| 7 | Bare metal: frontera mínima |
+| 8 | Auto-albergue (self-hosting) |
+| 9 | IDE |
+
+**Criterio de salida Fase 0:** una persona ajena al diseño puede implementar la Fase 1 leyendo solo la documentación, sin hacer preguntas.
+
+---
+
+## Vocabulario prescriptivo
+
+### Reglas de diseño
+
+1. **Un concepto, un nombre.** Sinónimos se listan como "alias no usados".
+2. **Definir por lo que hace, no por a qué se parece.** Entradas, salidas, efecto observable.
+3. **Nombrar lo que ocurre físicamente.** Si guarda bits, se llama así.
+4. **Anchos siempre explícitos.** Nunca "palabra" o "32 bits" a secas.
+5. **Marketing no es vocabulario técnico.** Términos de venta se excluyen.
+6. **Término estándar aceptable si se define con precisión.** No sustituir nombres conocidos por frases descriptivas.
+7. **Vigencia física.** Un término histórico se conserva solo si su definición actual es físicamente exacta.
+
+### Términos a evitar y su sustitución
+
+| Evitar | Usar en su lugar |
+|---|---|
+| "RAM" | Memoria de trabajo |
+| "ROM" | Memoria de solo lectura / memoria no volátil |
+| "Disco" | Unidad de almacenamiento |
+| "Endianness" | Orden de bytes: menor-primero / mayor-primero |
+| "Palabra" | Ancho nativo (bits específicos) |
+| "Núcleo" (sin calificar) | Unidad de ejecución independiente |
+| "Hilo" (sin calificar) | Contexto de ejecución hardware |
+| "Caché" (sin definir) | Memoria intermedia de acceso rápido |
+
+### Correspondencia con código (C#)
+
+| Concepto del glosario | Identificador en código | Prohibido |
+|---|---|---|
+| Memoria de trabajo | `WorkingMemory` | `Ram`, `Memory` a secas |
+| Memoria persistente | `PersistentMemory` | `Rom`, `Storage` a secas |
+| Unidad de almacenamiento | `StorageUnit` | `Disk`, `Drive` |
+| Parte | `Part` | `Library`, `Module` |
+| Bajar (*lowering*) | `Lower` | `Translate` |
+| Imagen plana | `FlatImage` | `RawBinary` |
+
+---
+
+## Decisiones de diseño
+
+Una decisión que afecte a más de un archivo (formato, sintaxis, arquitectura de código, compatibilidad) no se decide en un comentario de PR: se registra aquí en CONTRIBUTING.md.
+
+1. Abre un issue de tipo **decisión** explicando el problema y las opciones.
+2. Escribe la decisión con formato: contexto, decisión, consecuencias y alternativas descartadas.
+3. Al fusionarse, la decisión es obligatoria y los documentos afectados se actualizan en el mismo PR.
+4. Las decisiones no se editan: si una cambia, se escribe una nueva que la reemplaza.
+
+Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` o `plan-`. Estos **no se suben al origen**. Una vez implementado en código y aprobado, el contenido se pasa a documentación en este archivo o en `FLUENT_SYNTAX.md`.
+
+---
 
 ## Archivo de proyecto `.fproj`
 
@@ -129,7 +399,7 @@ Cada programa se define mediante un archivo `.fproj` binario ubicado junto a sus
 
 El `.fproj` es estrictamente binario e incluye una **tabla de índice** al inicio que indica la posición y tamaño de cada sección de información, permitiendo lectura selectiva y rápida por máquinas y herramientas. No se edita a mano con un editor de texto; se crea y se modifica con `fasm_admin`, que acepta todos los campos por línea de comandos y ofrece `dump` y `verify` para revisarlo.
 
-La especificación byte a byte es [docs/FORMAT_FPROJ.md](docs/FORMAT_FPROJ.md). La versión del producto **no** se lee de este archivo: vive en un archivo de texto del repositorio.
+La especificación byte a byte está definida más arriba en esta misma sección (Formatos binarios). La versión del producto **no** se lee de este archivo: vive en un archivo de texto del repositorio.
 
 ## Archivo de solución `.fworkspace`
 

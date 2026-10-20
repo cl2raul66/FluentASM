@@ -39,7 +39,7 @@ Si vienes de C#:
 | **API fluent de C#** | Objetos y métodos que devuelven el binario | Programas, pruebas y herramientas | Fase 1 |
 
 La superficie canónica es el DSL: define el lenguaje. La API de C# es la misma cosa escrita en C# y
-**debe producir exactamente los mismos bytes** (ver [ADR 0004](docs/adr/0004-superficie-canonica.md)).
+**debe producir exactamente los mismos bytes** (ver "Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md), superficie canónica).
 Por eso ambas usan los mismos mnemónicos y el mismo orden de operandos:
 
 ```fasm
@@ -178,10 +178,28 @@ No hay comentarios de bloque: solo `;` de línea. Tampoco hay literales de coma 
 
 ## 5. Registros
 
-Los registros son ranuras dentro del procesador: rapidísimos y muy pocos. Se nombran con
-`PascalCase` y el mismo nombre en los cuatro tamaños.
+Los registros son ranuras dentro del procesador: rapidísimos y muy pocos.
 
-### 5.1 Uso general (x64)
+### 5.1 Registros Portables (Nivel 1)
+
+Para escribir código que funcione en cualquier arquitectura sin cambios, FluentASM utiliza una numeración canónica independiente de la ISA. 
+
+**Sintaxis:** `R` + `Número (0-15)` + `Sufijo de Ancho`.
+
+| Sufijo | Ancho | Significado | Ejemplo |
+|---|---|---|---|
+| `q` | 64 bits | Quadword | `R0q` |
+| `d` | 32 bits | Doubleword | `R0d` |
+| `w` | 16 bits | Word | `R0w` |
+| `b` | 8 bits | Byte | `R0b` |
+
+**Mapeo:** El compilador traduce estos registros a los nativos de la ISA destino (ej: `R0q` $\to$ `Rax` en x64, `X0` en ARM64).
+
+> **IMPORTANTE:** No confundas la numeración canónica con los parámetros. La directiva `parameter` asigna nombres a los registros según la ABI. En x64, el primer parámetro llega en `Rcx` (`R1` canónico), mientras que en ARM64 llega en `X0` (`R0` canónico). Usa siempre los nombres de los parámetros para asegurar la portabilidad.
+
+### 5.2 Uso general x64 (Nivel 3: Nativo)
+
+Cuando necesitas control total o instrucciones específicas de x64, usas los registros nativos. Se nombran con `PascalCase` y el mismo nombre en los cuatro tamaños.
 
 | 64 bits | 32 bits | 16 bits | 8 bits | N.º | Rol en la ABI Win64 |
 |---|---|---|---|---|---|
@@ -216,7 +234,7 @@ Otros registros: `Rip` (solo como base de un operando `[Rip + desplazamiento]`) 
 ### 5.2 Correspondencia con la ABI
 
 Cuando una rutina declara `parameter`, los nombres de los parámetros son **alias** de los registros
-que dicta la ABI: no se eligen a mano. Ver [docs/ABI.md](docs/ABI.md).
+que dicta la ABI: no se eligen a mano. Ver "Modelo de ejecución y ABI" en [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -300,7 +318,7 @@ end
 | `naked` | Sin prólogo ni epílogo aunque tenga parámetros o locales; el autor se responsabiliza del marco |
 | Llamada | `.Call(símbolo)` → `e8` + desplazamiento relativo; `.Call(rax)` → `ff d0` |
 
-Detalle completo, incluidas las pilas y la alineación, en [docs/ABI.md](docs/ABI.md).
+Detalle completo, incluidas las pilas y la alineación, en "Modelo de ejecución y ABI" en [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -311,75 +329,75 @@ usará como oráculo en las pruebas). `rel` significa que el desplazamiento depe
 
 ### 9.1 Movimiento de datos
 
-| Instrucción | Ejemplo | Bytes | Notas |
-|---|---|---|---|
-| `Mov` (r32, imm) | `.Mov(Eax, 10)` | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
-| `Mov` (r64, imm pequeño) | `.Mov(Rax, 42)` | `b8 2a 00 00 00` | **La forma más corta es `mov r32, imm32`**, que pone a cero la mitad alta |
-| `Mov` (r64, imm negativo) | `.Mov(Rax, -1)` | `48 c7 c0 ff ff ff ff` | Signo extendido a 64 bits |
-| `Mov` (r64, imm grande) | `.Mov(Rax, 0x123456789)` | `48 b8 89 67 45 23 01 00 00 00` | `imm64` solo cuando no cabe en 32 bits |
-| `Mov` (r64, r64) | `.Mov(Rax, Rbx)` | `48 89 d8` | |
-| `Mov` (r8 alto, r8) | `.Mov(R8, R9)` | `4d 89 c8` | Prefijo REX necesario |
-| `Mov` (r64, [mem]) | `.Mov(Rax, [Rbx])` | `48 8b 03` | |
-| `Mov` ([mem], r64) | `.Mov([Rbx], Rax)` | `48 89 03` | |
-| `Mov` (r64, [mem-disp]) | `.Mov(Rax, [Rbx - 8])` | `48 8b 43 f8` | `disp8` con signo |
-| `Mov` (r64, [base+idx*esc]) | `.Mov(Rax, [Rbx + Rcx*4 + 16])` | `48 8b 44 8b 10` | SIB con escala |
-| `Mov` (byte [mem], imm) | `.Mov(Byte [Rbx], 1)` | `c6 03 01` | Tamaño explícito |
-| `Movzx` | `.Movzx(Eax, R8w)` | `41 0f b7 c0` | Extiende sin signo |
-| `Lea` | `.Lea(Rcx, [Rel mensaje])` | `48 8d 0d disp32` | Base de PIC |
-| `Lea` (de símbolo) | `.Lea(Rcx, mensaje)` | `48 8d 0d disp32` | Azúcar: `.Mov(Rcx, mensaje)` |
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `Mov` (r32, imm) | `.Mov(Eax, 10)` | 1 | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
+| `Mov` (r64, imm pequeño) | `.Mov(Rax, 42)` | 1 | `b8 2a 00 00 00` | **La forma más corta es `mov r32, imm32`**, que pone a cero la mitad alta |
+| `Mov` (r64, imm negativo) | `.Mov(Rax, -1)` | 1 | `48 c7 c0 ff ff ff ff` | Signo extendido a 64 bits |
+| `Mov` (r64, imm grande) | `.Mov(Rax, 0x123456789)` | 1 | `48 b8 89 67 45 23 01 00 00 00` | `imm64` solo cuando no cabe en 32 bits |
+| `Mov` (r64, r64) | `.Mov(Rax, Rbx)` | 1 | `48 89 d8` | |
+| `Mov` (r8 alto, r8) | `.Mov(R8, R9)` | 3 | `4d 89 c8` | Prefijo REX necesario |
+| `Mov` (r64, [mem]) | `.Mov(Rax, [Rbx])` | 1 | `48 8b 03` | |
+| `Mov` ([mem], r64) | `.Mov([Rbx], Rax)` | 1 | `48 89 03` | |
+| `Mov` (r64, [mem-disp]) | `.Mov(Rax, [Rbx - 8])` | 1 | `48 8b 43 f8` | `disp8` con signo |
+| `Mov` (r64, [base+idx*esc]) | `.Mov(Rax, [Rbx + Rcx*4 + 16])` | 1 | `48 8b 44 8b 10` | SIB con escala |
+| `Mov` (byte [mem], imm) | `.Mov(Byte [Rbx], 1)` | 1 | `c6 03 01` | Tamaño explícito |
+| `Movzx` | `.Movzx(Eax, R8w)` | 1 | `41 0f b7 c0` | Extiende sin signo |
+| `Lea` | `.Lea(Rcx, [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
+| `Lea` (de símbolo) | `.Lea(Rcx, mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.Mov(Rcx, mensaje)` |
 
 ### 9.2 Aritmética y lógica
 
-| Instrucción | Ejemplo | Bytes | Notas |
-|---|---|---|---|
-| `Add` (r64, imm8) | `.Add(Rax, 5)` | `48 83 c0 05` | imm8 con signo |
-| `Add` (r64, imm32) | `.Add(Rax, 1000)` | `48 05 e8 03 00 00` | Forma con acumulador |
-| `Add` (r32, imm8) | `.Add(Eax, 20)` | `83 c0 14` | |
-| `Add` (r64, r64) | `.Add(Rax, Rbx)` | `48 01 d8` | |
-| `Sub` (r64, imm8) | `.Sub(Rsp, 0x68)` | `48 83 ec 68` | Ajuste de pila |
-| `Sub` (r32, imm8) | `.Sub(Eax, 5)` | `83 e8 05` | |
-| `And` | `.And(Eax, 0xFF)` | `25 ff 00 00 00` | |
-| `Or` | `.Or(Eax, Eax)` | `09 c0` | |
-| `Xor` | `.Xor(Eax, Eax)` | `31 c0` | Poner a cero de forma idiomática |
-| `Xor` (r8 alto) | `.Xor(R8d, R8d)` | `45 31 c0` | |
-| `Cmp` | `.Cmp(Eax, 101)` | `83 f8 65` | Prepara banderas |
-| `Test` | `.Test(Eax, Eax)` | `85 c0` | Comparar con cero |
-| `Inc` | `.Inc(DWord [Rbx])` | `ff 03` | |
-| `Dec` | `.Dec(Ecx)` | `ff c9` | |
-| `Imul` (r32, r32) | `.Imul(Eax, Ebx)` | `0f af c3` | Dos operandos |
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `Add` (r64, imm8) | `.Add(Rax, 5)` | 1 | `48 83 c0 05` | imm8 con signo |
+| `Add` (r64, imm32) | `.Add(Rax, 1000)` | 1 | `48 05 e8 03 00 00` | Forma con acumulador |
+| `Add` (r32, imm8) | `.Add(Eax, 20)` | 1 | `83 c0 14` | |
+| `Add` (r64, r64) | `.Add(Rax, Rbx)` | 1 | `48 01 d8` | |
+| `Sub` (r64, imm8) | `.Sub(Rsp, 0x68)` | 1 | `48 83 ec 68` | Ajuste de pila |
+| `Sub` (r32, imm8) | `.Sub(Eax, 5)` | 1 | `83 e8 05` | |
+| `And` | `.And(Eax, 0xFF)` | 1 | `25 ff 00 00 00` | |
+| `Or` | `.Or(Eax, Eax)` | 1 | `09 c0` | |
+| `Xor` | `.Xor(Eax, Eax)` | 1 | `31 c0` | Poner a cero de forma idiomática |
+| `Xor` (r8 alto) | `.Xor(R8d, R8d)` | 3 | `45 31 c0` | |
+| `Cmp` | `.Cmp(Eax, 101)` | 1 | `83 f8 65` | Prepara banderas |
+| `Test` | `.Test(Eax, Eax)` | 1 | `85 c0` | Comparar con cero |
+| `Inc` | `.Inc(DWord [Rbx])` | 1 | `ff 03` | |
+| `Dec` | `.Dec(Ecx)` | 1 | `ff c9` | |
+| `Imul` (r32, r32) | `.Imul(Eax, Ebx)` | 1 | `0f af c3` | Dos operandos |
 
 ### 9.3 Pila
 
-| Instrucción | Ejemplo | Bytes |
-|---|---|---|
-| `Push` | `.Push(Rbp)` | `55` |
-| `Push` (r8 alto) | `.Push(R8)` | `41 50` |
-| `Push` (acumulador) | `.Push(Rax)` | `50` |
-| `Pop` | `.Pop(Rbp)` | `5d` |
+| Instrucción | Ejemplo | Nivel | Bytes |
+|---|---|---|---|
+| `Push` | `.Push(Rbp)` | 1 | `55` |
+| `Push` (r8 alto) | `.Push(R8)` | 3 | `41 50` |
+| `Push` (acumulador) | `.Push(Rax)` | 1 | `50` |
+| `Pop` | `.Pop(Rbp)` | 1 | `5d` |
 
 ### 9.4 Control de flujo
 
-| Instrucción | Ejemplo | Bytes | Notas |
-|---|---|---|---|
-| `Jmp` (corto) | `.Jmp(@fin)` | `eb rel8` | Forma preferida |
-| `Jmp` (cercano) | — | `e9 rel32` | Automático cuando no cabe `rel8` |
-| `Je`/`Jz` | `.Je(@fin)` | `74 rel8` | |
-| `Jne`/`Jnz` | `.Jne(@fin)` | `75 rel8` | |
-| `Ja`/`Jnbe` | `.Ja(@fin)` | `77 rel8` | Sin signo, mayor |
-| `Jae`/`Jnb` | `.Jae(@fin)` | `73 rel8` | Sin signo, mayor o igual |
-| `Jb`/`Jc` | `.Jb(@fin)` | `72 rel8` | Sin signo, menor |
-| `Jbe`/`Jna` | `.Jbe(@fin)` | `76 rel8` | Sin signo, menor o igual |
-| `Jg`/`Jnle` | `.Jg(@fin)` | `7f rel8` | Con signo, mayor |
-| `Jge`/`Jnl` | `.Jge(@fin)` | `7d rel8` | Con signo, mayor o igual |
-| `Jl`/`Jnge` | `.Jl(@fin)` | `7c rel8` | Con signo, menor |
-| `Jle`/`Jng` | `.Jle(@fin)` | `7e rel8` | Con signo, menor o igual |
-| `Js` / `Jns` | `.Js(@fin)` | `78` / `79` | Bandera de signo |
-| `Jo` / `Jno` | `.Jo(@fin)` | `70` / `71` | Desbordamiento |
-| `Jp` / `Jnp` | `.Jp(@fin)` | `7a` / `7b` | Paridad |
-| Saltos condicionales, forma cercana | — | `0f 8x rel32` | Automático cuando no cabe `rel8` |
-| `Call` (relativo) | `.Call(Rutina)` | `e8 rel32` | |
-| `Call` (indirecto) | `.Call(Rax)` | `ff d0` | |
-| `Ret` | — | `c3` | Dentro de una rutina se escribe `.Ret()` |
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `Jmp` (corto) | `.Jmp(@fin)` | 1 | `eb rel8` | Forma preferida |
+| `Jmp` (cercano) | — | 1 | `e9 rel32` | Automático cuando no cabe `rel8` |
+| `Je`/`Jz` | `.Je(@fin)` | 1 | `74 rel8` | |
+| `Jne`/`Jnz` | `.Jne(@fin)` | 1 | `75 rel8` | |
+| `Ja`/`Jnbe` | `.Ja(@fin)` | 1 | `77 rel8` | Sin signo, mayor |
+| `Jae`/`Jnb` | `.Jae(@fin)` | 1 | `73 rel8` | Sin signo, mayor o igual |
+| `Jb`/`Jc` | `.Jb(@fin)` | 1 | `72 rel8` | Sin signo, menor |
+| `Jbe`/`Jna` | `.Jbe(@fin)` | 1 | `76 rel8` | Sin signo, menor o igual |
+| `Jg`/`Jnle` | `.Jg(@fin)` | 1 | `7f rel8` | Con signo, mayor |
+| `Jge`/`Jnl` | `.Jge(@fin)` | 1 | `7d rel8` | Con signo, mayor o igual |
+| `Jl`/`Jnge` | `.Jl(@fin)` | 1 | `7c rel8` | Con signo, menor |
+| `Jle`/`Jng` | `.Jle(@fin)` | 1 | `7e rel8` | Con signo, menor o igual |
+| `Js` / `Jns` | `.Js(@fin)` | 1 | `78` / `79` | Bandera de signo |
+| `Jo` / `Jno` | `.Jo(@fin)` | 1 | `70` / `71` | Desbordamiento |
+| `Jp` / `Jnp` | `.Jp(@fin)` | 1 | `7a` / `7b` | Paridad |
+| Saltos condicionales, forma cercana | — | 1 | `0f 8x rel32` | Automático cuando no cabe `rel8` |
+| `Call` (relativo) | `.Call(Rutina)` | 1 | `e8 rel32` | |
+| `Call` (indirecto) | `.Call(Rax)` | 1 | `ff d0` | |
+| `Ret` | — | 1 | `c3` | Dentro de una rutina se escribe `.Ret()` |
 
 ### 9.5 Sistema y relleno
 
@@ -413,7 +431,7 @@ Son **obligatorias** porque hacen que los bytes sean predecibles y comparables c
 6. **Prefijo REX** cuando el tamaño es 64 bits o el registro es `R8`–`R15`, más los casos especiales
    `Spl`/`Bpl`/`Sil`/`Dil`.
 7. **Saltos**: forma corta (`rel8`) y promoción automática a cercana (`rel32`) cuando el destino no
-   cabe, con el algoritmo iterativo descrito en [docs/IR.md](docs/IR.md) §6.
+   cabe, con el algoritmo iterativo descrito en "Modelo intermedio (IR)" en [CONTRIBUTING.md](CONTRIBUTING.md), sección Layout.
 8. **Tamaño de la instrucción** se conoce antes de emitir y queda registrado para poder explicar
    cualquier diferencia con otro ensamblador.
 
@@ -446,7 +464,7 @@ Son **obligatorias** porque hacen que los bytes sean predecibles y comparables c
 | Arrancar sobre el hardware sin sistema operativo | **No** | 7 |
 | Usar direcciones absolutas fijas | **No** | 7 (bare metal) |
 
-Esta limitación es deliberada y está registrada en [ADR 0003](docs/adr/0003-salidas-imagen-plana.md).
+Esta limitación es deliberada y está registrada en "Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md) (imagen plana primero).
 
 ---
 
@@ -468,11 +486,13 @@ Esta limitación es deliberada y está registrada en [ADR 0003](docs/adr/0003-sa
 
 ---
 
-## 13. Ejemplo completo verificado (Fase 1)
+## 13. Ejemplos verificados (Fase 1)
+
+### 13.1 Ejemplo Nativo (Nivel 3)
+Este ejemplo utiliza registros concretos de x64. No es portable.
 
 ```fasm
 program AddTwoNumbers
-
     section .text
     entry main
 
@@ -492,7 +512,31 @@ program AddTwoNumbers
 end
 ```
 
-Bytes generados (los tres tramos verificados con NASM por separado):
+### 13.2 Ejemplo Portable (Nivel 1)
+Este ejemplo es idéntico en resultado, pero utiliza el núcleo portable. Funcionará en x64, ARM y x86.
+
+```fasm
+program AddTwoNumbersPortable
+    section .text
+    entry main
+
+    routine AddTwoNumbers
+        parameter a, b
+        .Mov(R0q, a)         ; R0q mapea a Rax (x64) o X0 (ARM)
+        .Add(R0q, b)
+        .Ret()
+    end
+
+    routine main
+        .Mov(R0q, 10)
+        .Mov(R1q, 32)
+        .Call(AddTwoNumbers)
+        .Ret()
+    end
+end
+```
+
+**Bytes generados para la versión Nativa (x64):**
 
 | Parte | Instrucciones | Bytes |
 |---|---|---|
@@ -500,8 +544,7 @@ Bytes generados (los tres tramos verificados con NASM por separado):
 | Cuerpo | `mov rax, rcx` / `add rax, rdx` | `48 89 c8 48 01 d0` |
 | Epílogo | `leave` / `ret` | `c9 c3` |
 
-Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(long, long)` devuelve
-**42**, y el mismo binario funciona cargado en dos direcciones distintas.
+Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(long, long)` devuelve **42**, y el mismo binario funciona cargado en dos direcciones distintas.
 
 ---
 
@@ -528,13 +571,13 @@ Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(l
 | Antes | Ahora | Motivo |
 |---|---|---|
 | Ejemplos x64 con `Eax` | `Rax` para valores de 64 bits, `Eax` solo para 32 | `Eax` significa exactamente 32 bits y pone a cero la mitad alta |
-| "El `.x64` se ejecuta como un programa nativo" | Imagen plana ejecutada por el arrancador o sobre el hardware; `.exe` en Fase 5 | Un binario crudo no es un formato que el SO sepa cargar ([ADR 0003](docs/adr/0003-salidas-imagen-plana.md)) |
+| "El `.x64` se ejecuta como un programa nativo" | Imagen plana ejecutada por el arrancador o sobre el hardware; `.exe` en Fase 5 | Un binario crudo no es un formato que el SO sepa cargar ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | Instrucciones mínimas: `Mov`, `Add`, `Sub`, `Jmp`, `Call`, `Ret`, `Int` | 30+ mnemónicos con sus formas, tablas de datos y directivas | El conjunto anterior no bastaba ni para el "hola mundo" del propio repositorio |
 | `program AddTwoNumbers` con `parameter` | `program` y `routine` son bloques distintos | Un programa no es una función; mezclarlos impedía definir la ABI |
-| `parameter a, b` sin destino | Parámetros asignados por ABI, con prólogo y epílogo generados | Sin esto, cada implementación inventaba su convención ([ADR 0005](docs/adr/0005-modelo-de-ejecucion.md)) |
+| `parameter a, b` sin destino | Parámetros asignados por ABI, con prólogo y epílogo generados | Sin esto, cada implementación inventaba su convención ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | Etiquetas locales con `.` | Etiquetas locales con `@` | El `.` está reservado para las instrucciones y no debía ser ambiguo |
 | Sin gramática formal | EBNF en la sección 3 | Permite implementar el analizador sin interpretar ejemplos |
-| Dos superficies sin jerarquía | DSL `.fasm` canónica, API de C# derivada | Evita mantener dos lenguajes ([ADR 0004](docs/adr/0004-superficie-canonica.md)) |
+| Dos superficies sin jerarquía | DSL `.fasm` canónica, API de C# derivada | Evita mantener dos lenguajes ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
 
 ---
 
