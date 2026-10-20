@@ -32,7 +32,7 @@ Los cambios de sintaxis o de formato exigen ejemplos ejecutados.
 - [ ] `dotnet test` en verde
 - [ ] Prueba de bytes dorados añadida o actualizada
 - [ ] Comparación con el oráculo NASM, si aplica
-- [ ] Ejemplos de `rsc/examples/` siguen compilando
+- [ ] Ejemplos de `rsc/` siguen compilando
 
 ## Volcado de proyecto (si se ha tocado un `.fproj` o `.fworkspace`)
 

@@ -43,7 +43,7 @@ La referencia completa de sintaxis, registros y catálogo de instrucciones está
 
 ```
 src/     → Código fuente principal (FluentASM.Core, FluentASM.Compiler, FluentASM.Admin, pruebas)
-rsc/     → Recursos del proyecto (ejemplos .fasm, pruebas de concepto, bibliotecas .bin)
+rsc/     → Recursos del proyecto (se añaden solo cuando se necesiten)
 .github/ → Plantillas de issues y pull requests
 ```
 

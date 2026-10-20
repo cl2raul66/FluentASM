@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Ten en cuenta el orden de las fases: propuestas de fases lejanas son bienvenidas, pero
-        se priorizan las que desbloquean la fase actual (ver `roadmap.md`).
+        se priorizan las que desbloquean la fase actual (ver Roadmap en CONTRIBUTING.md).
   - type: textarea
     id: problema
     attributes:
