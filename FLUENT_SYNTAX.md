@@ -469,6 +469,29 @@ La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (mis
 
 ### 10.1 Movimiento de datos
 
+#### ¿Qué hace `Mov` físicamente?
+
+`Mov` es una instrucción de **transferencia de datos**. No calcula, no compara, no salta. Solo transfiere bits de una ubicación a otra:
+
+> **Lee bits desde el origen y los escribe en el destino. El origen no se modifica; el destino se sobrescribe.**
+
+- **Origen**: de dónde se leen los bits (registro, memoria o inmediato).
+- **Destino**: dónde se escriben los bits (registro o memoria).
+- **Efecto**: el destino pasa a tener el mismo valor que tenía el origen en el momento de la lectura. Los bits anteriores del destino se pierden.
+- **Sin cambios**: `Mov` **no afecta las banderas** en x64.
+- **Restricción**: no se puede mover directamente entre dos ubicaciones de memoria; hay que pasar por un registro.
+
+**Ejemplos físicos:**
+
+| Instrucción | Explicación |
+|---|---|
+| `.Mov(Rax, 42)` | Escribe el valor inmediato `42` en `Rax`. |
+| `.Mov(Rax, Rbx)` | Copia los bits de `Rbx` en `Rax`. `Rbx` sigue sin cambios. |
+| `.Mov(Rax, [Rbx])` | Lee los bits almacenados en la dirección que guarda `Rbx` y los escribe en `Rax`. |
+| `.Mov([Rbx], Rax)` | Escribe los bits de `Rax` en la dirección que guarda `Rbx`. `Rax` sigue sin cambios. |
+
+> **Nota:** Las secciones 11 ("Reglas de codificación") explican **cómo** se codifican los bytes, no **qué** hace la instrucción. Esta sección explica la semántica física.
+
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
 | `Mov` (r32, imm) | `.Mov(Eax, 10)` | 1 | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
