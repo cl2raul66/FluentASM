@@ -43,10 +43,10 @@ La superficie canónica es el DSL: define el lenguaje. La API de C# es la misma 
 Por eso ambas usan los mismos mnemónicos y el mismo orden de operandos:
 
 ```fasm
-.Mov(Rax, 42)          // DSL .fasm
+.cp(42 to Rax)         // DSL .fasm
 ```
 ```csharp
-.Mov(Rax, 42)          // API de C#
+.cp(42 to Rax)         // API de C#
 ```
 
 La diferencia es el envoltorio: el DSL usa un bloque `Program … End` con instrucciones precedidas de
@@ -63,15 +63,15 @@ program MiPrograma              // nombre del programa (opcional)
 
     routine Doblar              // una rutina con un parámetro
         parameter n             // n es el nombre del 1.er parámetro (ABI: Rcx en Win64)
-        .Mov(Rax, n)            // copia el valor del parámetro en Rax
-        .Add(Rax, Rax)          // Rax = Rax + Rax
-        .Ret()                  // devuelve Rax
+        .alu(n to Rax)          // copia el valor del parámetro en Rax
+        .alu(Rax add Rax)       // Rax = Rax + Rax
+        .ret()                  // devuelve Rax
     end
 
     routine main                // punto de entrada
-        .Mov(Rcx, 21)           // pone el argumento 1 en Rcx (donde Doblar lo espera)
-        .Call(Doblar)           // llama a Doblar; el resultado queda en Rax
-        .Ret()                  // devuelve Rax (que ahora vale 42)
+        .cp(21 to Rcx)          // pone el argumento 1 en Rcx (donde Doblar lo espera)
+        .call(Doblar)           // llama a Doblar; el resultado queda en Rax
+        .ret()                  // devuelve Rax (que ahora vale 42)
     end
 end
 ```
@@ -80,13 +80,13 @@ end
 
 | Paso | Instrucción | Qué ocurre |
 |---|---|---|
-| 1 | `.Mov(Rcx, 21)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
-| 2 | `.Call(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
+| 1 | `.cp(21 to Rcx)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
+| 2 | `.call(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
 | 3 | `parameter n` | `n` no es un valor ni una variable: es el **nombre** del registro que la ABI asigna al primer parámetro. En Win64, `n` ≡ `Rcx`. |
-| 4 | `.Mov(Rax, n)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
-| 5 | `.Add(Rax, Rax)` | `Rax = 21 + 21 = 42`. |
-| 6 | `.Ret()` | `Doblar` devuelve `Rax` (42). |
-| 7 | `.Ret()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
+| 4 | `.alu(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
+| 5 | `.alu(Rax add Rax)` | `Rax = 21 + 21 = 42`. |
+| 6 | `.ret()` | `Doblar` devuelve `Rax` (42). |
+| 7 | `.ret()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
 
 **Conclusión:** `n` es `Rcx`; el `21` es el contenido de `Rcx` en ese momento. El valor de retorno de `main` viaja en `Rax`, no en `Rcx`.
 
@@ -110,16 +110,16 @@ program SumaDos
 
     routine AddTwoNumbers
         parameter a, b        // a ≡ Rcx, b ≡ Rdx (Win64)
-        .Mov(Rax, a)          // Rax = a
-        .Add(Rax, b)          // Rax = a + b
-        .Ret()                // devuelve Rax
+        .alu(a to Rax)        // Rax = a
+        .alu(Rax add b)       // Rax = a + b
+        .ret()                // devuelve Rax
     end
 
     routine main
-        .Mov(Rcx, 10)         // argumento 1 -> Rcx
-        .Mov(Rdx, 32)         // argumento 2 -> Rdx
-        .Call(AddTwoNumbers)  // Rax = 42
-        .Ret()                // main devuelve 42
+        .cp(10 to Rcx)        // argumento 1 -> Rcx
+        .cp(32 to Rdx)        // argumento 2 -> Rdx
+        .call(AddTwoNumbers)  // Rax = 42
+        .ret()                // main devuelve 42
     end
 end
 ```
@@ -132,8 +132,8 @@ program RetornaCuarentaYDos
     entry main
 
     routine main
-        .Mov(Rax, 42)         // fija el valor de retorno directamente
-        .Ret()
+        .cp(42 to Rax)        // fija el valor de retorno directamente
+        .ret()
     end
 end
 ```
@@ -147,16 +147,16 @@ program SumaDosPortable
 
     routine AddTwoNumbers
         parameter a, b        // sin registros nativos; el compilador los mapea
-        .Mov(R0q, a)          // R0q ≡ Rax (x64) o X0 (ARM64)
-        .Add(R0q, b)
-        .Ret()
+        .alu(a to R0q)        // R0q ≡ Rax (x64) o X0 (ARM64)
+        .alu(R0q add b)
+        .ret()
     end
 
     routine main
-        .Mov(R0q, 10)
-        .Mov(R1q, 32)
-        .Call(AddTwoNumbers)
-        .Ret()
+        .alu(10 to R0q)
+        .alu(32 to R1q)
+        .call(AddTwoNumbers)
+        .ret()
     end
 end
 ```
@@ -194,8 +194,22 @@ constante           = identificador "Equ" expresion ;
 etiqueta            = ( identificador | etiquetaLocal ) ":" ;
 etiquetaLocal       = "@" identificador ;
 
-instruccion         = "." mnemonicos [ "(" [ operando { "," operando } ] ")" ] ;
-mnemonicos          = identificador ;                       (* validado contra el catálogo *)
+instruccion         = "." mnemonicos [ "(" [ operando { separador operando } ] ")" ] ;
+
+mnemonicos          = "cp" | "alu" | "jump" | "call" | "ret"
+                    | "stackWrite" | "stackRead" | "stackPointerGet" | "stackPointerSet"
+                    | "nop" | "setCarry" | "clearCarry" | "toggleCarry"
+                    | "setDirection" | "clearDirection"
+                    | "lea" | "copyZeroExtended" | "copySignedExtended"
+                    | mnemonicoAlu | mnemonicoSaltoCondicional ;  (* validado contra el catálogo *)
+
+mnemonicoAlu        = "add" | "sub" | "and" | "or" | "xor" | "imul"
+                    | "subNoWrite" | "andNoWrite" ;
+
+mnemonicoSaltoCondicional = "jump" ;  (* con cláusula 'if' obligatoria *)
+
+separador           = "to" | " " ;   (* 'to' para cp/copy*, espacio para alu/jump *)
+
 operando            = registro | memoria | inmediato | referencia ;
 memoria             = [ tamano ] "[" expresionMemoria "]" ;
 tamano              = "Byte" | "Word" | "DWord" | "QWord" ;
@@ -299,7 +313,7 @@ Cuando necesitas control total o instrucciones específicas de x64, usas los reg
 
 Bytes altos (solo con los registros originales): `Ah`, `Ch`, `Dh`, `Bh`. **Prohibido** combinarlos con `R8`–`R15` o con `Spl`/`Bpl`/`Sil`/`Dil`: comparten codificación y el prefijo REX los invalida. FluentASM lo detecta y emite `FASM3002`.
 
-Otros registros: `Rip` (solo como base de un operando `[Rip + desplazamiento]`) y `Rflags` (Fase 2).
+**Registro de banderas:** `rFlags` (64 bits). Cada bit es una bandera independiente (0 o 1). Ver sección 10 y propuesta 0002.
 
 > **Nota para quien viene de la documentación anterior:** los ejemplos de 64 bits usaban `Eax`, que es el registro de **32 bits**. En x64, un valor de 64 bits se maneja con `Rax`. `Eax` sigue siendo válido, pero significa exactamente "los 32 bits bajos" y **pone a cero la mitad alta**.
 
@@ -327,9 +341,9 @@ Reglas:
 
 1. La **escala** solo puede ser 1, 2, 4 u 8. Otro valor es `FASM4002`.
 2. `Rsp` y `R12` no pueden ser índice (`FASM4003`).
-3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.Mov([Rbx], 1)` es `FASM3005`; se escribe `.Mov(Byte [Rbx], 1)`.
+3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.cp(1 to Byte [Rbx])` es `FASM3005`; se escribe `.cp(1 to Byte [Rbx])`.
 4. En Fase 1, el direccionamiento a símbolos es **siempre relativo** (`[Rel símbolo]`). Una dirección absoluta es `FASM5002` con la sugerencia de cómo reescribirla.
-5. `.Mov(Rax, símbolo)` carga la **dirección** (equivalente a `.Lea(Rax, símbolo)`), mientras que `.Mov(Rax, [símbolo])` carga el **contenido**. Es la misma distinción que en un ensamblador clásico entre `offset` y `[ ]`.
+5. `.cp(Rax to mensaje)` carga la **dirección** (equivalente a `.lea(Rax to mensaje)`), mientras que `.cp(Rax to [mensaje])` carga el **contenido**. Es la misma distinción que en un ensamblador clásico entre `offset` y `[ ]`.
 
 ---
 
@@ -367,9 +381,9 @@ section .data
 routine AddTwoNumbers
     parameter a, b          // Win64: a -> Rcx, b -> Rdx
 
-    .Mov(Rax, a)
-    .Add(Rax, b)
-    .Ret()                  // el valor de retorno es Rax
+    .alu(a to Rax)
+    .alu(Rax add b)
+    .ret()                  // el valor de retorno es Rax
 end
 ```
 
@@ -380,10 +394,10 @@ end
 | Prólogo | Generado cuando la rutina tiene parámetros, locales o llamadas: `push rbp` / `mov rbp, rsp` / `sub rsp, N` (N múltiplo de 16) |
 | Epílogo | Generado y emitido una sola vez: `leave` / `ret` |
 | Valor de retorno | `Rax` |
-| `.Ret()` | Termina la rutina: ejecuta el epílogo y el `ret` |
+| `.ret()` | Termina la rutina: ejecuta el epílogo y el `ret` |
 | Rutina hoja | Sin parámetros, locales ni llamadas: **sin** prólogo ni epílogo (por eso el ejemplo mínimo son 6 bytes exactos) |
 | `naked` | Sin prólogo ni epílogo aunque tenga parámetros o locales; el autor se responsabiliza del marco |
-| Llamada | `.Call(símbolo)` → `e8` + desplazamiento relativo; `.Call(rax)` → `ff d0` |
+| Llamada | `.call(símbolo)` → `e8` + desplazamiento relativo; `.call(rax)` → `ff d0` |
 
 Detalle completo, incluidas las pilas y la alineación, en "Modelo de ejecución y ABI" en [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -469,110 +483,147 @@ La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (mis
 
 ### 10.1 Movimiento de datos
 
-#### ¿Qué hace `Mov` físicamente?
+#### ¿Qué hace `cp` físicamente?
 
-`Mov` es una instrucción de **transferencia de datos**. No calcula, no compara, no salta. Solo transfiere bits de una ubicación a otra:
+`cp` (copy) es una instrucción de **transferencia de datos**. No calcula, no compara, no salta. Solo transfiere bits de una ubicación a otra:
 
 > **Lee bits desde el origen y los escribe en el destino. El origen no se modifica; el destino se sobrescribe.**
 
 - **Origen**: de dónde se leen los bits (registro, memoria o inmediato).
 - **Destino**: dónde se escriben los bits (registro o memoria).
 - **Efecto**: el destino pasa a tener el mismo valor que tenía el origen en el momento de la lectura. Los bits anteriores del destino se pierden.
-- **Sin cambios**: `Mov` **no afecta las banderas** en x64.
-- **Restricción**: no se puede mover directamente entre dos ubicaciones de memoria; hay que pasar por un registro.
+- **Sin cambios**: `cp` **no afecta las banderas** en x64.
+- **Restricción**: no se puede copiar directamente entre dos ubicaciones de memoria; hay que pasar por un registro.
 
 **Ejemplos físicos:**
 
 | Instrucción | Explicación |
 |---|---|
-| `.Mov(Rax, 42)` | Escribe el valor inmediato `42` en `Rax`. |
-| `.Mov(Rax, Rbx)` | Copia los bits de `Rbx` en `Rax`. `Rbx` sigue sin cambios. |
-| `.Mov(Rax, [Rbx])` | Lee los bits almacenados en la dirección que guarda `Rbx` y los escribe en `Rax`. |
-| `.Mov([Rbx], Rax)` | Escribe los bits de `Rax` en la dirección que guarda `Rbx`. `Rax` sigue sin cambios. |
+| `.cp(42 to Rax)` | Escribe el valor inmediato `42` en `Rax`. |
+| `.cp(Rbx to Rax)` | Copia los bits de `Rbx` en `Rax`. `Rbx` sigue sin cambios. |
+| `.cp([Rbx] to Rax)` | Lee los bits almacenados en la dirección que guarda `Rbx` y los escribe en `Rax`. |
+| `.cp(Rax to [Rbx])` | Escribe los bits de `Rax` en la dirección que guarda `Rbx`. `Rax` sigue sin cambios. |
 
 > **Nota:** Las secciones 11 ("Reglas de codificación") explican **cómo** se codifican los bytes, no **qué** hace la instrucción. Esta sección explica la semántica física.
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
-| `Mov` (r32, imm) | `.Mov(Eax, 10)` | 1 | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
-| `Mov` (r64, imm pequeño) | `.Mov(Rax, 42)` | 1 | `b8 2a 00 00 00` | **La forma más corta es `mov r32, imm32`**, que pone a cero la mitad alta |
-| `Mov` (r64, imm negativo) | `.Mov(Rax, -1)` | 1 | `48 c7 c0 ff ff ff ff` | Signo extendido a 64 bits |
-| `Mov` (r64, imm grande) | `.Mov(Rax, 0x123456789)` | 1 | `48 b8 89 67 45 23 01 00 00 00` | `imm64` solo cuando no cabe en 32 bits |
-| `Mov` (r64, r64) | `.Mov(Rax, Rbx)` | 1 | `48 89 d8` | |
-| `Mov` (r8 alto, r8) | `.Mov(R8, R9)` | 3 | `4d 89 c8` | Prefijo REX necesario |
-| `Mov` (r64, [mem]) | `.Mov(Rax, [Rbx])` | 1 | `48 8b 03` | |
-| `Mov` ([mem], r64) | `.Mov([Rbx], Rax)` | 1 | `48 89 03` | |
-| `Mov` (r64, [mem-disp]) | `.Mov(Rax, [Rbx - 8])` | 1 | `48 8b 43 f8` | `disp8` con signo |
-| `Mov` (r64, [base+idx*esc]) | `.Mov(Rax, [Rbx + Rcx*4 + 16])` | 1 | `48 8b 44 8b 10` | SIB con escala |
-| `Mov` (byte [mem], imm) | `.Mov(Byte [Rbx], 1)` | 1 | `c6 03 01` | Tamaño explícito |
-| `Movzx` | `.Movzx(Eax, R8w)` | 1 | `41 0f b7 c0` | Extiende sin signo |
-| `Lea` | `.Lea(Rcx, [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
-| `Lea` (de símbolo) | `.Lea(Rcx, mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.Mov(Rcx, mensaje)` |
+| `cp` (r32, imm) | `.cp(10 to Eax)` | 1 | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
+| `cp` (r64, imm pequeño) | `.cp(42 to Rax)` | 1 | `b8 2a 00 00 00` | **La forma más corta es `mov r32, imm32`**, que pone a cero la mitad alta |
+| `cp` (r64, imm negativo) | `.cp(-1 to Rax)` | 1 | `48 c7 c0 ff ff ff ff` | Signo extendido a 64 bits |
+| `cp` (r64, imm grande) | `.cp(0x123456789 to Rax)` | 1 | `48 b8 89 67 45 23 01 00 00 00` | `imm64` solo cuando no cabe en 32 bits |
+| `cp` (r64, r64) | `.cp(Rbx to Rax)` | 1 | `48 89 d8` | |
+| `cp` (r8 alto, r8) | `.cp(R9 to R8)` | 3 | `4d 89 c8` | Prefijo REX necesario |
+| `cp` (r64, [mem]) | `.cp([Rbx] to Rax)` | 1 | `48 8b 03` | |
+| `cp` ([mem], r64) | `.cp(Rax to [Rbx])` | 1 | `48 89 03` | |
+| `cp` (r64, [mem-disp]) | `.cp([Rbx - 8] to Rax)` | 1 | `48 8b 43 f8` | `disp8` con signo |
+| `cp` (r64, [base+idx*esc]) | `.cp([Rbx + Rcx*4 + 16] to Rax)` | 1 | `48 8b 44 8b 10` | SIB con escala |
+| `cp` (byte [mem], imm) | `.cp(1 to Byte [Rbx])` | 1 | `c6 03 01` | Tamaño explícito |
 
-### 10.2 Aritmética y lógica
+#### Extensión con ceros / signo
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
-| `Add` (r64, imm8) | `.Add(Rax, 5)` | 1 | `48 83 c0 05` | imm8 con signo |
-| `Add` (r64, imm32) | `.Add(Rax, 1000)` | 1 | `48 05 e8 03 00 00` | Forma con acumulador |
-| `Add` (r32, imm8) | `.Add(Eax, 20)` | 1 | `83 c0 14` | |
-| `Add` (r64, r64) | `.Add(Rax, Rbx)` | 1 | `48 01 d8` | |
-| `Sub` (r64, imm8) | `.Sub(Rsp, 0x68)` | 1 | `48 83 ec 68` | Ajuste de pila |
-| `Sub` (r32, imm8) | `.Sub(Eax, 5)` | 1 | `83 e8 05` | |
-| `And` | `.And(Eax, 0xFF)` | 1 | `25 ff 00 00 00` | |
-| `Or` | `.Or(Eax, Eax)` | 1 | `09 c0` | |
-| `Xor` | `.Xor(Eax, Eax)` | 1 | `31 c0` | Poner a cero de forma idiomática |
-| `Xor` (r8 alto) | `.Xor(R8d, R8d)` | 3 | `45 31 c0` | |
-| `Cmp` | `.Cmp(Eax, 101)` | 1 | `83 f8 65` | Prepara banderas |
-| `Test` | `.Test(Eax, Eax)` | 1 | `85 c0` | Comparar con cero |
-| `Inc` | `.Inc(DWord [Rbx])` | 1 | `ff 03` | |
-| `Dec` | `.Dec(Ecx)` | 1 | `ff c9` | |
-| `Imul` (r32, r32) | `.Imul(Eax, Ebx)` | 1 | `0f af c3` | Dos operandos |
+| `copyZeroExtended` | `.copyZeroExtended(R8w to Eax)` | 1 | `41 0f b7 c0` | Extiende sin signo (8/16/32 → 32/64) |
+| `copySignedExtended` | `.copySignedExtended(Al to Eax)` | 1 | `0f be c0` | Extiende con signo (8/16/32 → 32/64) |
+
+#### Cálculo de direcciones
+
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `lea` | `.lea(Rcx to [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
+| `lea` (de símbolo) | `.lea(Rcx to mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.cp(Rcx to mensaje)` |
+
+### 10.2 Aritmética y lógica (`.alu`)
+
+Todas las instrucciones ALU usan la sintaxis `.alu(origen operacion destino)` separado por espacios. Actualizan `rFlags` según la operación.
+
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `add` | `.alu(5 add Rax)` | 1 | `48 83 c0 05` | imm8 con signo |
+| `add` | `.alu(1000 add Rax)` | 1 | `48 05 e8 03 00 00` | Forma con acumulador |
+| `add` | `.alu(20 add Eax)` | 1 | `83 c0 14` | |
+| `add` | `.alu(Rbx add Rax)` | 1 | `48 01 d8` | |
+| `sub` | `.alu(0x68 sub Rsp)` | 1 | `48 83 ec 68` | Ajuste de pila |
+| `sub` | `.alu(5 sub Eax)` | 1 | `83 e8 05` | |
+| `and` | `.alu(0xFF and Eax)` | 1 | `25 ff 00 00 00` | CF=0, OF=0 |
+| `or` | `.alu(Eax or Eax)` | 1 | `09 c0` | CF=0, OF=0 |
+| `xor` | `.alu(Eax xor Eax)` | 1 | `31 c0` | Poner a cero idiomático |
+| `xor` | `.alu(R8d xor R8d)` | 3 | `45 31 c0` | |
+| `imul` | `.alu(Ebx imul Eax)` | 1 | `0f af c3` | Dos operandos. CF/OF según resultado; ZF/SF/PF/AF indefinidas |
+
+#### Solo banderas (no escriben destino)
+
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `subNoWrite` | `.alu(101 subNoWrite Eax)` | 1 | `83 f8 65` | Resta descartada. Solo banderas. Igual que `cmp`. |
+| `andNoWrite` | `.alu(Eax andNoWrite Eax)` | 1 | `85 c0` | AND descartado. Solo banderas. Igual que `test`. |
 
 ### 10.3 Pila
 
-| Instrucción | Ejemplo | Nivel | Bytes |
-|---|---|---|---|
-| `Push` | `.Push(Rbp)` | 1 | `55` |
-| `Push` (r8 alto) | `.Push(R8)` | 3 | `41 50` |
-| `Push` (acumulador) | `.Push(Rax)` | 1 | `50` |
-| `Pop` | `.Pop(Rbp)` | 1 | `5d` |
+| Instrucción | Ejemplo | Nivel | Bytes | Comentario |
+|---|---|---|---|---|
+| `stackWrite` | `.stackWrite(Rbp)` | 1 | `55` | `RSP -= 8; [RSP] = Rbp` |
+| `stackWrite` | `.stackWrite(R8)` | 3 | `41 50` | |
+| `stackWrite` | `.stackWrite(Rax)` | 1 | `50` | |
+| `stackRead` | `.stackRead(Rbp)` | 1 | `5d` | `Rbp = [RSP]; RSP += 8` |
+
+> **Nota física:** `RSP` es la dirección de la cima; `[RSP]` es el dato. `stackWrite` escribe en `[RSP]` tras decrementar `RSP`.
 
 ### 10.4 Control de flujo
 
+#### Salto incondicional
+
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
-| `Jmp` (corto) | `.Jmp(@fin)` | 1 | `eb rel8` | Forma preferida |
-| `Jmp` (cercano) | — | 1 | `e9 rel32` | Automático cuando no cabe `rel8` |
-| `Je`/`Jz` | `.Je(@fin)` | 1 | `74 rel8` | |
-| `Jne`/`Jnz` | `.Jne(@fin)` | 1 | `75 rel8` | |
-| `Ja`/`Jnbe` | `.Ja(@fin)` | 1 | `77 rel8` | Sin signo, mayor |
-| `Jae`/`Jnb` | `.Jae(@fin)` | 1 | `73 rel8` | Sin signo, mayor o igual |
-| `Jb`/`Jc` | `.Jb(@fin)` | 1 | `72 rel8` | Sin signo, menor |
-| `Jbe`/`Jna` | `.Jbe(@fin)` | 1 | `76 rel8` | Sin signo, menor o igual |
-| `Jg`/`Jnle` | `.Jg(@fin)` | 1 | `7f rel8` | Con signo, mayor |
-| `Jge`/`Jnl` | `.Jge(@fin)` | 1 | `7d rel8` | Con signo, mayor o igual |
-| `Jl`/`Jnge` | `.Jl(@fin)` | 1 | `7c rel8` | Con signo, menor |
-| `Jle`/`Jng` | `.Jle(@fin)` | 1 | `7e rel8` | Con signo, menor o igual |
-| `Js` / `Jns` | `.Js(@fin)` | 1 | `78` / `79` | Bandera de signo |
-| `Jo` / `Jno` | `.Jo(@fin)` | 1 | `70` / `71` | Desbordamiento |
-| `Jp` / `Jnp` | `.Jp(@fin)` | 1 | `7a` / `7b` | Paridad |
-| Saltos condicionales, forma cercana | — | 1 | `0f 8x rel32` | Automático cuando no cabe `rel8` |
-| `Call` (relativo) | `.Call(Rutina)` | 1 | `e8 rel32` | |
-| `Call` (indirecto) | `.Call(Rax)` | 1 | `ff d0` | |
-| `Ret` | — | 1 | `c3` | Dentro de una rutina se escribe `.Ret()` |
+| `jump` | `.jump(@fin)` | 1 | `eb rel8` | Corto; promoción automática a `e9 rel32` |
+| `jump` | `.jump(Rax)` | 1 | `ff e0` | Indirecto |
 
-### 10.5 Sistema y relleno
+#### Saltos condicionales — Gramática cerrada (16 formas)
 
-| Instrucción | Bytes | Notas |
+Sintaxis: `.jump(destino if rFlags.condicion)`
+
+| DSL | NASM | Lee en `rFlags` |
 |---|---|---|
-| `Nop` | `90` | |
-| `Leave` | `c9` | Generado en el epílogo |
-| `Int` | `cd imm8` (`.Int(0x80)` → `cd 80`) | Codificable; su efecto depende del sistema |
-| `Int3` | `cc` | Punto de parada del depurador |
-| `Syscall` | `0f 05` | Codificable, pero **fuera** del alcance útil de la Fase 1 |
+| `.jump(@fin if rFlags.zero)` | `je` / `jz` | `ZF = 1` (bit 6) |
+| `.jump(@fin if not rFlags.zero)` | `jne` / `jnz` | `ZF = 0` |
+| `.jump(@fin if rFlags.carry)` | `jc` / `jb` | `CF = 1` (bit 0) |
+| `.jump(@fin if not rFlags.carry)` | `jnc` / `jae` | `CF = 0` |
+| `.jump(@fin if rFlags.sign)` | `js` | `SF = 1` (bit 7) |
+| `.jump(@fin if not rFlags.sign)` | `jns` | `SF = 0` |
+| `.jump(@fin if rFlags.overflow)` | `jo` | `OF = 1` (bit 11) |
+| `.jump(@fin if not rFlags.overflow)` | `jno` | `OF = 0` |
+| `.jump(@fin if rFlags.parity)` | `jp` / `jpe` | `PF = 1` (bit 2) |
+| `.jump(@fin if not rFlags.parity)` | `jnp` / `jpo` | `PF = 0` |
+| `.jump(@fin if rFlags.carry or rFlags.zero)` | `jbe` | `CF=1` o `ZF=1` |
+| `.jump(@fin if not rFlags.carry and not rFlags.zero)` | `ja` | `CF=0` y `ZF=0` |
+| `.jump(@fin if rFlags.sign unequal rFlags.overflow)` | `jl` | `SF ≠ OF` |
+| `.jump(@fin if rFlags.sign equal rFlags.overflow)` | `jge` | `SF = OF` |
+| `.jump(@fin if rFlags.zero or rFlags.sign unequal rFlags.overflow)` | `jle` | `ZF=1` o `SF≠OF` |
+| `.jump(@fin if not rFlags.zero and rFlags.sign equal rFlags.overflow)` | `jg` | `ZF=0` y `SF=OF` |
 
-Fuera del catálogo de Fase 1: `Div`, `IdiV`, multiplicación de un operando, `Movsx`, cadenas, `Cmpxchg`, y toda la familia de coma flotante y SIMD. Ver "Próximos pasos".
+#### Llamada y retorno
+
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `call` | `.call(Rutina)` | 1 | `e8 rel32` | Empuja `RIP` en pila y salta |
+| `call` | `.call(Rax)` | 1 | `ff d0` | Indirecto |
+| `ret` | `.ret()` | 1 | `c3` | Saca `RIP` de pila. No recibe operando; retorno en `Rax` por ABI |
+
+### 10.5 Sistema y relleno (bare metal Fase 1)
+
+| Instrucción | Ejemplo | Nivel | Bytes | Notas |
+|---|---|---|---|---|
+| `nop` | `.nop()` | 1 | `90` | No hace nada |
+| `setCarry` | `.setCarry()` | 1 | `f9` | `CF = 1` |
+| `clearCarry` | `.clearCarry()` | 1 | `f8` | `CF = 0` |
+| `toggleCarry` | `.toggleCarry()` | 1 | `f5` | `CF = !CF` |
+| `setDirection` | `.setDirection()` | 1 | `fd` | `DF = 1` (cadenas hacia atrás) |
+| `clearDirection` | `.clearDirection()` | 1 | `fc` | `DF = 0` (cadenas hacia adelante) |
+
+**Deferidos a fase con SO/interrupciones:** `sti`/`.enableInterrupts()`, `cli`/`.disableInterrupts()`, `int3`/`.breakpoint()`, `syscall`/`.syscall()`.
+
+Fuera del catálogo de Fase 1: `Div`, `Idiv`, multiplicación de un operando, `Movsx`, cadenas, `Cmpxchg`, y toda la familia de coma flotante y SIMD. Ver "Próximos pasos".
 
 ---
 
@@ -581,8 +632,8 @@ Fuera del catálogo de Fase 1: `Div`, `IdiV`, multiplicación de un operando, `M
 Son **obligatorias** porque hacen que los bytes sean predecibles y comparables con NASM:
 
 1. **Forma más corta y determinista.** Para los mismos operandos, siempre la misma secuencia de bytes, la más corta posible. No hay opciones de usuario.
-2. **Inmediatos con signo.** Si el inmediato cabe en 8 bits con signo y existe esa forma, se usa: `.Add(Rax, 5)` son 4 bytes, `.Add(Rax, 1000)` son 6.
-3. **`Mov` con inmediato en 64 bits**, en este orden: si el valor cabe en 32 bits sin signo → `mov r32, imm32` (`b8`); si cabe con signo en 32 bits → `mov r/m64, imm32` (`48 c7 /0`); si no → `mov r64, imm64` (`48 b8`).
+2. **Inmediatos con signo.** Si el inmediato cabe en 8 bits con signo y existe esa forma, se usa: `.alu(5 add Rax)` son 4 bytes, `.alu(1000 add Rax)` son 6.
+3. **`cp` con inmediato en 64 bits**, en este orden: si el valor cabe en 32 bits sin signo → `mov r32, imm32` (`b8`); si cabe con signo en 32 bits → `mov r/m64, imm32` (`48 c7 /0`); si no → `mov r64, imm64` (`48 b8`).
 4. **Desplazamientos**: `disp8` cuando cabe con signo, `disp32` en caso contrario.
 5. **Direccionamiento relativo a la instrucción** por defecto para todo símbolo (PIC). Nunca absoluto en Fase 1.
 6. **Prefijo REX** cuando el tamaño es 64 bits o el registro es `R8`–`R15`, más los casos especiales `Spl`/`Bpl`/`Sil`/`Dil`.
@@ -649,16 +700,16 @@ program AddTwoNumbers
 
     routine AddTwoNumbers
         parameter a, b
-        .Mov(Rax, a)
-        .Add(Rax, b)
-        .Ret()
+        .alu(a to Rax)
+        .alu(Rax add b)
+        .ret()
     end
 
     routine main
-        .Mov(Rcx, 10)
-        .Mov(Rdx, 32)
-        .Call(AddTwoNumbers)
-        .Ret()
+        .cp(10 to Rcx)
+        .cp(32 to Rdx)
+        .call(AddTwoNumbers)
+        .ret()
     end
 end
 ```
@@ -667,12 +718,12 @@ end
 
 | Paso | Instrucción | Estado de `Rcx` | Estado de `Rdx` | Estado de `Rax` |
 |---|---|---|---|---|
-| 1 | `.Mov(Rcx, 10)` | 10 | — | — |
-| 2 | `.Mov(Rdx, 32)` | 10 | 32 | — |
-| 3 | `.Call(AddTwoNumbers)` | 10 | 32 | — |
-| 4 | (dentro) `.Mov(Rax, a)` | 10 | 32 | 10 |
-| 5 | (dentro) `.Add(Rax, b)` | 10 | 32 | 42 |
-| 6 | `.Ret()` de `main` | 10 | 32 | 42 |
+| 1 | `.cp(10 to Rcx)` | 10 | — | — |
+| 2 | `.cp(32 to Rdx)` | 10 | 32 | — |
+| 3 | `.call(AddTwoNumbers)` | 10 | 32 | — |
+| 4 | (dentro) `.alu(a to Rax)` | 10 | 32 | 10 |
+| 5 | (dentro) `.alu(Rax add b)` | 10 | 32 | 42 |
+| 6 | `.ret()` de `main` | 10 | 32 | 42 |
 
 Criterio de aceptación: cargado en memoria y llamado como `long AddTwoNumbers(long, long)` devuelve **42**, y el mismo binario funciona cargado en dos direcciones distintas.
 
@@ -687,16 +738,16 @@ program AddTwoNumbersPortable
 
     routine AddTwoNumbers
         parameter a, b
-        .Mov(R0q, a)         // R0q mapea a Rax (x64) o X0 (ARM)
-        .Add(R0q, b)
-        .Ret()
+        .alu(a to R0q)         // R0q mapea a Rax (x64) o X0 (ARM)
+        .alu(R0q add b)
+        .ret()
     end
 
     routine main
-        .Mov(R0q, 10)
-        .Mov(R1q, 32)
-        .Call(AddTwoNumbers)
-        .Ret()
+        .alu(10 to R0q)
+        .alu(32 to R1q)
+        .call(AddTwoNumbers)
+        .ret()
     end
 end
 ```
@@ -707,7 +758,7 @@ end
 
 | Código | Situación | Mensaje esperado |
 |---|---|---|
-| `FASM2001` | Falta un paréntesis | "Falta el ')' de la instrucción `.Mov(`" |
+| `FASM2001` | Falta un paréntesis | "Falta el ')' de la instrucción `.cp(`" |
 | `FASM3001` | Quinto parámetro | "Win64 admite 4 parámetros en registro; el paso por pila llega en la Fase 7" |
 | `FASM3002` | `Ah` con `R8` | "`Ah` no puede combinarse con registros que exigen prefijo REX" |
 | `FASM3003` | Símbolo duplicado | "`main` ya está definido en la línea 12" |
@@ -717,11 +768,20 @@ end
 | `FASM3007` | `@param` sin declararlo | "`@param x` pero la rutina no declara `parameter x`" |
 | `FASM3008` | Clave de documentación no resuelta | "`bootloader.start` no existe en `fasm.fdoc`" |
 | `FASM3009` | Falta idioma por defecto | "Entrada de documentación sin el idioma por defecto del proyecto" |
-| `FASM4001` | Combinación no válida | "No existe la forma `.Add(Rax, Rbx, Rcx)`" |
+| `FASM4001` | Combinación no válida | "No existe la forma `.alu(Rax add Rbx Rcx)`" |
 | `FASM4002` | Escala no válida | "La escala debe ser 1, 2, 4 u 8, no 3" |
 | `FASM4003` | Índice prohibido | "`Rsp` no puede usarse como índice" |
 | `FASM5001` | Símbolo externo en imagen plana | "`printf` es externo: hace falta un ejecutable del SO (Fase 7)" |
 | `FASM5002` | Dirección absoluta | "En Fase 1 usa `[Rel símbolo]`" |
+
+### Diagnósticos de saltos condicionales
+
+| Código | Situación | Mensaje esperado |
+|---|---|---|
+| `FASM4010` | Condición de salto inválida | "Condición `rFlags.foo` no válida. Use una de las 16 formas permitidas." |
+| `FASM4011` | `not` mal usado | "`not` solo puede preceder una bandera simple (`rFlags.zero`, `rFlags.carry`, etc.)." |
+| `FASM4012` | Bandera indefinida en salto | "La bandera `rFlags.zero` está indefinida tras la instrucción anterior (`.alu(Ebx imul Eax)`)." |
+| `FASM4013` | Operador no soportado | "Operador `xor` no válido en condición de salto. Use `equal`, `unequal`, `or`, `and`." |
 
 ---
 
@@ -738,6 +798,14 @@ end
 | Sin gramática formal | EBNF en la sección 3 | Permite implementar el analizador sin interpretar ejemplos |
 | Dos superficies sin jerarquía | DSL `.fasm` canónica, API de C# derivada | Evita mantener dos lenguajes ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | Sin definición de `parameter` en §2 | `parameter` definido como alias del registro de la ABI, con traza de ejemplo | El lector no sabía qué era `n` ni de dónde salía el valor |
+| `Mov` / `Movzx` / `Movsx` | `cp` / `copyZeroExtended` / `copySignedExtended` | `Mov` implica movimiento; físicamente es copia. Nombres físicamente precisos. |
+| `Add` / `Sub` / `And` / `Or` / `Xor` / `Cmp` / `Test` / `Imul` | `.alu(origen operacion destino)` | Grupo ALU unificado; separador por espacios; `subNoWrite`/`andNoWrite` para solo banderas. |
+| `Push` / `Pop` | `stackWrite` / `stackRead` | Nombres físicos: escriben/leen la pila, no manipulan el puntero directamente. |
+| `Jmp` / `Je` / `Jne` / `Ja`... | `jump` / `jump(... if rFlags...)` | Gramática cerrada de 16 formas; `rFlags` expone banderas físicas (bits). |
+| `Call` / `Ret` | `call` / `ret` | Minúscula inicial; `ret` sin operando (retorno en `Rax` por ABI). |
+| `Nop` / `Stc` / `Clc` / `Std` / `Cld` | `nop` / `setCarry` / `clearCarry` / `setDirection` / `clearDirection` | Nombres descriptivos físicos; `sti/cli/int3/syscall` deferidos. |
+| `Lea` | `lea` | Mantenido; calcula dirección efectiva. |
+| `Movzx` / `Movsx` | `copyZeroExtended` / `copySignedExtended` | Explícito sobre la extensión (ceros vs signo). |
 
 ---
 
@@ -746,7 +814,9 @@ end
 1. Coma flotante y SIMD (`Xmm`), necesaria para código numérico y de gráficos.
 2. Directiva para incrustar fragmentos de archivos `.bin` (Fase 5) y su resolución de saltos.
 3. Documentación de símbolos (Fase 5): `///` resuelve texto desde `fasm.fdoc`.
-4. `Movsx`, `Div`, `Idiv`, multiplicación de un operando y desplazamientos (`Shl`, `Shr`, `Sar`).
+4. `Div`, `Idiv`, multiplicación de un operando y desplazamientos (`Shl`, `Shr`, `Sar`).
 5. Modo de entrada con sintaxis Intel/NASM clásica, para migrar código existente (`WinUIAsmCtrl`) sin reescribirlo a mano.
 6. **Sistema de macros.** El corpus de `WinUIAsmCtrl` usa macros de NASM (`%include`, `%define`, `CHILD`, `SENDI`, `PROLOGUE`) para no repetir bloques de creación de controles. Sin macros, FluentASM solo puede expresar ese código expandido a mano, lo que lo hace inviable en la práctica. Es un requisito **de la fase de ejecutables**, no un adorno.
-7. Condiciones compuestas del lenguaje (`If`/`While`) como azúcar sobre `.Cmp` + salto, solo si no esconden los bytes generados.
+7. Condiciones compuestas del lenguaje (`If`/`While`) como azúcar sobre `.alu` + `.jump`, solo si no esconden los bytes generados.
+8. **Capa portable (Nivel 1):** Sintaxis unificada para comparaciones y saltos (ej: `.jump(@fin if a less b)`) que el backend reduce a la arquitectura destino.
+9. **Diagnóstico de `rFlags`:** Rastreo de banderas definidas/indefinidas por instrucción para emitir `FASM4012` en saltos condicionales.
