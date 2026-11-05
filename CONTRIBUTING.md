@@ -90,7 +90,7 @@ está publicando. Cuando `fasm_admin` escribe un `.fproj`, **copia** ese valor a
 
 Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
 
-- Usa **PascalCase** para clases, métodos y propiedades: `Mov`, `Add`, `Rax`.
+- Usa **PascalCase** para clases, métodos y propiedades: `Cp`, `Alu`, `Jump`, `Rax`.
 - Usa **camelCase** para variables locales y parámetros: `valorOrigen`, `registroDestino`.
 - Usa `var` cuando el tipo sea obvio, igual que en C# moderno.
 - Comenta el código fuente (C# y `.fasm`) usando `//`, `/* */` o `///`. En `.fasm`, `///` documenta símbolos (`program`, `routine`) y guarda el texto en `fasm.fdoc` con clave automática `Parte.Símbolo`.
@@ -101,6 +101,18 @@ Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
   [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md); no se inventan alias.
 - `.editorconfig` en la raíz es obligatorio y las advertencias del compilador se tratan como errores
   en la integración continua.
+
+**Mnemónicos actuales (según FLUENT_SYNTAX.md §10):**
+
+| Categoría | Nombres en código C# / DSL |
+|---|---|
+| Transferencia | `cp`, `copyZeroExtended`, `copySignedExtended`, `lea` |
+| ALU | `alu` (operaciones: `add`, `sub`, `and`, `or`, `xor`, `imul`, `subNoWrite`, `andNoWrite`) |
+| Pila | `stackWrite`, `stackRead`, `stackPointerGet`, `stackPointerSet` |
+| Control de flujo | `jump` (con `if rFlags...`), `call`, `ret` |
+| Sistema (bare metal) | `nop`, `setCarry`, `clearCarry`, `toggleCarry`, `setDirection`, `clearDirection` |
+
+No se usan: `Mov`, `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul`, `Push`, `Pop`, `Jmp`, `Je`, `Jne`, `Ja`, `Jae`, `Jb`, `Jbe`, `Jg`, `Jge`, `Jl`, `Jle`, `Js`, `Jns`, `Jo`, `Jno`, `Jp`, `Jnp`, `Call`, `Ret`, `Nop`, `Int`, `Int3`, `Syscall`, `Leave`, `Stc`, `Clc`, `Cmc`, `Std`, `Cld`, `Movzx`, `Movsx`, `Set`, `Mov`.
 
 ## Estructura del código fuente (`src/`)
 
@@ -169,7 +181,7 @@ La ABI activa se declara siempre (en `.fproj` o línea de comandos). Nunca se ad
 
 - `parameter` **no elige registros**: los asigna la ABI, en orden. El nombre es un alias legible.
 - El compilador **genera** el prólogo (guardar `Rbp`, establecer marco, reservar locales alineado a 16) y el epílogo alrededor del cuerpo.
-- `.Ret()` ejecuta el epílogo y el `ret`. No se escribe `ret` a mano en rutinas con `parameter`.
+- `.ret()` ejecuta el epílogo y el `ret`. No se escribe `ret` a mano en rutinas con `parameter`.
 - Límite Fase 1: máximo 4 parámetros por rutina.
 - `naked` fuerza ausencia de prólogo/epílogo aunque haya parámetros o locales.
 
@@ -182,7 +194,7 @@ La ABI activa se declara siempre (en `.fproj` o línea de comandos). Nunca se ad
 ### Pila
 
 - Crece hacia abajo.
-- Al momento de `call`, `Rsp` debe ser múltiplo de 16.
+- Al momento de `.call`, `Rsp` debe ser múltiplo de 16.
 - Espacio de sombra de 32 bytes en Win64 cumple el ajuste de alineación tras empujar la dirección de retorno.
 - No existe "zona roja" (red zone) en Win64.
 
@@ -218,7 +230,7 @@ Entrada API C# ─────────────┘
 | `FASM1xxx` | Léxico | `FASM1002` carácter inesperado |
 | `FASM2xxx` | Sintáctico | `FASM2001` falta paréntesis de cierre |
 | `FASM3xxx` | Semántico y ABI | `FASM3001` más de 4 parámetros; `FASM3002` registro 8 bits alto con REX; `FASM3006` documentación sin declaración; `FASM3008` clave no resuelta en `fasm.fdoc` |
-| `FASM4xxx` | Codificación | `FASM4001` no existe forma para esos operandos |
+| `FASM4xxx` | Codificación | `FASM4001` no existe forma para esos operandos; `FASM4010` condición de salto inválida; `FASM4011` `not` mal usado; `FASM4012` bandera indefinida en salto; `FASM4013` operador no soportado en condición |
 | `FASM5xxx` | Layout y relocalizaciones | `FASM5001` símbolo externo en imagen plana |
 
 ---
@@ -402,6 +414,15 @@ Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memori
 | "Núcleo" (sin calificar) | Unidad de ejecución independiente |
 | "Hilo" (sin calificar) | Contexto de ejecución hardware |
 | "Caché" (sin definir) | Memoria intermedia de acceso rápido |
+| "RFLAGS" / "EFLAGS" | `rFlags` (registro de banderas, bits individuales) |
+| "Zero Flag" / "ZF" | `rFlags.zero` (bit 6) |
+| "Carry Flag" / "CF" | `rFlags.carry` (bit 0) |
+| "Sign Flag" / "SF" | `rFlags.sign` (bit 7) |
+| "Overflow Flag" / "OF" | `rFlags.overflow` (bit 11) |
+| "Parity Flag" / "PF" | `rFlags.parity` (bit 2) |
+| "Auxiliary Carry Flag" / "AF" | `rFlags.auxCarry` (bit 4) |
+| "Direction Flag" / "DF" | `rFlags.direction` (bit 10) |
+| "Interrupt Flag" / "IF" | `rFlags.interrupt` (bit 9) |
 
 ### Correspondencia con código (C#)
 
@@ -413,6 +434,22 @@ Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memori
 | Parte | `Part` | `Library`, `Module` |
 | Bajar (*lowering*) | `Lower` | `Translate` |
 | Imagen plana | `FlatImage` | `RawBinary` |
+| Copia (instrucción) | `Cp` | `Mov` |
+| Operación ALU | `Alu` | `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul` |
+| Escritura en pila | `StackWrite` | `Push` |
+| Lectura de pila | `StackRead` | `Pop` |
+| Salto | `Jump` | `Jmp`, `Je`, `Jne`, `Ja`, `Jae`, `Jb`, `Jbe`, `Jg`, `Jge`, `Jl`, `Jle`, `Js`, `Jns`, `Jo`, `Jno`, `Jp`, `Jnp` |
+| Llamada | `Call` | `Call` (se mantiene, solo minúscula) |
+| Retorno | `Ret` | `Ret` (se mantiene, solo minúscula) |
+| Sin operación | `Nop` | `Nop` |
+| Establecer acarreo | `SetCarry` | `Stc` |
+| Limpiar acarreo | `ClearCarry` | `Clc` |
+| Invertir acarreo | `ToggleCarry` | `Cmc` |
+| Establecer dirección | `SetDirection` | `Std` |
+| Limpiar dirección | `ClearDirection` | `Cld` |
+| Cargar dirección efectiva | `Lea` | `Lea` (se mantiene) |
+| Extender con ceros | `CopyZeroExtended` | `Movzx` |
+| Extender con signo | `CopySignedExtended` | `Movsx` |
 
 ---
 
@@ -424,6 +461,44 @@ Una decisión que afecte a más de un archivo (formato, sintaxis, arquitectura d
 2. Escribe la decisión con formato: contexto, decisión, consecuencias y alternativas descartadas.
 3. Al fusionarse, la decisión es obligatoria y los documentos afectados se actualizan en el mismo PR.
 4. Las decisiones no se editan: si una cambia, se escribe una nueva que la reemplaza.
+
+Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` o `plan-`. Estos **no se suben al origen**. Una vez implementado en código y aprobado, el contenido se pasa a documentación en este archivo o en `FLUENT_SYNTAX.md`.
+
+---
+
+### Decisión 0006 — Sintaxis física unificada (2026-11-05)
+
+**Contexto:** La sintaxis anterior usaba mnemónicos históricos de NASM (`Mov`, `Add`, `Sub`, `Jmp`, `Je`, `Call`, `Ret`, `Push`, `Pop`, `Stc`, `Clc`, `Lea`, `Movzx`, `Movsx`) que no reflejan la física real de la CPU. Además, el orden de operandos `destino, origen` sigue la convención de NASM/x64, no el orden lógico "origen a destino".
+
+**Opciones consideradas:**
+- A) Mantener sintaxis NASM-compatible para verificación directa con oráculo.
+- B) Rediseñar con nombres físicamente precisos y orden `origen to destino`, rompiendo correspondencia 1:1 con NASM.
+
+**Decisión:** Opción B.
+
+**Cambios aplicados:**
+
+| Categoría | Antes | Ahora | Motivo físico |
+|---|---|---|---|
+| Transferencia | `Mov` | `cp` (copy) | No mueve, copia; origen se preserva |
+| Transferencia | `Movzx` / `Movsx` | `copyZeroExtended` / `copySignedExtended` | Explícito sobre extensión (ceros vs signo) |
+| ALU | `Add`/`Sub`/`And`/`Or`/`Xor`/`Cmp`/`Test`/`Imul` | `.alu(origen operacion destino)` | Grupo unificado; separador por espacio; `subNoWrite`/`andNoWrite` para solo banderas |
+| Pila | `Push` / `Pop` | `stackWrite` / `stackRead` | Escriben/leen la pila (memoria), no manipulan puntero directamente |
+| Control de flujo | `Jmp`/`Je`/`Jne`/`Ja`... | `jump` / `jump(... if rFlags...)` | Gramática cerrada de 16 formas; `rFlags` expone banderas como bits |
+| Llamada/retorno | `Call` / `Ret` | `call` / `ret` | Minúscula inicial; `ret` sin operando (retorno en `Rax` por ABI) |
+| Sistema | `Nop`/`Stc`/`Clc`/`Std`/`Cld` | `nop`/`setCarry`/`clearCarry`/`setDirection`/`clearDirection` | Nombres descriptivos físicos; `sti/cli/int3/syscall` deferidos |
+| Dirección | `Lea` | `lea` | Mantenido; calcula dirección efectiva |
+| Extensión | `Movzx`/`Movsx` | `copyZeroExtended`/`copySignedExtended` | Explícito sobre extensión (ceros vs signo) |
+| Orden operandos | `destino, origen` | `origen to destino` (en `cp`) / `origen operacion destino` (en `alu`) | Legible en español; refleja flujo físico de datos |
+
+**Consecuencias:**
+- **Ganancia:** Nombres físicamente precisos, orden `origen to destino` legible, coherencia con principio "físico, no marketing".
+- **Pérdida:** Rompe correspondencia 1:1 con mnemónicos NASM/x64. Verificación contra NASM requiere traducción mental (`cp` → `mov`, `origen to destino` → `destino, origen`).
+- **Mitigación:** Tabla de bytes sigue verificable con NASM; solo cambia mnemónico fuente y orden operandos en DSL `.fasm`.
+
+**Documentación actualizada:** `FLUENT_SYNTAX.md` (secciones 1–17), `CONTRIBUTING.md` (estándares, diagnósticos, vocabulario), `proposal-0001-cp-operand-order.md` (fases 1–5 completas).
+
+---
 
 Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` o `plan-`. Estos **no se suben al origen**. Una vez implementado en código y aprobado, el contenido se pasa a documentación en este archivo o en `FLUENT_SYNTAX.md`.
 
