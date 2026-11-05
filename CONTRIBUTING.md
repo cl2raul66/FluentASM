@@ -141,7 +141,7 @@ FluentASM es un lenguaje ensamblador con sintaxis fluida, escrito en C#. Traduce
 
 ### Principios rectores
 
-1. **Claridad sobre brevedad.** Prefiere `.Mov(Eax, 10)` sobre `mov eax, 10`.
+1. **Claridad sobre brevedad.** Prefiere `.copy(10 to Eax)` sobre `mov eax, 10`.
 2. **Empatía con quien aprende.** Cada concepto nuevo viene con analogía y ejemplo.
 3. **Sintaxis fluida y encadenada.** Inspirado en LINQ y builders de C#.
 4. **C# como lengua franca.** El proyecto está en C# y su API refleja la experiencia de .NET.
