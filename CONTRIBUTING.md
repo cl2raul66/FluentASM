@@ -98,11 +98,11 @@ Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
 - Espacios de nombres con ámbito de archivo (`namespace FluentASM.Core;`) y tipos de referencia
   anulables activados (`<Nullable>enable</Nullable>`).
 - Los nombres de registros, mnemónicos y directivas del lenguaje se toman **siempre** de
-  [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md); no se inventan alias.
+  [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) (común) y [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) (x64); no se inventan alias.
 - `.editorconfig` en la raíz es obligatorio y las advertencias del compilador se tratan como errores
   en la integración continua.
 
-**Mnemónicos actuales (según FLUENT_SYNTAX.md §10):**
+**Mnemónicos actuales (según [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#10-catálogo-de-instrucciones-x64-fase-1)):**
 
 | Categoría | Nombres en código C# / DSL |
 |---|---|

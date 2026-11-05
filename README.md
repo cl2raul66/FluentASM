@@ -38,7 +38,7 @@ dotnet test
 ```
 
 Más detalles sobre arquitectura, contribución, ramas, PRs y versionado en [CONTRIBUTING.md](CONTRIBUTING.md).
-La referencia completa de sintaxis, registros y catálogo de instrucciones está en [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md).
+La referencia completa de sintaxis común está en [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) y la específica de x64 en [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md).
 
 ## Estructura del repositorio
 
