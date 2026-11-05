@@ -10,24 +10,7 @@ FluentASM es un **ensamblador** con una sintaxis fluida.
 
 Un ensamblador es una herramienta que traduce instrucciones escritas por personas a los bytes que el procesador ejecuta directamente. FluentASM es el ensamblador; el programa en C# que lo implementa es su **bootstrap** (la primera implementación, que más adelante se sustituirá por el propio lenguaje, ver Fase 11 en la sección "Roadmap" de [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-Si vienes de C#:
-
-- En C# escribes código, el compilador lo traduce a **IL** y el *runtime* de .NET lo ejecuta.
-- En FluentASM escribes instrucciones, el ensamblador las traduce a **código máquina nativo** (bytes crudos) y la CPU los ejecuta sin ninguna máquina virtual intermedia.
-
-## Analogías con C#
-
-| Concepto de ensamblador | Equivalente aproximado en C# |
-|---|---|
-| Instrucción | Una llamada a método |
-| Registro | Una variable local muy rápida dentro del procesador |
-| Memoria | Un arreglo o un objeto en el *heap* |
-| Etiqueta (*label*) | El nombre de un método o un `goto` |
-| Salto (*jump*) | Un `goto`, `break`, `continue` o llamada a método |
-| Ensamblado | Compilar |
-| Código máquina | Los bytes que la CPU entiende (análogo al IL, pero sin máquina virtual) |
-| Rutina | Un método con parámetros y valor de retorno |
-| ABI | El contrato que dice en qué registro llega cada parámetro |
+Un ensamblador traduce instrucciones a **código máquina nativo** (bytes crudos) que la CPU ejecuta directamente, sin máquina virtual intermedia ni *runtime* instalado.
 
 ---
 

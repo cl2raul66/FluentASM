@@ -2,8 +2,8 @@
 
 Un ensamblador con **sintaxis fluida**, escrito en C#.
 
-Escribir ensamblador debería ser tan cómodo y legible como escribir C#. FluentASM traduce instrucciones
-encadenadas con aspecto de método de C# a **código máquina nativo** y genera imágenes binarias que no
+Escribir ensamblador debería ser tan cómodo y legible como escribir **código fluido**. FluentASM traduce instrucciones
+encadenadas con aspecto de **código fluido** a **código máquina nativo** y genera imágenes binarias que no
 necesitan ningún runtime.
 
 ```fasm
@@ -20,7 +20,7 @@ end
 
 ## ¿Qué es FluentASM?
 
-- Un lenguaje ensamblador con sintaxis inspirada en C# (métodos encadenados, `PascalCase`, autocompletado).
+- Un lenguaje ensamblador con sintaxis inspirada en **código fluido**.
 - Genera **código máquina nativo**, no bytecode ni intermedio. No hay máquina virtual ni runtime.
 - Soporta múltiples arquitecturas (empezando por x64) y puede ejecutarse sobre sistema operativo o directamente sobre hardware (bare metal).
 - Los archivos de proyecto (`.fproj`) y de solución (`.fworkspace`) son estrictamente binarios para lectura rápida por herramientas.
@@ -32,21 +32,14 @@ end
 
 ## Cómo empezar
 
-```powershell
-dotnet build
-dotnet test
-```
-
 Más detalles sobre arquitectura, contribución, ramas, PRs y versionado en [CONTRIBUTING.md](CONTRIBUTING.md).
 La referencia completa de sintaxis común está en [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) y la específica de x64 en [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md).
 
 ## Estructura del repositorio
 
-```
-src/     → Código fuente principal (FluentASM.Core, FluentASM.Compiler, FluentASM.Admin, pruebas)
-rsc/     → Recursos del proyecto (se añaden solo cuando se necesiten)
-.github/ → Plantillas de issues y pull requests
-```
+- `src/` → Código fuente principal para cada proyecto, por ejemplo, FluentASM.Core, FluentASM.Compiler, FluentASM.Admin, etc
+- `rsc/` → Recursos del proyecto (se añaden solo cuando se necesiten)
+- `.github/` → Plantillas de issues y pull requests
 
 ## Licencia
 
