@@ -1,6 +1,6 @@
 # Contribución
 
-Gracias por interesarte en contribuir a FluentASM. Este proyecto está diseñado para ser accesible, especialmente si vienes de C# y no tienes experiencia previa con compiladores o ensambladores.
+Gracias por interesarte en contribuir a FluentASM. Este proyecto está diseñado para ser accesible, especialmente si no tienes experiencia previa con compiladores o ensambladores.
 
 ## Requisitos previos
 
@@ -8,7 +8,7 @@ Para trabajar en FluentASM necesitas:
 
 | Herramienta | Versión | Para qué |
 |---|---|---|
-| .NET SDK | 10.0 (o superior) | Compilar y probar el ensamblador en C# |
+| .NET SDK | 10.0 (o superior) | Compilar y probar el ensamblador |
 | Git | cualquier reciente | Control de versiones |
 | Editor | VS 2022 / VS Code / Rider | Escribir código |
 | NASM | 2.16+ | Referencia opcional para verificar bytes x64 |
@@ -86,25 +86,23 @@ nunca el `.fproj` binario—, de modo que no hace falta instalar FluentASM para 
 está publicando. Cuando `fasm_admin` escribe un `.fproj`, **copia** ese valor al bloque
 `ProductVersion`.
 
-## Estándares de código (estilo C#)
+## Estándares de código
 
-Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
+El proyecto sigue convenciones de código consistentes:
 
-- Usa **PascalCase** para clases, métodos y propiedades: `Cp`, `Alu`, `Jump`, `Rax`.
+- Usa **PascalCase** para tipos, métodos y propiedades: `Cp`, `Alu`, `Jump`, `Rax`.
 - Usa **camelCase** para variables locales y parámetros: `valorOrigen`, `registroDestino`.
-- Usa `var` cuando el tipo sea obvio, igual que en C# moderno.
-- Comenta el código fuente (C# y `.fasm`) usando `//`, `/* */` o `///`. En `.fasm`, `///` documenta símbolos (`program`, `routine`) y guarda el texto en `fasm.fdoc` con clave automática `Parte.Símbolo`.
+- Usa inferencia de tipos cuando el tipo sea obvio.
+- Comenta el código fuente (`.fasm` y código del compilador) usando `//`, `/* */` o `///`. En `.fasm`, `///` documenta símbolos (`program`, `routine`) y guarda el texto en `fasm.fdoc` con clave automática `Parte.Símbolo`.
 - No uses abreviaturas crípticas. `registroDestino` es mejor que `rd`.
-- Espacios de nombres con ámbito de archivo (`namespace FluentASM.Core;`) y tipos de referencia
-  anulables activados (`<Nullable>enable</Nullable>`).
 - Los nombres de registros, mnemónicos y directivas del lenguaje se toman **siempre** de
   [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) (común) y [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) (x64); no se inventan alias.
-- `.editorconfig` en la raíz es obligatorio y las advertencias del compilador se tratan como errores
+- `.editorconfig` en la raíz es obligatorio y las advertencias se tratan como errores
   en la integración continua.
 
 **Mnemónicos actuales (según [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#10-catálogo-de-instrucciones-x64-fase-1)):**
 
-| Categoría | Nombres en código C# / DSL |
+| Categoría | Nombres en DSL |
 |---|---|
 | Transferencia | `copy`, `copyZeroExtended`, `copySignedExtended`, `lea` |
 | ALU | `alu` (operaciones: `add`, `sub`, `and`, `or`, `xor`, `imul`, `subNoWrite`, `andNoWrite`) |
@@ -137,20 +135,20 @@ Cada proyecto es independiente pero forma parte del mismo ecosistema. Puedes amp
 
 ### Qué es FluentASM
 
-FluentASM es un lenguaje ensamblador con sintaxis fluida, escrito en C#. Traduce instrucciones encadenadas con aspecto de método de C# a **código máquina nativo** y genera imágenes binarias que no necesitan ningún runtime.
+FluentASM es un lenguaje ensamblador con sintaxis fluida. Traduce instrucciones encadenadas con sintaxis fluida a **código máquina nativo** y genera imágenes binarias que no necesitan ningún runtime.
 
 ### Principios rectores
 
 1. **Claridad sobre brevedad.** Prefiere `.copy(10 to Eax)` sobre `mov eax, 10`.
 2. **Empatía con quien aprende.** Cada concepto nuevo viene con analogía y ejemplo.
-3. **Sintaxis fluida y encadenada.** Inspirado en LINQ y builders de C#.
-4. **C# como lengua franca.** El proyecto está en C# y su API refleja la experiencia de .NET.
+3. **Sintaxis fluida y encadenada.** Inspirado en patrones de builders fluidos.
+4. **Experiencia fluida.** La API refleja la experiencia de programación fluida.
 5. **Educación antes que potencia.** Primero que la base sea clara, luego se añade potencia.
 
 ### Qué FluentASM NO es
 
-- No es un lenguaje de alto nivel como C# o Java.
-- No intenta reemplazar a C#.
+- No es un lenguaje de alto nivel como Java.
+- No intenta reemplazar lenguajes de alto nivel.
 - No es un compilador optimizador complejo (por ahora).
 - No requiere entender pipelines de CPU, caché o memoria virtual para empezar.
 - No es una máquina virtual: no ejecuta bytecode intermedio ni necesita runtime instalado.
@@ -206,7 +204,6 @@ La ABI activa se declara siempre (en `.fproj` o línea de comandos). Nunca se ad
 
 ```
 Entrada .fasm → IR de origen → Layout → Codificación → Emisión → Imagen .x64
-Entrada API C# ─────────────┘
 ```
 
 | Etapa | Invariante al terminar |
@@ -424,7 +421,7 @@ Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memori
 | "Direction Flag" / "DF" | `rFlags.direction` (bit 10) |
 | "Interrupt Flag" / "IF" | `rFlags.interrupt` (bit 9) |
 
-### Correspondencia con código (C#)
+### Correspondencia con código (compilador)
 
 | Concepto del glosario | Identificador en código | Prohibido |
 |---|---|---|
@@ -563,8 +560,8 @@ versión está publicando.
 Si encuentras un error, abre un issue con la siguiente información:
 1. Qué esperabas que pasara.
 2. Qué pasó en realidad.
-3. El código que usaste (fragmento de FluentASM o C#).
-4. Tu versión de .NET / C#.
+3. El código que usaste (fragmento de FluentASM).
+4. Tu versión del SDK de .NET.
 
 ## Licencia
 

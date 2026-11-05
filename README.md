@@ -1,6 +1,6 @@
 # FluentASM
 
-Un ensamblador con **sintaxis fluida**, escrito en C#.
+Un ensamblador con **sintaxis fluida**.
 
 Escribir ensamblador debería ser tan cómodo y legible como escribir **código fluido**. FluentASM traduce instrucciones
 encadenadas con aspecto de **código fluido** a **código máquina nativo** y genera imágenes binarias que no

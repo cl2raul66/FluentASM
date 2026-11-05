@@ -8,29 +8,17 @@
 
 FluentASM es un **ensamblador** con una sintaxis fluida.
 
-Un ensamblador es una herramienta que traduce instrucciones escritas por personas a los bytes que el procesador ejecuta directamente. FluentASM es el ensamblador; el programa en C# que lo implementa es su **bootstrap** (la primera implementación, que más adelante se sustituirá por el propio lenguaje, ver Fase 11 en la sección "Roadmap" de [CONTRIBUTING.md](CONTRIBUTING.md)).
+Un ensamblador es una herramienta que traduce instrucciones escritas por personas a los bytes que el procesador ejecuta directamente. FluentASM es el ensamblador; su **bootstrap** (la primera implementación, que más adelante se sustituirá por el propio lenguaje, ver Fase 11 en la sección "Roadmap" de [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Un ensamblador traduce instrucciones a **código máquina nativo** (bytes crudos) que la CPU ejecuta directamente, sin máquina virtual intermedia ni *runtime* instalado.
 
 ---
 
-## 1. Las dos superficies
+## 1. Código fluido (DSL `.fasm`)
 
-| Superficie | Aspecto | Cuándo se usa | Estado |
-|---|---|---|---|
-| **DSL `.fasm`** (canónica) | Archivos de texto con instrucciones encadenadas | Escribir programas | Fase 2 |
-| **API fluent de C#** | Objetos y métodos que devuelven el binario | Programas, pruebas y herramientas | Fase 1 |
+FluentASM se escribe en archivos `.fasm` con **código fluido**: instrucciones encadenadas con sintaxis fluida (`.copy(42 to Rax)`). Esta es la **única** forma de escribir programas.
 
-La superficie canónica es el DSL: define el lenguaje. La API de C# es la misma cosa escrita en C# y **debe producir exactamente los mismos bytes** (ver "Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md), superficie canónica). Por eso ambas usan los mismos mnemónicos y el mismo orden de operandos:
-
-```fasm
-.copy(42 to Rax)         // DSL .fasm
-```
-```csharp
-.copy(42 to Rax)         // API de C#
-```
-
-La diferencia es el envoltorio: el DSL usa un bloque `Program … End` con instrucciones precedidas de punto, y la API encadena métodos hasta llamar a `.Build()`.
+El compilador/ensamblador implementa internamente una **API fluida** que usa para procesar el código fluido, generar bytes, tests, tooling, etc. Esta API es **interna** — no es una forma alternativa de escribir programas.
 
 ---
 
@@ -436,7 +424,7 @@ Solo se guardan los nombres de símbolos, no el texto. Al compilar, el texto de 
 | `parameter a, b` sin destino | Parámetros asignados por ABI, con prólogo/epílogo | Cada implementación inventaba su convención |
 | Etiquetas locales con `.` | Etiquetas locales con `@` | `.` reservado para instrucciones |
 | Sin gramática formal | EBNF en sección 3 | Permite implementar analizador sin interpretar |
-| Dos superficies sin jerarquía | DSL `.fasm` canónica, API C# derivada | Evita mantener dos lenguajes |
+| Dos superficies sin jerarquía | DSL `.fasm` canónica (única) | Evita mantener dos lenguajes |
 | Sin definición de `parameter` | `parameter` = alias del registro de la ABI | El lector no sabía qué era `n` |
 | `Mov` / `Movzx` / `Movsx` | `copy` / `copyZeroExtended` / `copySignedExtended` | `Mov` implica movimiento; físicamente es copia |
 | `Add`/`Sub`/... | `.alu(origen operacion destino)` | Grupo ALU unificado; `subNoWrite`/`andNoWrite` para solo banderas |
