@@ -63,7 +63,7 @@ program MiPrograma              // nombre del programa (opcional)
 
     routine Doblar              // una rutina con un parámetro
         parameter n             // n es el nombre del 1.er parámetro (ABI: Rcx en Win64)
-        .alu(n to Rax)          // copia el valor del parámetro en Rax
+        .cp(n to Rax)           // copia el valor del parámetro en Rax
         .alu(Rax add Rax)       // Rax = Rax + Rax
         .ret()                  // devuelve Rax
     end
@@ -83,7 +83,7 @@ end
 | 1 | `.cp(21 to Rcx)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
 | 2 | `.call(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
 | 3 | `parameter n` | `n` no es un valor ni una variable: es el **nombre** del registro que la ABI asigna al primer parámetro. En Win64, `n` ≡ `Rcx`. |
-| 4 | `.alu(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
+| 4 | `.cp(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
 | 5 | `.alu(Rax add Rax)` | `Rax = 21 + 21 = 42`. |
 | 6 | `.ret()` | `Doblar` devuelve `Rax` (42). |
 | 7 | `.ret()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
@@ -110,7 +110,7 @@ program SumaDos
 
     routine AddTwoNumbers
         parameter a, b        // a ≡ Rcx, b ≡ Rdx (Win64)
-        .alu(a to Rax)        // Rax = a
+        .cp(a to Rax)         // Rax = a
         .alu(Rax add b)       // Rax = a + b
         .ret()                // devuelve Rax
     end
@@ -147,14 +147,14 @@ program SumaDosPortable
 
     routine AddTwoNumbers
         parameter a, b        // sin registros nativos; el compilador los mapea
-        .alu(a to R0q)        // R0q ≡ Rax (x64) o X0 (ARM64)
+        .cp(a to R0q)         // R0q ≡ Rax (x64) o X0 (ARM64)
         .alu(R0q add b)
         .ret()
     end
 
     routine main
-        .alu(10 to R0q)
-        .alu(32 to R1q)
+        .cp(10 to R0q)
+        .cp(32 to R1q)
         .call(AddTwoNumbers)
         .ret()
     end
@@ -201,14 +201,23 @@ mnemonicos          = "cp" | "alu" | "jump" | "call" | "ret"
                     | "nop" | "setCarry" | "clearCarry" | "toggleCarry"
                     | "setDirection" | "clearDirection"
                     | "lea" | "copyZeroExtended" | "copySignedExtended"
-                    | mnemonicoAlu | mnemonicoSaltoCondicional ;  (* validado contra el catálogo *)
+                    | mnemonicoAlu ;  (* validado contra el catálogo *)
 
 mnemonicoAlu        = "add" | "sub" | "and" | "or" | "xor" | "imul"
                     | "subNoWrite" | "andNoWrite" ;
 
-mnemonicoSaltoCondicional = "jump" ;  (* con cláusula 'if' obligatoria *)
+separador           = "to" | " " ;   (* 'to' para cp/copy*; espacio para alu/jump *)
 
-separador           = "to" | " " ;   (* 'to' para cp/copy*, espacio para alu/jump *)
+clausulaIf          = "if" rFlagsCondicion ;  (* solo para jump *)
+
+rFlagsCondicion     = [ "not" ] banderaSimple
+                    | "rFlags.carry" "or" "rFlags.zero"
+                    | "not" "rFlags.carry" "and" "not" "rFlags.zero"
+                    | "rFlags.sign" ( "equal" | "unequal" ) "rFlags.overflow"
+                    | "rFlags.zero" "or" "rFlags.sign" "unequal" "rFlags.overflow"
+                    | "not" "rFlags.zero" "and" "rFlags.sign" "equal" "rFlags.overflow" ;
+
+banderaSimple       = "rFlags." ( "carry" | "parity" | "zero" | "sign" | "overflow" ) ;
 
 operando            = registro | memoria | inmediato | referencia ;
 memoria             = [ tamano ] "[" expresionMemoria "]" ;
@@ -341,7 +350,7 @@ Reglas:
 
 1. La **escala** solo puede ser 1, 2, 4 u 8. Otro valor es `FASM4002`.
 2. `Rsp` y `R12` no pueden ser índice (`FASM4003`).
-3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.cp(1 to Byte [Rbx])` es `FASM3005`; se escribe `.cp(1 to Byte [Rbx])`.
+3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.cp(1 to [Rbx])` es `FASM3005`; se escribe `.cp(1 to Byte [Rbx])`.
 4. En Fase 1, el direccionamiento a símbolos es **siempre relativo** (`[Rel símbolo]`). Una dirección absoluta es `FASM5002` con la sugerencia de cómo reescribirla.
 5. `.cp(Rax to mensaje)` carga la **dirección** (equivalente a `.lea(Rax to mensaje)`), mientras que `.cp(Rax to [mensaje])` carga el **contenido**. Es la misma distinción que en un ensamblador clásico entre `offset` y `[ ]`.
 
@@ -381,7 +390,7 @@ section .data
 routine AddTwoNumbers
     parameter a, b          // Win64: a -> Rcx, b -> Rdx
 
-    .alu(a to Rax)
+    .cp(a to Rax)
     .alu(Rax add b)
     .ret()                  // el valor de retorno es Rax
 end
@@ -531,8 +540,8 @@ La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (mis
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
-| `lea` | `.lea(Rcx to [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
-| `lea` (de símbolo) | `.lea(Rcx to mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.cp(Rcx to mensaje)` |
+| `lea` | `.lea(Rcx [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
+| `lea` (de símbolo) | `.lea(Rcx mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.cp(Rcx to mensaje)` |
 
 ### 10.2 Aritmética y lógica (`.alu`)
 
@@ -700,8 +709,8 @@ program AddTwoNumbers
 
     routine AddTwoNumbers
         parameter a, b
-        .alu(a to Rax)
-        .alu(Rax add b)
+        .cp(a to Rax)          // copia el parámetro a Rax
+        .alu(Rax add b)        // Rax = Rax + b
         .ret()
     end
 
@@ -721,7 +730,7 @@ end
 | 1 | `.cp(10 to Rcx)` | 10 | — | — |
 | 2 | `.cp(32 to Rdx)` | 10 | 32 | — |
 | 3 | `.call(AddTwoNumbers)` | 10 | 32 | — |
-| 4 | (dentro) `.alu(a to Rax)` | 10 | 32 | 10 |
+| 4 | (dentro) `.cp(a to Rax)` | 10 | 32 | 10 |
 | 5 | (dentro) `.alu(Rax add b)` | 10 | 32 | 42 |
 | 6 | `.ret()` de `main` | 10 | 32 | 42 |
 
@@ -737,15 +746,15 @@ program AddTwoNumbersPortable
     entry main
 
     routine AddTwoNumbers
-        parameter a, b
-        .alu(a to R0q)         // R0q mapea a Rax (x64) o X0 (ARM)
+        parameter a, b        // sin registros nativos; el compilador los mapea
+        .cp(a to R0q)          // R0q ≡ Rax (x64) o X0 (ARM64)
         .alu(R0q add b)
         .ret()
     end
 
     routine main
-        .alu(10 to R0q)
-        .alu(32 to R1q)
+        .cp(10 to R0q)
+        .cp(32 to R1q)
         .call(AddTwoNumbers)
         .ret()
     end
