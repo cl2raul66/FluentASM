@@ -8,12 +8,12 @@ necesitan ningún runtime.
 
 ```fasm
 program MiPrograma
-    section .text
+    section .execute
     entry main
 
     routine main
-        .Mov(Rax, 42)   // el valor de retorno viaja en RAX
-        .Ret()
+        .copy(42 to Rax)   // el valor de retorno viaja en RAX
+        .ret()
     end
 end
 ```

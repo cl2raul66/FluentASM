@@ -390,7 +390,7 @@ section .data
 routine AddTwoNumbers
     parameter a, b          // Win64: a -> Rcx, b -> Rdx
 
-    .cp(a to Rax)
+    .copy(a to Rax)
     .alu(Rax add b)
     .ret()                  // el valor de retorno es Rax
 end
@@ -704,19 +704,19 @@ Este ejemplo utiliza registros concretos de x64. No es portable.
 
 ```fasm
 program AddTwoNumbers
-    section .text
+    section .execute
     entry main
 
     routine AddTwoNumbers
         parameter a, b
-        .cp(a to Rax)          // copia el parámetro a Rax
+        .copy(a to Rax)          // copia el parámetro a Rax
         .alu(Rax add b)        // Rax = Rax + b
         .ret()
     end
 
     routine main
-        .cp(10 to Rcx)
-        .cp(32 to Rdx)
+        .copy(10 to Rcx)
+        .copy(32 to Rdx)
         .call(AddTwoNumbers)
         .ret()
     end
@@ -727,10 +727,10 @@ end
 
 | Paso | Instrucción | Estado de `Rcx` | Estado de `Rdx` | Estado de `Rax` |
 |---|---|---|---|---|
-| 1 | `.cp(10 to Rcx)` | 10 | — | — |
-| 2 | `.cp(32 to Rdx)` | 10 | 32 | — |
+| 1 | `.copy(10 to Rcx)` | 10 | — | — |
+| 2 | `.copy(32 to Rdx)` | 10 | 32 | — |
 | 3 | `.call(AddTwoNumbers)` | 10 | 32 | — |
-| 4 | (dentro) `.cp(a to Rax)` | 10 | 32 | 10 |
+| 4 | (dentro) `.copy(a to Rax)` | 10 | 32 | 10 |
 | 5 | (dentro) `.alu(Rax add b)` | 10 | 32 | 42 |
 | 6 | `.ret()` de `main` | 10 | 32 | 42 |
 
@@ -742,19 +742,19 @@ Este ejemplo es idéntico en resultado, pero utiliza el núcleo portable. Funcio
 
 ```fasm
 program AddTwoNumbersPortable
-    section .text
+    section .execute
     entry main
 
     routine AddTwoNumbers
         parameter a, b        // sin registros nativos; el compilador los mapea
-        .cp(a to R0q)          // R0q ≡ Rax (x64) o X0 (ARM64)
+        .copy(a to R0q)         // R0q ≡ Rax (x64) o X0 (ARM64)
         .alu(R0q add b)
         .ret()
     end
 
     routine main
-        .cp(10 to R0q)
-        .cp(32 to R1q)
+        .copy(10 to R0q)
+        .copy(32 to R1q)
         .call(AddTwoNumbers)
         .ret()
     end
