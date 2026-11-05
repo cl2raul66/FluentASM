@@ -43,10 +43,10 @@ La superficie canónica es el DSL: define el lenguaje. La API de C# es la misma 
 Por eso ambas usan los mismos mnemónicos y el mismo orden de operandos:
 
 ```fasm
-.cp(42 to Rax)         // DSL .fasm
+.copy(42 to Rax)         // DSL .fasm
 ```
 ```csharp
-.cp(42 to Rax)         // API de C#
+.copy(42 to Rax)         // API de C#
 ```
 
 La diferencia es el envoltorio: el DSL usa un bloque `Program … End` con instrucciones precedidas de
@@ -58,18 +58,18 @@ punto, y la API encadena métodos hasta llamar a `.Build()`.
 
 ```fasm
 program MiPrograma              // nombre del programa (opcional)
-    section .text               // declaración de sección
+    section .execute            // declaración de sección
     entry main                  // símbolo de entrada (opcional)
 
     routine Doblar              // una rutina con un parámetro
         parameter n             // n es el nombre del 1.er parámetro (ABI: Rcx en Win64)
-        .cp(n to Rax)           // copia el valor del parámetro en Rax
+        .copy(n to Rax)         // copia el valor del parámetro en Rax
         .alu(Rax add Rax)       // Rax = Rax + Rax
         .ret()                  // devuelve Rax
     end
 
     routine main                // punto de entrada
-        .cp(21 to Rcx)          // pone el argumento 1 en Rcx (donde Doblar lo espera)
+        .copy(21 to Rcx)        // pone el argumento 1 en Rcx (donde Doblar lo espera)
         .call(Doblar)           // llama a Doblar; el resultado queda en Rax
         .ret()                  // devuelve Rax (que ahora vale 42)
     end
@@ -80,10 +80,10 @@ end
 
 | Paso | Instrucción | Qué ocurre |
 |---|---|---|
-| 1 | `.cp(21 to Rcx)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
+| 1 | `.copy(21 to Rcx)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
 | 2 | `.call(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
 | 3 | `parameter n` | `n` no es un valor ni una variable: es el **nombre** del registro que la ABI asigna al primer parámetro. En Win64, `n` ≡ `Rcx`. |
-| 4 | `.cp(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
+| 4 | `.copy(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
 | 5 | `.alu(Rax add Rax)` | `Rax = 21 + 21 = 42`. |
 | 6 | `.ret()` | `Doblar` devuelve `Rax` (42). |
 | 7 | `.ret()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
@@ -94,9 +94,9 @@ end
 
 1. La **indentación es cosmética**: los bloques terminan con `End`, nunca con espacio en blanco.
 2. Puede haber **un** `Program` por archivo; es opcional si el archivo solo tiene rutinas.
-3. Sin `Section` explícita, todo va a `.text`.
-4. Sin `Entry`, el punto de entrada es el primer símbolo de `.text`.
-5. El orden de las secciones en la imagen es el orden de declaración, con `.text` primero.
+3. Sin `Section` explícita, todo va a `.execute`.
+4. Sin `Entry`, el punto de entrada es el primer símbolo de `.execute`.
+5. El orden de las secciones en la imagen es el orden de declaración, con `.execute` primero.
 6. `parameter n` declara un parámetro nombrado; la ABI activa decide en qué registro físico llega.
 
 ### 2.3 Más casos de uso
@@ -105,19 +105,19 @@ end
 
 ```fasm
 program SumaDos
-    section .text
+    section .execute
     entry main
 
     routine AddTwoNumbers
         parameter a, b        // a ≡ Rcx, b ≡ Rdx (Win64)
-        .cp(a to Rax)         // Rax = a
+        .copy(a to Rax)       // Rax = a
         .alu(Rax add b)       // Rax = a + b
         .ret()                // devuelve Rax
     end
 
     routine main
-        .cp(10 to Rcx)        // argumento 1 -> Rcx
-        .cp(32 to Rdx)        // argumento 2 -> Rdx
+        .copy(10 to Rcx)      // argumento 1 -> Rcx
+        .copy(32 to Rdx)      // argumento 2 -> Rdx
         .call(AddTwoNumbers)  // Rax = 42
         .ret()                // main devuelve 42
     end
@@ -128,11 +128,11 @@ end
 
 ```fasm
 program RetornaCuarentaYDos
-    section .text
+    section .execute
     entry main
 
     routine main
-        .cp(42 to Rax)        // fija el valor de retorno directamente
+        .copy(42 to Rax)      // fija el valor de retorno directamente
         .ret()
     end
 end
@@ -142,19 +142,19 @@ end
 
 ```fasm
 program SumaDosPortable
-    section .text
+    section .execute
     entry main
 
     routine AddTwoNumbers
         parameter a, b        // sin registros nativos; el compilador los mapea
-        .cp(a to R0q)         // R0q ≡ Rax (x64) o X0 (ARM64)
+        .copy(a to R0q)       // R0q ≡ Rax (x64) o X0 (ARM64)
         .alu(R0q add b)
         .ret()
     end
 
     routine main
-        .cp(10 to R0q)
-        .cp(32 to R1q)
+        .copy(10 to R0q)
+        .copy(32 to R1q)
         .call(AddTwoNumbers)
         .ret()
     end
@@ -177,7 +177,7 @@ bloqueRutina        = "Routine" identificador [ "Naked" ] finLinea
 parametro           = "Parameter" identificador { "," identificador } ;
 
 declaracionSeccion  = "Section" nombreSeccion [ "," atributo { "," atributo } ] ;
-nombreSeccion       = ".text" | ".data" | ".bss" | identificador ;   (* sin distinguir mayúsculas *)
+nombreSeccion       = ".execute" | ".text" | ".data" | ".bss" | identificador ;   (* sin distinguir mayúsculas *)
 atributo            = "Align" "=" expresion | "Read" | "Write" | "Execute" | "Uninitialized" ;
 
 directiva           = directivaExtern | directivaGlobal | directivaEntry
@@ -196,7 +196,7 @@ etiquetaLocal       = "@" identificador ;
 
 instruccion         = "." mnemonicos [ "(" [ operando { separador operando } ] ")" ] ;
 
-mnemonicos          = "cp" | "alu" | "jump" | "call" | "ret"
+mnemonicos          = "copy" | "alu" | "jump" | "call" | "ret"
                     | "stackWrite" | "stackRead" | "stackPointerGet" | "stackPointerSet"
                     | "nop" | "setCarry" | "clearCarry" | "toggleCarry"
                     | "setDirection" | "clearDirection"
@@ -206,7 +206,7 @@ mnemonicos          = "cp" | "alu" | "jump" | "call" | "ret"
 mnemonicoAlu        = "add" | "sub" | "and" | "or" | "xor" | "imul"
                     | "subNoWrite" | "andNoWrite" ;
 
-separador           = "to" | " " ;   (* 'to' para cp/copy*; espacio para alu/jump *)
+separador           = "to" | " " ;   (* 'to' para copy/copy*; espacio para alu/jump *)
 
 clausulaIf          = "if" rFlagsCondicion ;  (* solo para jump *)
 
@@ -258,7 +258,7 @@ Notas de la gramática:
 |---|---|---|
 | Identificador | Letra o `_`, seguido de letras, dígitos o `_` | `main`, `mensaje`, `_inicio` |
 | Símbolo local | `@` + identificador; visible solo en su rutina | `@bucle`, `@fin` |
-| Mnemónico | No distingue mayúsculas ni minúsculas | `.Mov`, `.mov`, `.MOV` son el mismo |
+| Mnemónico | No distingue mayúsculas ni minúsculas | `.Copy`, `.copy`, `.COPY` son el mismo |
 | Registro | No distingue mayúsculas ni minúsculas | `Rax`, `rax`, `RAX` |
 | Directiva | No distingue mayúsculas ni minúsculas | `Section`, `section` |
 | Símbolo definido por el usuario | **Sí** distingue mayúsculas | `Total` y `total` son distintos |
@@ -350,9 +350,9 @@ Reglas:
 
 1. La **escala** solo puede ser 1, 2, 4 u 8. Otro valor es `FASM4002`.
 2. `Rsp` y `R12` no pueden ser índice (`FASM4003`).
-3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.cp(1 to [Rbx])` es `FASM3005`; se escribe `.cp(1 to Byte [Rbx])`.
+3. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.copy(1 to [Rbx])` es `FASM3005`; se escribe `.copy(1 to Byte [Rbx])`.
 4. En Fase 1, el direccionamiento a símbolos es **siempre relativo** (`[Rel símbolo]`). Una dirección absoluta es `FASM5002` con la sugerencia de cómo reescribirla.
-5. `.cp(Rax to mensaje)` carga la **dirección** (equivalente a `.lea(Rax to mensaje)`), mientras que `.cp(Rax to [mensaje])` carga el **contenido**. Es la misma distinción que en un ensamblador clásico entre `offset` y `[ ]`.
+5. `.copy(Rax to mensaje)` carga la **dirección** (equivalente a `.lea(Rax to mensaje)`), mientras que `.copy(Rax to [mensaje])` carga el **contenido**. Es la misma distinción que en un ensamblador clásico entre `offset` y `[ ]`.
 
 ---
 
@@ -363,7 +363,7 @@ Reglas:
 | `Program <nombre>` … `End` | Agrupa el programa y le da nombre | 2 |
 | `Routine <nombre> [Naked]` … `End` | Declara una rutina; `Naked` evita prólogo y epílogo | 2 |
 | `Parameter a, b` | Declara parámetros según la ABI activa | 2 |
-| `Section .text [, Align=16, Execute, Read]` | Declara una sección y sus atributos | 1 |
+| `Section .execute [, Align=16, Execute, Read]` | Declara una sección y sus atributos | 1 |
 | `Extern nombre` | Declara un símbolo definido fuera de la imagen | 2 (sin uso hasta 5) |
 | `Global nombre` | Exporta un símbolo para que otras rutinas lo usen | 2 |
 | `Entry nombre` | Fija el punto de entrada | 1 |
@@ -492,42 +492,42 @@ La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (mis
 
 ### 10.1 Movimiento de datos
 
-#### ¿Qué hace `cp` físicamente?
+#### ¿Qué hace `copy` físicamente?
 
-`cp` (copy) es una instrucción de **transferencia de datos**. No calcula, no compara, no salta. Solo transfiere bits de una ubicación a otra:
+`copy` es una instrucción de **transferencia de datos**. No calcula, no compara, no salta. Solo transfiere bits de una ubicación a otra:
 
 > **Lee bits desde el origen y los escribe en el destino. El origen no se modifica; el destino se sobrescribe.**
 
 - **Origen**: de dónde se leen los bits (registro, memoria o inmediato).
 - **Destino**: dónde se escriben los bits (registro o memoria).
 - **Efecto**: el destino pasa a tener el mismo valor que tenía el origen en el momento de la lectura. Los bits anteriores del destino se pierden.
-- **Sin cambios**: `cp` **no afecta las banderas** en x64.
+- **Sin cambios**: `copy` **no afecta las banderas** en x64.
 - **Restricción**: no se puede copiar directamente entre dos ubicaciones de memoria; hay que pasar por un registro.
 
 **Ejemplos físicos:**
 
 | Instrucción | Explicación |
 |---|---|
-| `.cp(42 to Rax)` | Escribe el valor inmediato `42` en `Rax`. |
-| `.cp(Rbx to Rax)` | Copia los bits de `Rbx` en `Rax`. `Rbx` sigue sin cambios. |
-| `.cp([Rbx] to Rax)` | Lee los bits almacenados en la dirección que guarda `Rbx` y los escribe en `Rax`. |
-| `.cp(Rax to [Rbx])` | Escribe los bits de `Rax` en la dirección que guarda `Rbx`. `Rax` sigue sin cambios. |
+| `.copy(42 to Rax)` | Escribe el valor inmediato `42` en `Rax`. |
+| `.copy(Rbx to Rax)` | Copia los bits de `Rbx` en `Rax`. `Rbx` sigue sin cambios. |
+| `.copy([Rbx] to Rax)` | Lee los bits almacenados en la dirección que guarda `Rbx` y los escribe en `Rax`. |
+| `.copy(Rax to [Rbx])` | Escribe los bits de `Rax` en la dirección que guarda `Rbx`. `Rax` sigue sin cambios. |
 
 > **Nota:** Las secciones 11 ("Reglas de codificación") explican **cómo** se codifican los bytes, no **qué** hace la instrucción. Esta sección explica la semántica física.
 
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
-| `cp` (r32, imm) | `.cp(10 to Eax)` | 1 | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
-| `cp` (r64, imm pequeño) | `.cp(42 to Rax)` | 1 | `b8 2a 00 00 00` | **La forma más corta es `mov r32, imm32`**, que pone a cero la mitad alta |
-| `cp` (r64, imm negativo) | `.cp(-1 to Rax)` | 1 | `48 c7 c0 ff ff ff ff` | Signo extendido a 64 bits |
-| `cp` (r64, imm grande) | `.cp(0x123456789 to Rax)` | 1 | `48 b8 89 67 45 23 01 00 00 00` | `imm64` solo cuando no cabe en 32 bits |
-| `cp` (r64, r64) | `.cp(Rbx to Rax)` | 1 | `48 89 d8` | |
-| `cp` (r8 alto, r8) | `.cp(R9 to R8)` | 3 | `4d 89 c8` | Prefijo REX necesario |
-| `cp` (r64, [mem]) | `.cp([Rbx] to Rax)` | 1 | `48 8b 03` | |
-| `cp` ([mem], r64) | `.cp(Rax to [Rbx])` | 1 | `48 89 03` | |
-| `cp` (r64, [mem-disp]) | `.cp([Rbx - 8] to Rax)` | 1 | `48 8b 43 f8` | `disp8` con signo |
-| `cp` (r64, [base+idx*esc]) | `.cp([Rbx + Rcx*4 + 16] to Rax)` | 1 | `48 8b 44 8b 10` | SIB con escala |
-| `cp` (byte [mem], imm) | `.cp(1 to Byte [Rbx])` | 1 | `c6 03 01` | Tamaño explícito |
+| `copy` (r32, imm) | `.copy(10 to Eax)` | 1 | `b8 0a 00 00 00` | Forma más corta para un inmediato sin signo |
+| `copy` (r64, imm pequeño) | `.copy(42 to Rax)` | 1 | `b8 2a 00 00 00` | **La forma más corta es `mov r32, imm32`**, que pone a cero la mitad alta |
+| `copy` (r64, imm negativo) | `.copy(-1 to Rax)` | 1 | `48 c7 c0 ff ff ff ff` | Signo extendido a 64 bits |
+| `copy` (r64, imm grande) | `.copy(0x123456789 to Rax)` | 1 | `48 b8 89 67 45 23 01 00 00 00` | `imm64` solo cuando no cabe en 32 bits |
+| `copy` (r64, r64) | `.copy(Rbx to Rax)` | 1 | `48 89 d8` | |
+| `copy` (r8 alto, r8) | `.copy(R9 to R8)` | 3 | `4d 89 c8` | Prefijo REX necesario |
+| `copy` (r64, [mem]) | `.copy([Rbx] to Rax)` | 1 | `48 8b 03` | |
+| `copy` ([mem], r64) | `.copy(Rax to [Rbx])` | 1 | `48 89 03` | |
+| `copy` (r64, [mem-disp]) | `.copy([Rbx - 8] to Rax)` | 1 | `48 8b 43 f8` | `disp8` con signo |
+| `copy` (r64, [base+idx*esc]) | `.copy([Rbx + Rcx*4 + 16] to Rax)` | 1 | `48 8b 44 8b 10` | SIB con escala |
+| `copy` (byte [mem], imm) | `.copy(1 to Byte [Rbx])` | 1 | `c6 03 01` | Tamaño explícito |
 
 #### Extensión con ceros / signo
 
@@ -541,7 +541,7 @@ La columna **Bytes** está **verificada con NASM** para el ejemplo indicado (mis
 | Instrucción | Ejemplo | Nivel | Bytes | Notas |
 |---|---|---|---|---|
 | `lea` | `.lea(Rcx [Rel mensaje])` | 1 | `48 8d 0d disp32` | Base de PIC |
-| `lea` (de símbolo) | `.lea(Rcx mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.cp(Rcx to mensaje)` |
+| `lea` (de símbolo) | `.lea(Rcx mensaje)` | 1 | `48 8d 0d disp32` | Azúcar: `.copy(Rcx to mensaje)` |
 
 ### 10.2 Aritmética y lógica (`.alu`)
 
@@ -642,7 +642,7 @@ Son **obligatorias** porque hacen que los bytes sean predecibles y comparables c
 
 1. **Forma más corta y determinista.** Para los mismos operandos, siempre la misma secuencia de bytes, la más corta posible. No hay opciones de usuario.
 2. **Inmediatos con signo.** Si el inmediato cabe en 8 bits con signo y existe esa forma, se usa: `.alu(5 add Rax)` son 4 bytes, `.alu(1000 add Rax)` son 6.
-3. **`cp` con inmediato en 64 bits**, en este orden: si el valor cabe en 32 bits sin signo → `mov r32, imm32` (`b8`); si cabe con signo en 32 bits → `mov r/m64, imm32` (`48 c7 /0`); si no → `mov r64, imm64` (`48 b8`).
+3. **`copy` con inmediato en 64 bits**, en este orden: si el valor cabe en 32 bits sin signo → `mov r32, imm32` (`b8`); si cabe con signo en 32 bits → `mov r/m64, imm32` (`48 c7 /0`); si no → `mov r64, imm64` (`48 b8`).
 4. **Desplazamientos**: `disp8` cuando cabe con signo, `disp32` en caso contrario.
 5. **Direccionamiento relativo a la instrucción** por defecto para todo símbolo (PIC). Nunca absoluto en Fase 1.
 6. **Prefijo REX** cuando el tamaño es 64 bits o el registro es `R8`–`R15`, más los casos especiales `Spl`/`Bpl`/`Sil`/`Dil`.
@@ -659,7 +659,7 @@ Son **obligatorias** porque hacen que los bytes sean predecibles y comparables c
 |---|---|
 | Formato | Bytes puros, **sin cabecera** |
 | Extensión | `.x64` |
-| Punto de entrada | El símbolo de `Entry`, o el primero de `.text` |
+| Punto de entrada | El símbolo de `Entry`, o el primero de `.execute` |
 | Argumentos | Ninguno |
 | Resultado | Entero en `Rax` (lo que el código haya dejado) |
 | Quién carga la imagen | El arrancador de FluentASM: reserva memoria ejecutable, copia los bytes y salta |
@@ -767,7 +767,7 @@ end
 
 | Código | Situación | Mensaje esperado |
 |---|---|---|
-| `FASM2001` | Falta un paréntesis | "Falta el ')' de la instrucción `.cp(`" |
+| `FASM2001` | Falta un paréntesis | "Falta el ')' de la instrucción `.copy(`" |
 | `FASM3001` | Quinto parámetro | "Win64 admite 4 parámetros en registro; el paso por pila llega en la Fase 7" |
 | `FASM3002` | `Ah` con `R8` | "`Ah` no puede combinarse con registros que exigen prefijo REX" |
 | `FASM3003` | Símbolo duplicado | "`main` ya está definido en la línea 12" |
@@ -807,7 +807,7 @@ end
 | Sin gramática formal | EBNF en la sección 3 | Permite implementar el analizador sin interpretar ejemplos |
 | Dos superficies sin jerarquía | DSL `.fasm` canónica, API de C# derivada | Evita mantener dos lenguajes ("Decisiones de diseño" en [CONTRIBUTING.md](CONTRIBUTING.md)) |
 | Sin definición de `parameter` en §2 | `parameter` definido como alias del registro de la ABI, con traza de ejemplo | El lector no sabía qué era `n` ni de dónde salía el valor |
-| `Mov` / `Movzx` / `Movsx` | `cp` / `copyZeroExtended` / `copySignedExtended` | `Mov` implica movimiento; físicamente es copia. Nombres físicamente precisos. |
+| `Mov` / `Movzx` / `Movsx` | `copy` / `copyZeroExtended` / `copySignedExtended` | `Mov` implica movimiento; físicamente es copia. Nombres físicamente precisos. |
 | `Add` / `Sub` / `And` / `Or` / `Xor` / `Cmp` / `Test` / `Imul` | `.alu(origen operacion destino)` | Grupo ALU unificado; separador por espacios; `subNoWrite`/`andNoWrite` para solo banderas. |
 | `Push` / `Pop` | `stackWrite` / `stackRead` | Nombres físicos: escriben/leen la pila, no manipulan el puntero directamente. |
 | `Jmp` / `Je` / `Jne` / `Ja`... | `jump` / `jump(... if rFlags...)` | Gramática cerrada de 16 formas; `rFlags` expone banderas físicas (bits). |
@@ -815,6 +815,7 @@ end
 | `Nop` / `Stc` / `Clc` / `Std` / `Cld` | `nop` / `setCarry` / `clearCarry` / `setDirection` / `clearDirection` | Nombres descriptivos físicos; `sti/cli/int3/syscall` deferidos. |
 | `Lea` | `lea` | Mantenido; calcula dirección efectiva. |
 | `Movzx` / `Movsx` | `copyZeroExtended` / `copySignedExtended` | Explícito sobre la extensión (ceros vs signo). |
+| `.text` (sección canónica) | `.execute` (sección canónica) | `.execute` describe físicamente lo que contiene: código que se ejecuta. `.text` es alias legacy. |
 
 ---
 

@@ -106,13 +106,13 @@ Dado que FluentASM está escrito en C#, seguimos las convenciones de C#:
 
 | Categoría | Nombres en código C# / DSL |
 |---|---|
-| Transferencia | `cp`, `copyZeroExtended`, `copySignedExtended`, `lea` |
+| Transferencia | `copy`, `copyZeroExtended`, `copySignedExtended`, `lea` |
 | ALU | `alu` (operaciones: `add`, `sub`, `and`, `or`, `xor`, `imul`, `subNoWrite`, `andNoWrite`) |
 | Pila | `stackWrite`, `stackRead`, `stackPointerGet`, `stackPointerSet` |
 | Control de flujo | `jump` (con `if rFlags...`), `call`, `ret` |
 | Sistema (bare metal) | `nop`, `setCarry`, `clearCarry`, `toggleCarry`, `setDirection`, `clearDirection` |
 
-No se usan: `Mov`, `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul`, `Push`, `Pop`, `Jmp`, `Je`, `Jne`, `Ja`, `Jae`, `Jb`, `Jbe`, `Jg`, `Jge`, `Jl`, `Jle`, `Js`, `Jns`, `Jo`, `Jno`, `Jp`, `Jnp`, `Call`, `Ret`, `Nop`, `Int`, `Int3`, `Syscall`, `Leave`, `Stc`, `Clc`, `Cmc`, `Std`, `Cld`, `Movzx`, `Movsx`, `Set`, `Mov`.
+No se usan: `Mov`, `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul`, `Push`, `Pop`, `Jmp`, `Je`, `Jne`, `Ja`, `Jae`, `Jb`, `Jbe`, `Jg`, `Jge`, `Jl`, `Jle`, `Js`, `Jns`, `Jo`, `Jno`, `Jp`, `Jnp`, `Call`, `Ret`, `Nop`, `Int`, `Int3`, `Syscall`, `Leave`, `Stc`, `Clc`, `Cmc`, `Std`, `Cld`, `Movzx`, `Movsx`, `Set`, `Mov`, `Cp`.
 
 ## Estructura del código fuente (`src/`)
 
@@ -434,7 +434,7 @@ Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memori
 | Parte | `Part` | `Library`, `Module` |
 | Bajar (*lowering*) | `Lower` | `Translate` |
 | Imagen plana | `FlatImage` | `RawBinary` |
-| Copia (instrucción) | `Cp` | `Mov` |
+| Copia (instrucción) | `Copy` | `Mov` |
 | Operación ALU | `Alu` | `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul` |
 | Escritura en pila | `StackWrite` | `Push` |
 | Lectura de pila | `StackRead` | `Pop` |
@@ -480,7 +480,7 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 
 | Categoría | Antes | Ahora | Motivo físico |
 |---|---|---|---|
-| Transferencia | `Mov` | `cp` (copy) | No mueve, copia; origen se preserva |
+| Transferencia | `Mov` | `copy` (copy) | No mueve, copia; origen se preserva |
 | Transferencia | `Movzx` / `Movsx` | `copyZeroExtended` / `copySignedExtended` | Explícito sobre extensión (ceros vs signo) |
 | ALU | `Add`/`Sub`/`And`/`Or`/`Xor`/`Cmp`/`Test`/`Imul` | `.alu(origen operacion destino)` | Grupo unificado; separador por espacio; `subNoWrite`/`andNoWrite` para solo banderas |
 | Pila | `Push` / `Pop` | `stackWrite` / `stackRead` | Escriben/leen la pila (memoria), no manipulan puntero directamente |
@@ -489,7 +489,8 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 | Sistema | `Nop`/`Stc`/`Clc`/`Std`/`Cld` | `nop`/`setCarry`/`clearCarry`/`setDirection`/`clearDirection` | Nombres descriptivos físicos; `sti/cli/int3/syscall` deferidos |
 | Dirección | `Lea` | `lea` | Mantenido; calcula dirección efectiva |
 | Extensión | `Movzx`/`Movsx` | `copyZeroExtended`/`copySignedExtended` | Explícito sobre extensión (ceros vs signo) |
-| Orden operandos | `destino, origen` | `origen to destino` (en `cp`) / `origen operacion destino` (en `alu`) | Legible en español; refleja flujo físico de datos |
+| Orden operandos | `destino, origen` | `origen to destino` (en `copy`) / `origen operacion destino` (en `alu`) | Legible en español; refleja flujo físico de datos |
+| Sección código | `.text` | `.execute` | `.execute` describe físicamente: código que se ejecuta. `.text` es alias legacy. |
 
 **Consecuencias:**
 - **Ganancia:** Nombres físicamente precisos, orden `origen to destino` legible, coherencia con principio "físico, no marketing".
