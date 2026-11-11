@@ -179,7 +179,7 @@ La ABI activa se declara siempre (en `.fproj` o línea de comandos). Nunca se ad
 
 - `parameter` **no elige registros**: los asigna la ABI, en orden. El nombre es un alias legible.
 - El compilador **genera** el prólogo (guardar `Rbp`, establecer marco, reservar locales alineado a 16) y el epílogo alrededor del cuerpo.
-- `.ret()` ejecuta el epílogo y el `ret`. No se escribe `ret` a mano en rutinas con `parameter`.
+- `.flowStackJump()` ejecuta el epílogo y el `ret`. No se escribe `ret` a mano en rutinas con `parameter`.
 - Límite Fase 1: máximo 4 parámetros por rutina.
 - `naked` fuerza ausencia de prólogo/epílogo aunque haya parámetros o locales.
 

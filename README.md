@@ -12,8 +12,8 @@ program MiPrograma
     entry main
 
     routine main
-        .copy(42 to Rax)   // el valor de retorno viaja en RAX
-        .ret()
+        .copy(42 to Rax)        // el valor de retorno viaja en RAX
+        .flowStackJump()
     end
 end
 ```

@@ -18,8 +18,6 @@ Un ensamblador traduce instrucciones a **código máquina nativo** (bytes crudos
 
 FluentASM se escribe en archivos `.fasm` con **código fluido**: instrucciones encadenadas con sintaxis fluida (`.copy(42 to Rax)`). Esta es la **única** forma de escribir programas.
 
-El compilador/ensamblador implementa internamente una **API fluida** que usa para procesar el código fluido, generar bytes, tests, tooling, etc. Esta API es **interna** — no es una forma alternativa de escribir programas.
-
 ---
 
 ## 2. Estructura de un archivo `.fasm`
@@ -33,13 +31,13 @@ program MiPrograma              // nombre del programa (opcional)
         parameter n             // n es el nombre del 1.er parámetro (ABI: Rcx en Win64)
         .copy(n to Rax)         // copia el valor del parámetro en Rax
         .alu(Rax add Rax)       // Rax = Rax + Rax
-        .ret()                  // devuelve Rax
+        .flowStackJump()        // devuelve Rax
     end
 
     routine main                // punto de entrada
         .copy(21 to Rcx)        // pone el argumento 1 en Rcx (donde Doblar lo espera)
-        .call(Doblar)           // llama a Doblar; el resultado queda en Rax
-        .ret()                  // devuelve Rax (que ahora vale 42)
+        .flowCall(Doblar)       // llama a Doblar; el resultado queda en Rax
+        .flowStackJump()        // devuelve Rax (que ahora vale 42)
     end
 end
 ```
@@ -49,12 +47,12 @@ end
 | Paso | Instrucción | Qué ocurre |
 |---|---|---|
 | 1 | `.copy(21 to Rcx)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
-| 2 | `.call(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
+| 2 | `.flowCall(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
 | 3 | `parameter n` | `n` no es un valor ni una variable: es el **nombre** del registro que la ABI asigna al primer parámetro. En Win64, `n` ≡ `Rcx`. |
 | 4 | `.copy(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
 | 5 | `.alu(Rax add Rax)` | `Rax = 21 + 21 = 42`. |
-| 6 | `.ret()` | `Doblar` devuelve `Rax` (42). |
-| 7 | `.ret()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
+| 6 | `.flowStackJump()` | `Doblar` devuelve `Rax` (42). |
+| 7 | `.flowStackJump()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
 
 **Conclusión:** `n` es `Rcx`; el `21` es el contenido de `Rcx` en ese momento. El valor de retorno de `main` viaja en `Rax`, no en `Rcx`.
 
@@ -80,14 +78,14 @@ program SumaDos
         parameter a, b        // a ≡ Rcx, b ≡ Rdx (Win64)
         .copy(a to Rax)       // Rax = a
         .alu(Rax add b)       // Rax = a + b
-        .ret()                // devuelve Rax
+        .flowStackJump()      // devuelve Rax
     end
 
     routine main
         .copy(10 to Rcx)      // argumento 1 -> Rcx
         .copy(32 to Rdx)      // argumento 2 -> Rdx
-        .call(AddTwoNumbers)  // Rax = 42
-        .ret()                // main devuelve 42
+        .flowCall(AddTwoNumbers)  // Rax = 42
+        .flowStackJump()      // main devuelve 42
     end
 end
 ```
@@ -101,7 +99,7 @@ program RetornaCuarentaYDos
 
     routine main
         .copy(42 to Rax)      // fija el valor de retorno directamente
-        .ret()
+        .flowStackJump()
     end
 end
 ```
@@ -117,14 +115,14 @@ program SumaDosPortable
         parameter a, b        // sin registros nativos; el compilador los mapea
         .copy(a to R0q)       // R0q ≡ Rax (x64) o X0 (ARM64)
         .alu(R0q add b)
-        .ret()
+        .flowStackJump()
     end
 
     routine main
         .copy(10 to R0q)
         .copy(32 to R1q)
-        .call(AddTwoNumbers)
-        .ret()
+        .flowCall(AddTwoNumbers)
+        .flowStackJump()
     end
 end
 ```
@@ -164,7 +162,7 @@ etiquetaLocal       = "@" identificador ;
 
 instruccion         = "." mnemonicos [ "(" [ operando { separador operando } ] ")" ] ;
 
-mnemonicos          = "copy" | "alu" | "jump" | "call" | "ret"
+mnemonicos          = "copy" | "alu" | "flowCall" | "flowStackJump" | "flowJump" | "flowLoop"
                     | "stackWrite" | "stackRead" | "stackPointerGet" | "stackPointerSet"
                     | "nop" | "setCarry" | "clearCarry" | "toggleCarry"
                     | "setDirection" | "clearDirection"
@@ -317,7 +315,7 @@ routine AddTwoNumbers
 
     .copy(a to Rax)
     .alu(Rax add b)
-    .ret()                  // el valor de retorno es Rax
+    .flowStackJump()        // el valor de retorno es Rax
 end
 ```
 
@@ -327,10 +325,10 @@ end
 | Prólogo | Generado cuando la rutina tiene parámetros, locales o llamadas |
 | Epílogo | Generado y emitido una sola vez: `leave` / `ret` |
 | Valor de retorno | Registro de retorno definido por la ABI (x64: `Rax`) |
-| `.ret()` | Termina la rutina: ejecuta el epílogo y el `ret` |
+| `.flowStackJump()` | Termina la rutina: ejecuta el epílogo y el `ret` |
 | Rutina hoja | Sin parámetros, locales ni llamadas: **sin** prólogo ni epílogo |
 | `naked` | Sin prólogo ni epílogo aunque tenga parámetros o locales |
-| Llamada | `.call(símbolo)` → relativa; `.call(rax)` → indirecta |
+| Llamada | `.flowCall(símbolo)` → relativa; `.flowCall(rax)` → indirecta |
 
 > **ABI concreta:** véase documento específico. x64: [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#abi-x64-win64).
 
@@ -429,8 +427,8 @@ Solo se guardan los nombres de símbolos, no el texto. Al compilar, el texto de 
 | `Mov` / `Movzx` / `Movsx` | `copy` / `copyZeroExtended` / `copySignedExtended` | `Mov` implica movimiento; físicamente es copia |
 | `Add`/`Sub`/... | `.alu(origen operacion destino)` | Grupo ALU unificado; `subNoWrite`/`andNoWrite` para solo banderas |
 | `Push` / `Pop` | `stackWrite` / `stackRead` | Nombres físicos: escriben/leen pila |
-| `Jmp`/`Je`/... | `jump` / `jump(... if rFlags...)` | Gramática cerrada 16 formas; `rFlags` expone banderas |
-| `Call` / `Ret` | `call` / `ret` | Minúscula; `ret` sin operando (retorno en `Rax` por ABI) |
+| `Jmp`/`Je`/... | `flowJump` / `flowJump(... if rFlags...)` | Gramática cerrada 16 formas; `rFlags` expone banderas |
+| `Call` / `Ret` | `flowCall` / `flowStackJump` | Prefijo `flow`; `flowStackJump` sin operando (retorno en `Rax` por ABI) |
 | `Nop`/`Stc`/... | `nop`/`setCarry`/... | Nombres descriptivos físicos |
 | `Lea` | `lea` | Mantenido; calcula dirección efectiva |
 | `Movzx`/`Movsx` | `copyZeroExtended`/`copySignedExtended` | Explícito sobre extensión |
@@ -442,7 +440,7 @@ Solo se guardan los nombres de símbolos, no el texto. Al compilar, el texto de 
 
 1. **Sistema de macros** — `%include`, `%define`, `CHILD`, `SENDI`, `PROLOGUE` para no repetir bloques.
 2. **Condiciones compuestas** (`If`/`While`) — azúcar sobre `.alu` + `.jump`, sin esconder bytes.
-3. **Capa portable (Nivel 1)** — Sintaxis unificada `.jump(@fin if a less b)` que el backend reduce a cada arquitectura.
+3. **Capa portable (Nivel 1)** — Sintaxis unificada `.flowJump(@fin if a less b)` que el backend reduce a cada arquitectura.
 4. **Diagnóstico de `rFlags`** — Rastreo de banderas definidas/indefinidas para emitir `FASM4012` en saltos.
 
 > **Próximos pasos específicos por arquitectura:** véase [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#próximos-pasos-x64) para x64.
