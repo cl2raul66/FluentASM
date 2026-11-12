@@ -276,10 +276,10 @@ Estrictamente binario, tabla de índice al inicio para lectura selectiva. No se 
 - `Representations`: 0=portable-only, 1=native-only, 2=both
 
 **BuildOptions (u32, campo de bits):**
-- Bit 0: PIC (defecto: 1)
-- Bit 1: Ajuste automático de saltos (defecto: 1)
-- Bit 2: Símbolos de depuración (defecto: 0)
-- Bit 3: Prohibir símbolos externos (defecto: 1)
+- Bit:0: PIC (defecto: 1)
+- Bit:1: Ajuste automático de saltos (defecto: 1)
+- Bit:2: Símbolos de depuración (defecto: 0)
+- Bit:3: Prohibir símbolos externos (defecto: 1)
 
 ### `.fworkspace` — Archivo de solución
 
@@ -412,14 +412,14 @@ Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memori
 | "Hilo" (sin calificar) | Contexto de ejecución hardware |
 | "Caché" (sin definir) | Memoria intermedia de acceso rápido |
 | "RFLAGS" / "EFLAGS" | `rFlags` (registro de banderas, bits individuales) |
-| "Zero Flag" / "ZF" | `rFlags.zero` (bit 6) |
-| "Carry Flag" / "CF" | `rFlags.carry` (bit 0) |
-| "Sign Flag" / "SF" | `rFlags.sign` (bit 7) |
-| "Overflow Flag" / "OF" | `rFlags.overflow` (bit 11) |
-| "Parity Flag" / "PF" | `rFlags.parity` (bit 2) |
-| "Auxiliary Carry Flag" / "AF" | `rFlags.auxCarry` (bit 4) |
-| "Direction Flag" / "DF" | `rFlags.direction` (bit 10) |
-| "Interrupt Flag" / "IF" | `rFlags.interrupt` (bit 9) |
+| "Zero Flag" / "ZF" | `rFlags.zero` (Bit:6) |
+| "Carry Flag" / "CF" | `rFlags.carry` (Bit:0) |
+| "Sign Flag" / "SF" | `rFlags.sign` (Bit:7) |
+| "Overflow Flag" / "OF" | `rFlags.overflow` (Bit:11) |
+| "Parity Flag" / "PF" | `rFlags.parity` (Bit:2) |
+| "Auxiliary Carry Flag" / "AF" | `rFlags.auxCarry` (Bit:4) |
+| "Direction Flag" / "DF" | `rFlags.direction` (Bit:10) |
+| "Interrupt Flag" / "IF" | `rFlags.interrupt` (Bit:9) |
 
 ### Correspondencia con código (compilador)
 
