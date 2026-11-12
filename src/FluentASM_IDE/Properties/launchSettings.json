@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "FluentASM_IDE (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "FluentASM_IDE (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

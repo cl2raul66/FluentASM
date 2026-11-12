@@ -1,0 +1,310 @@
+<!DOCTYPE html><html class="dark" lang="en"><head><meta charset="utf-8"><meta content="width=device-width, initial-scale=1.0" name="viewport"><meta content="web_standard" name="shell-type"><link href="https://fonts.googleapis.com/css2?family=Segoe+UI+Variable:wght@400;500;700&amp;family=Cascadia+Code:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@100..900&amp;family=Segoe+UI+Variable:wght@100..900&amp;display=swap" rel="stylesheet"><link href="https://fonts.googleapis.com/css2?family=Cascadia+Code:wght@300;400;500;600;700&amp;family=Cascadia+Mono:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config={darkMode: "class", theme: {extend: {colors: {"secondary-container": "#009dd8", "tertiary-container": "#edb596", "surface-bright": "#393939", "surface-container-low": "#1b1c1c", "on-error-container": "#ffdad6", "surface-container-lowest": "#0e0e0e", error: "#ffb4ab", "on-secondary": "#00344b", background: "#131313", "on-error": "#690005", "on-primary-fixed": "#001e2b", outline: "#889299", "primary-fixed": "#c1e8ff", "inverse-primary": "#006687", "on-primary-container": "#005572", "primary-fixed-dim": "#74d1ff", "tertiary-fixed-dim": "#f3ba9b", "on-tertiary-fixed": "#311302", "surface-container": "#202020", "primary-container": "#60cdff", "inverse-surface": "#e5e2e1", "outline-variant": "#3e484e", "inverse-on-surface": "#303030", "error-container": "#93000a", surface: "#131313", "surface-container-high": "#2a2a2a", secondary: "#81cfff", "on-surface-variant": "#bdc8cf", "tertiary-fixed": "#ffdbc9", "surface-variant": "#353535", "on-tertiary-fixed-variant": "#643d26", tertiary: "#ffd4be", "on-surface": "#e5e2e1", "on-tertiary": "#4a2812", "surface-container-highest": "#353535", "secondary-fixed": "#c6e7ff", "on-primary-fixed-variant": "#004d67", primary: "#b4e4ff", "on-secondary-container": "#003045", "on-tertiary-container": "#6e452d", "on-background": "#e5e2e1", "on-secondary-fixed-variant": "#004c6b", "secondary-fixed-dim": "#81cfff", "surface-dim": "#131313", "on-secondary-fixed": "#001e2d", "surface-tint": "#74d1ff", "on-primary": "#003548"}, borderRadius: {DEFAULT: "0.125rem", lg: "0.25rem", xl: "0.5rem", full: "0.75rem"}, spacing: {"space-lg": "16px", "space-xl": "24px", "space-xs": "4px", "space-md": "12px", gutter: "0px", margin: "0px", "space-sm": "8px"}, fontFamily: {"body-code": ["JetBrains Mono"], "body-code-bold": ["JetBrains Mono"], "status-value": ["JetBrains Mono"], "gutter-number": ["JetBrains Mono"], "headline-sm": ["Segoe UI Variable"], "status-label": ["Segoe UI Variable"], headline: ["Segoe UI Variable"], display: ["Segoe UI Variable"], body: ["Cascadia Code"], label: ["Segoe UI Variable"]}, fontSize: {"body-code": ["13px", {lineHeight: "22px", letterSpacing: "0px", fontWeight: "400"}], "body-code-bold": ["13px", {lineHeight: "22px", fontWeight: "600"}], "status-value": ["11px", {lineHeight: "16px", fontWeight: "500"}], "gutter-number": ["12px", {lineHeight: "22px", fontWeight: "400"}], "headline-sm": ["14px", {lineHeight: "20px", fontWeight: "600"}], "status-label": ["12px", {lineHeight: "16px", letterSpacing: "0.1px", fontWeight: "400"}]}}}}</script></head><body class="bg-surface font-headline-sm text-headline-sm text-on-surface antialiased select-none min-h-screen" style="font-family: &quot;Cascadia Code&quot;, &quot;Cascadia Mono&quot;, Consolas, &quot;Courier New&quot;, monospace; font-size: 14px;"><header class="fixed top-0 left-0 w-full h-8 z-50 bg-surface-container-low/75 backdrop-blur-xl border-b border-outline-variant/20 flex items-center justify-between select-none"><div class="flex items-center h-full px-3 gap-2"><span class="material-symbols-outlined text-primary text-[15px]">terminal</span><span class="font-headline-sm text-headline-sm text-on-surface-variant font-normal tracking-tight">FluentASM IDE - main.asm</span></div><div class="flex items-center h-full"><button aria-label="Minimize" class="w-[46px] h-8 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest/50 hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[14px]">minimize</span></button><button aria-label="Maximize" class="w-[46px] h-8 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-highest/50 hover:text-on-surface transition-colors" type="button"><span class="material-symbols-outlined text-[13px]">check_box_outline_blank</span></button><button aria-label="Close" class="w-[47px] h-8 flex items-center justify-center text-on-surface-variant hover:bg-error-container hover:text-on-error transition-colors" type="button"><span class="material-symbols-outlined text-[15px]">close</span></button></div></header><main class="w-full pt-8 min-h-screen bg-surface"><div class="flex flex-col w-full relative select-none">
+<!-- Subtle ambient Mica glow layered beneath the editor buffer -->
+<div class="pointer-events-none absolute -top-16 left-1/3 w-[600px] h-[350px] bg-primary/5 rounded-full blur-[140px]"></div>
+<div class="pointer-events-none absolute top-1/2 -right-24 w-[500px] h-[400px] bg-secondary-container/5 rounded-full blur-[160px]"></div>
+<!-- Monolithic Full-Width Code Canvas -->
+<div class="w-full flex font-body-code text-body-code tracking-normal relative pb-20" style="font-family: &quot;Cascadia Code&quot;, &quot;Cascadia Mono&quot;, Consolas, &quot;Courier New&quot;, monospace; font-size: 14px;">
+<!-- Active Line Highlight Overlay (Tracking Line 18) -->
+<div class="absolute left-0 right-0 h-[22px] bg-surface-container-high transition-transform duration-75 pointer-events-none z-0" id="active-line-band" style="top: calc(17 * 22px);"></div>
+<!-- Line Gutter (52px width with precise 16px right margin) -->
+<div class="w-[52px] shrink-0 flex flex-col text-right pr-4 select-none font-gutter-number text-gutter-number text-outline/60 z-10" id="gutter-col" style="font-family: &quot;Cascadia Code&quot;, &quot;Cascadia Mono&quot;, Consolas, &quot;Courier New&quot;, monospace; font-size: 14px;">
+<span class="h-[22px]">1</span>
+<span class="h-[22px]">2</span>
+<span class="h-[22px]">3</span>
+<span class="h-[22px]">4</span>
+<span class="h-[22px]">5</span>
+<span class="h-[22px]">6</span>
+<span class="h-[22px]">7</span>
+<span class="h-[22px]">8</span>
+<span class="h-[22px]">9</span>
+<span class="h-[22px]">10</span>
+<span class="h-[22px]">11</span>
+<span class="h-[22px]">12</span>
+<span class="h-[22px]">13</span>
+<span class="h-[22px]">14</span>
+<span class="h-[22px]">15</span>
+<span class="h-[22px]">16</span>
+<span class="h-[22px]">17</span>
+<span class="h-[22px] text-on-surface font-semibold" id="active-line-num">18</span>
+<span class="h-[22px]">19</span>
+<span class="h-[22px]">20</span>
+<span class="h-[22px]">21</span>
+<span class="h-[22px]">22</span>
+<span class="h-[22px]">23</span>
+<span class="h-[22px]">24</span>
+<span class="h-[22px]">25</span>
+<span class="h-[22px]">26</span>
+<span class="h-[22px]">27</span>
+<span class="h-[22px]">28</span>
+<span class="h-[22px]">29</span>
+<span class="h-[22px]">30</span>
+<span class="h-[22px]">31</span>
+<span class="h-[22px]">32</span>
+<span class="h-[22px]">33</span>
+<span class="h-[22px]">34</span>
+<span class="h-[22px]">35</span>
+<span class="h-[22px]">36</span>
+<span class="h-[22px]">37</span>
+<span class="h-[22px]">38</span>
+<span class="h-[22px]">39</span>
+<span class="h-[22px]">40</span>
+<span class="h-[22px]">41</span>
+<span class="h-[22px]">42</span>
+<span class="h-[22px]">43</span>
+<span class="h-[22px]">44</span>
+<span class="h-[22px]">45</span>
+</div>
+<!-- Code Instruction Stream -->
+<div class="flex-1 flex flex-col pl-4 text-on-surface z-10 overflow-x-auto whitespace-pre" id="code-stream" style="font-family: &quot;Cascadia Code&quot;, &quot;Cascadia Mono&quot;, Consolas, &quot;Courier New&quot;, monospace; font-size: 14px;">
+<!-- Line 1: Directive Header -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.file</span>
+<span class="text-on-surface-variant ml-2">"main.asm"</span>
+</div>
+<!-- Line 2: Directive -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.intel_syntax</span>
+<span class="text-on-surface-variant ml-2">noprefix</span>
+</div>
+<!-- Line 3: Section -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.section</span>
+<span class="text-tertiary ml-2">.rodata</span>
+</div>
+<!-- Line 4: Comment -->
+<div class="h-[22px] flex items-center italic text-outline">
+<span>; Constant descriptor tables &amp; telemetry message string</span>
+</div>
+<!-- Line 5: Label -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container font-semibold">sys_msg:</span>
+</div>
+<!-- Line 6: Directive + Literal -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary pl-8">.ascii</span>
+<span class="text-tertiary-fixed ml-3">"FluentASM Engine v2.4 :: Core Pipeline Ready\n"</span>
+</div>
+<!-- Line 7: Directive + Literal -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary pl-8">.equ</span>
+<span class="text-on-surface ml-3">MSG_LEN,</span>
+<span class="text-secondary ml-2">. - sys_msg</span>
+</div>
+<!-- Line 8: Blank -->
+<div class="h-[22px] flex items-center"></div>
+<!-- Line 9: Section -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.section</span>
+<span class="text-tertiary ml-2">.bss</span>
+</div>
+<!-- Line 10: Directive -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary pl-8">.lcomm</span>
+<span class="text-on-surface ml-3">dma_buffer,</span>
+<span class="text-primary-fixed ml-2">4096</span>
+</div>
+<!-- Line 11: Blank -->
+<div class="h-[22px] flex items-center"></div>
+<!-- Line 12: Section Text -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.section</span>
+<span class="text-tertiary ml-2">.text</span>
+</div>
+<!-- Line 13: Global -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.global</span>
+<span class="text-primary font-semibold ml-2">_start</span>
+</div>
+<!-- Line 14: Align -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.p2align</span>
+<span class="text-primary-fixed ml-2">4, 0x90</span>
+</div>
+<!-- Line 15: Blank -->
+<div class="h-[22px] flex items-center"></div>
+<!-- Line 16: Entrypoint Label -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container font-semibold">_start:</span>
+</div>
+<!-- Line 17: Prologue -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">push</span>
+<span class="text-secondary ml-6">rbp</span>
+<span class="text-outline italic ml-12">; establish stack frame</span>
+</div>
+<!-- Line 18: ACTIVE LINE (Interactive Caret) -->
+<div class="h-[22px] flex items-center relative group cursor-text" id="interactive-row"><span class="text-primary-container pl-8">call</span><span class="text-primary ml-8">WindowsApp</span><span class="relative flex items-center ml-0.5"><span class="w-[2px] h-[17px] bg-primary animate-pulse"></span></span><span class="text-outline italic ml-10">; call application entry initializer</span></div>
+<!-- Line 19: Clear rax -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">xor</span>
+<span class="text-secondary ml-8">rax,</span>
+<span class="text-secondary ml-2">rax</span>
+<span class="text-outline italic ml-12">; fast-zero register accumulator</span>
+</div>
+<!-- Line 20: Syscall preparation -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">mov</span>
+<span class="text-secondary ml-8">rax,</span>
+<span class="text-primary-fixed ml-2">1</span>
+<span class="text-outline italic ml-16">; sys_write identifier</span>
+</div>
+<!-- Line 21: File Descriptor -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">mov</span>
+<span class="text-secondary ml-8">rdi,</span>
+<span class="text-primary-fixed ml-2">1</span>
+<span class="text-outline italic ml-16">; stdout file descriptor</span>
+</div>
+<!-- Line 22: Message pointer -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">lea</span>
+<span class="text-secondary ml-8">rsi,</span>
+<span class="text-on-surface ml-2">[rip + sys_msg]</span>
+<span class="text-outline italic ml-4">; RIP-relative payload addressing</span>
+</div>
+<!-- Line 23: Length param -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">mov</span>
+<span class="text-secondary ml-8">rdx,</span>
+<span class="text-primary-fixed ml-2">MSG_LEN</span>
+<span class="text-outline italic ml-10">; string buffer length</span>
+</div>
+<!-- Line 24: Syscall execution -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary pl-8 font-semibold">syscall</span>
+<span class="text-outline italic ml-20">; trigger kernel write operation</span>
+</div>
+<!-- Line 25: Blank -->
+<div class="h-[22px] flex items-center"></div>
+<!-- Line 26: Call loop worker -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">call</span>
+<span class="text-primary ml-6">.L_init_hardware_dma</span>
+</div>
+<!-- Line 27: Compare return code -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">cmp</span>
+<span class="text-secondary ml-8">rax,</span>
+<span class="text-primary-fixed ml-2">0</span>
+</div>
+<!-- Line 28: Conditional branch -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">jne</span>
+<span class="text-primary ml-8">.L_panic_handler</span>
+</div>
+<!-- Line 29: Blank -->
+<div class="h-[22px] flex items-center"></div>
+<!-- Line 30: Local Loop Label -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container font-semibold">.L_init_hardware_dma:</span>
+</div>
+<!-- Line 31: Masking operation -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">mov</span>
+<span class="text-secondary ml-8">rcx,</span>
+<span class="text-primary-fixed ml-2">0x0000000000000080</span>
+<span class="text-outline italic ml-4">; 128 cache lines</span>
+</div>
+<!-- Line 32: Direct pointer -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">lea</span>
+<span class="text-secondary ml-8">r8,</span>
+<span class="text-on-surface ml-2">[rip + dma_buffer]</span>
+</div>
+<!-- Line 33: Inner loop -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container font-semibold">.L_clflush_loop:</span>
+</div>
+<!-- Line 34: Clflush instruction -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">clflush</span>
+<span class="text-on-surface ml-4">[r8]</span>
+<span class="text-outline italic ml-24">; invalidate processor cacheline</span>
+</div>
+<!-- Line 35: Pointer arithmetic -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">add</span>
+<span class="text-secondary ml-8">r8,</span>
+<span class="text-primary-fixed ml-2">64</span>
+<span class="text-outline italic ml-20">; stride by 64 bytes</span>
+</div>
+<!-- Line 36: Loop primitive -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">dec</span>
+<span class="text-secondary ml-8">rcx</span>
+</div>
+<!-- Line 37: Branch -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">jnz</span>
+<span class="text-primary ml-8">.L_clflush_loop</span>
+</div>
+<!-- Line 38: Memory Fence -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary pl-8 font-semibold">mfence</span>
+<span class="text-outline italic ml-24">; enforce total store order</span>
+</div>
+<!-- Line 39: Zero RAX success -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8">xor</span>
+<span class="text-secondary ml-8">rax,</span>
+<span class="text-secondary ml-2">rax</span>
+</div>
+<!-- Line 40: Return -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container pl-8 font-semibold">ret</span>
+</div>
+<!-- Line 41: Blank -->
+<div class="h-[22px] flex items-center"></div>
+<!-- Line 42: Panic Label -->
+<div class="h-[22px] flex items-center">
+<span class="text-primary-container font-semibold">.L_panic_handler:</span>
+</div>
+<!-- Line 43: Undefined opcode trigger -->
+<div class="h-[22px] flex items-center">
+<span class="text-error pl-8 font-semibold">ud2</span>
+<span class="text-outline italic ml-28">; trigger architectural trap</span>
+</div>
+<!-- Line 44: Epilogue NOP -->
+<div class="h-[22px] flex items-center">
+<span class="text-outline pl-8">nop</span>
+</div>
+<!-- Line 45: Terminating Directive -->
+<div class="h-[22px] flex items-center">
+<span class="text-tertiary">.ident</span>
+<span class="text-on-surface-variant ml-2">"FluentASM 1.0 (WinUI 3 Clang LLVM)"</span>
+</div>
+</div>
+</div>
+<!-- Interactive Row Relocation Script -->
+<script>
+    (function () {
+      const codeRows = document.querySelectorAll('#code-stream > div');
+      const activeLineBand = document.getElementById('active-line-band');
+      const gutterNums = document.querySelectorAll('#gutter-col > span');
+
+      codeRows.forEach((row, index) => {
+        row.addEventListener('click', () => {
+          if (!activeLineBand) return;
+          activeLineBand.style.top = (index * 22) + 'px';
+          
+          gutterNums.forEach(span => {
+            span.classList.remove('text-on-surface', 'font-semibold');
+            span.classList.add('text-outline/60');
+          });
+
+          if (gutterNums[index]) {
+            gutterNums[index].classList.remove('text-outline/60');
+            gutterNums[index].classList.add('text-on-surface', 'font-semibold');
+          }
+        });
+      });
+    })();
+  </script>
+</div></main><footer class="fixed bottom-0 left-0 w-full h-[28px] z-50 bg-surface-container-low/80 backdrop-blur-xl border-t border-outline-variant/20 flex items-center justify-between px-3 select-none text-on-surface-variant font-status-value text-status-value"><div class="flex items-center gap-space-sm h-full"><div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span><span class="text-on-surface font-medium">Ready</span></div><span class="w-px h-3 bg-outline-variant/40"></span><span class="hover:text-on-surface transition-colors cursor-pointer">main.asm</span><span class="w-px h-3 bg-outline-variant/40"></span><span class="hover:text-on-surface transition-colors cursor-pointer">Spaces: 4</span></div><div class="flex items-center gap-space-sm h-full"><span class="hover:text-on-surface transition-colors cursor-pointer">Ln 18, Col 23</span><span class="w-px h-3 bg-outline-variant/40"></span><span class="hover:text-on-surface transition-colors cursor-pointer text-on-surface">UTF-8</span><span class="w-px h-3 bg-outline-variant/40"></span><span class="hover:text-on-surface transition-colors cursor-pointer">CRLF</span><span class="w-px h-3 bg-outline-variant/40"></span><span class="hover:text-on-surface transition-colors cursor-pointer text-primary font-semibold">x86_64 Intel</span></div></footer>
+
+
+
+
+</body></html>
