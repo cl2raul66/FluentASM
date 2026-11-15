@@ -350,6 +350,8 @@ desktop.ini
 plan*
 proposal*
 idea*
+# ...pero la especificación en Proposal/ sí se versiona
+!/Proposal/
 
 # OpenCode .ignore file
 .ignore
