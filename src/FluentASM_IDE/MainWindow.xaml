@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Window
+    x:Class="FluentASM_IDE.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:FluentASM_IDE"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="FluentASM IDE - main.asm"
+    mc:Ignorable="d">
+    <Window.SystemBackdrop>
+        <MicaBackdrop Kind="BaseAlt" />
+    </Window.SystemBackdrop>
+
+    <Grid Background="#131313">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Custom TitleBar Header matching Stitch Minimalist IDE design -->
+        <Grid x:Name="AppTitleBar"
+              Grid.Row="0"
+              Height="32"
+              Background="#C01B1C1C"
+              BorderBrush="#333E484E"
+              BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0" Spacing="8">
+                <FontIcon Glyph="&#xE756;" FontSize="14" Foreground="#60CDFF" />
+                <TextBlock Text="FluentASM IDE - CalculoPuro.fasm"
+                           FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                           FontSize="12"
+                           FontWeight="Normal"
+                           Foreground="#BDC8CF"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <Frame x:Name="RootFrame" Grid.Row="1" />
+    </Grid>
+</Window>
