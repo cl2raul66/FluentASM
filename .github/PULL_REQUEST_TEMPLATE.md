@@ -1,59 +1,32 @@
-<!--
-Gracias por contribuir a FluentASM.
-Rellena las secciones aplicables. Si algo no aplica, escribe "no aplica" en lugar de borrarlo:
-que quede claro que se ha tenido en cuenta.
--->
-
 ## Resumen de cambios
-
 <!-- Describe brevemente qué se hizo y por qué. -->
 
 ## Issue relacionado
-
 closes #
 
 ## Tipo de cambio
-
-- [ ] Nueva funcionalidad
-- [ ] Corrección de errores
-- [ ] Documentación
-- [ ] Decisión de diseño (incluye sección en CONTRIBUTING.md)
-- [ ] Pruebas o integración continua
-- [ ] Refactorización sin cambio de comportamiento
+<!-- Marca con [x] lo que corresponda. -->
+- [ ] Nueva funcionalidad o instrucción
+- [ ] Corrección de error
+- [ ] Cambio en archivos de proyecto (`.fproj`, `.fworkspace`)
+- [ ] Documentación o decisión de diseño
+- [ ] `FluentASM.Sample` o integración continua
 
 ## Cómo se ha comprobado
+<!-- Deja marcado lo que ejecutaste. No se usan proyectos de pruebas formales (*Tests.csproj). -->
+- [ ] `dotnet build` sin advertencias (`.editorconfig` respetado)
+- [ ] Ejemplo en `FluentASM.Sample` o `rsc/` compilado y ejecutado
+- [ ] Verificación en QEMU *bare metal* / contraste de bytes con NASM (si toca el codificador)
 
-<!--
-Los cambios en el codificador, el layout o los emisores exigen bytes dorados.
-Los cambios de sintaxis o de formato exigen ejemplos ejecutados.
--->
-
-- [ ] `dotnet build` sin errores ni advertencias
-- [ ] `dotnet test` en verde
-- [ ] Prueba de bytes dorados añadida o actualizada
-- [ ] Comparación con el oráculo NASM, si aplica
-- [ ] Ejemplos de `rsc/` siguen compilando
-
-## Volcado de proyecto (si se ha tocado un `.fproj` o `.fworkspace`)
-
-<!-- Pega aquí la salida de: fasm_admin dump <archivo> -->
-
-```text
-
-```
+## Revisión de proyecto (si se ha tocado un `.fproj` o `.fworkspace`)
+<!-- Si no aplica, escribe "no aplica". En Fase 1 son texto legible (se revisan directo en el diff). En fases binarias, pega aquí la salida de: fasm_admin dump <archivo> -->
 
 ## Decisión de diseño (si cambia el comportamiento del lenguaje)
-
-<!-- Describe la decisión en CONTRIBUTING.md ("Decisiones de diseño") y explica por qué la anterior ya no sirve. -->
-
-no aplica
+<!-- Si no aplica, escribe "no aplica". En caso contrario, enlaza la sección añadida en CONTRIBUTING.md. -->
 
 ## Sugerencia de versión
-
-<!-- MAJOR.MINOR.PATCH, con -preview si va a develop. Ver CONTRIBUTING.md. -->
-
+<!-- Usa formato SemVer. Ejemplo: 0.2.0-preview -->
 x.x.x-preview
 
 ## Notas para quien revisa
-
-<!-- Qué mirar con más atención y qué se ha dejado fuera a propósito. -->
+<!-- Opcional: puntos de riesgo, dudas abiertas o partes en las que conviene fijarse. -->
