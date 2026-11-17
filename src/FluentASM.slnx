@@ -6,10 +6,4 @@
     </Configurations>
     <Project Path="FluentASM.Core/FluentASM.Core.csproj" />
     <Project Path="FluentASM.Compiler/FluentASM.Compiler.csproj" />
-    <Project Path="FluentASM_IDE/FluentASM_IDE.csproj">
-      <Platform Solution="*|ARM64" Project="ARM64" />
-      <Platform Solution="*|x64" Project="x64" />
-      <Platform Solution="*|x86" Project="x86" />
-      <Deploy />
-    </Project>
 </Solution>
