@@ -1,47 +1,58 @@
-name: Error o comportamiento inesperado
-description: Algo no funciona como debería o no coincide con lo documentado
+name: Reporte de error
+description: Algo falló al compilar, ensamblar o usar el lenguaje
+title: "[Bug]: "
 labels:
   - tipo/bug
 body:
   - type: markdown
     attributes:
       value: |
-        Antes de abrir el issue, busca uno similar y revisa la documentación
-        ([CONTRIBUTING.md](CONTRIBUTING.md), [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md)).
+        Describe el error con la información mínima para poder reproducirlo.
+        Revisa los [issues existentes](../../issues) antes de abrir uno nuevo.
   - type: textarea
-    id: esperado
+    id: que-esperabas
     attributes:
       label: Qué esperabas que pasara
-      description: Incluye la cita del documento o el comportamiento documentado.
+      description: El resultado correcto según la especificación.
     validations:
       required: true
   - type: textarea
-    id: real
+    id: que-paso
     attributes:
       label: Qué pasó en realidad
-      description: Pega el mensaje exacto: el código de diagnóstico (`FASMxxxx`) y el texto completo.
+      description: "Pega el mensaje exacto: el código de diagnóstico (`FASMxxxx`) y el texto completo."
     validations:
       required: true
   - type: textarea
     id: reproducir
     attributes:
-      label: Cómo reproducirlo
-      description: El fragmento `.fasm` más pequeño posible, o el código de C# que lo provoca.
+      label: Código mínimo para reproducir
+      description: "Fragmento de `sourcesCode.fasm`, `.fproj` o código C# más corto que provoque el fallo."
       render: fasm
+  - type: dropdown
+    id: componente
+    attributes:
+      label: Componente afectado
+      options:
+        - FluentASM.Core
+        - FluentASM.Compiler (fluentasm)
+        - FluentASM.Sample
+        - FluentASM.Admin (fase futura)
+        - FluentASM.IDE (fase futura)
+        - Documentación
+        - Plantillas / CI (.github)
     validations:
       required: true
   - type: input
-    id: fase
+    id: dotnet-version
     attributes:
-      label: Fase del roadmap
-      description: ¿En qué fase creías que estaba esta función? (ver Roadmap en CONTRIBUTING.md)
-      placeholder: "Fase 1"
-    validations:
-      required: false
-  - type: input
-    id: version
-    attributes:
-      label: Versión de FluentASM y del SDK de .NET
-      placeholder: "FluentASM 0.1.0-preview, .NET SDK 10.0.402"
+      label: Versión del SDK de .NET
+      description: Resultado de `dotnet --version`.
+      placeholder: "10.0.100"
     validations:
       required: true
+  - type: input
+    id: sistema-operativo
+    attributes:
+      label: Sistema operativo
+      placeholder: "Windows 11 / Ubuntu 24.04 / macOS 15"

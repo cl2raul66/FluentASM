@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>FluentASM.Core</RootNamespace>
+    <AssemblyName>FluentASM.Core</AssemblyName>
+  </PropertyGroup>
+
+</Project>

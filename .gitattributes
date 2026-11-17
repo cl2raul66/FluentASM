@@ -6,12 +6,12 @@
 *.x86  binary
 *.arm  binary
 *.bin  binary
-*.fproj binary
-*.fworkspace binary
 
-# Documentación y código: texto normal.
+# Documentación, configuración de proyecto y código: texto normal.
 *.md   text
 *.fasm text
+*.fproj text
+*.fworkspace text
 *.cs   text
 *.yml  text
 *.json text

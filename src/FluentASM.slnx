@@ -1,0 +1,9 @@
+<Solution>
+    <Configurations>
+      <Platform Name="ARM64" />
+      <Platform Name="x64" />
+      <Platform Name="x86" />
+    </Configurations>
+    <Project Path="FluentASM.Core/FluentASM.Core.csproj" />
+    <Project Path="FluentASM.Compiler/FluentASM.Compiler.csproj" />
+</Solution>

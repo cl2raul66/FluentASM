@@ -1,6 +1,6 @@
 # Contribución
 
-Gracias por interesarte en contribuir a FluentASM. Este proyecto está diseñado para ser accesible, especialmente si no tienes experiencia previa con compiladores o ensambladores.
+Gracias por interesarte en contribuir a FluentASM. Este proyecto está diseñado para ser accesible, claro y transparente, especialmente si no tienes experiencia previa con compiladores o ensambladores.
 
 ## Requisitos previos
 
@@ -8,9 +8,10 @@ Para trabajar en FluentASM necesitas:
 
 | Herramienta | Versión | Para qué |
 |---|---|---|
-| .NET SDK | 10.0 (o superior) | Compilar y probar el ensamblador |
+| .NET SDK | 10.0 (o superior) | Compilar y probar el compilador en Phase 1 |
 | Git | cualquier reciente | Control de versiones |
 | Editor | VS 2022 / VS Code / Rider | Escribir código |
+| QEMU | reciente (recomendado) | Ejecutar y probar binarios x64 *bare metal* |
 | NASM | 2.16+ | Referencia opcional para verificar bytes x64 |
 
 Siempre usamos la versión más reciente estable de cada herramienta; no se pinchan versiones antiguas.
@@ -27,9 +28,9 @@ Siempre usamos la versión más reciente estable de cada herramienta; no se pinc
 
 1. Clona tu fork: `git clone https://github.com/<tu-usuario>/FluentASM.git`
 2. Entra al directorio: `cd FluentASM`
-3. Verifica que compila: `dotnet build`
-4. Crea un workspace de prueba: `fasm_admin init`
-5. Crea un archivo `.fasm` mínimo y ensámblalo con el compilador de FluentASM
+3. Verifica que compila: `dotnet build src/FluentASM.slnx`
+4. Crea o abre un proyecto de prueba en `src/<nombreProyecto>/` con su archivo `<nombreProyecto>.fproj` (texto legible en Fase 1) y su fuente `sourcesCode.fasm`
+5. Ensámblalo con el compilador (`fluentasm`) y pruébalo con el lanzador de pruebas o QEMU
 6. Trabaja en una rama propia creada desde `develop`, nunca directamente en `main` ni en `develop`
 
 El repositorio utiliza únicamente dos ramas principales:
@@ -67,10 +68,7 @@ closes #[número del issue]
 x.x.x-preview
 ```
 
-Dos reglas adicionales según lo que cambie el PR:
-
-- Si toca un archivo `.fproj` o `.fworkspace`, pega en el cuerpo el resultado de `fasm_admin dump <archivo>` y explica el cambio. Como son binarios, ese volcado es la única forma de revisarlos en GitHub.
-- Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente de "Decisiones de diseño" en este documento.
+Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente de "Decisiones de diseño" en este documento.
 
 La versión de la sugerencia es una propuesta; la fuente de verdad del número de versión se explica en la sección de versionado.
 
@@ -80,487 +78,232 @@ La versión de la sugerencia es una propuesta; la fuente de verdad del número d
 - Cuando se hace merge de `develop` a `main`, se genera una versión estable (release) de tipo `x.x.x`, sin el sufijo `-preview`.
 - Se sigue el versionado SemVer: `MAJOR.MINOR.PATCH`.
 
-**Fuente de verdad del número de versión:** un archivo de **texto** versionado en el repositorio
-(`VERSION` y/o la propiedad de versión en `Directory.Build.props`). GitHub Actions lee ese archivo —
-nunca el `.fproj` binario—, de modo que no hace falta instalar FluentASM para saber qué versión se
-está publicando. Cuando `fasm_admin` escribe un `.fproj`, **copia** ese valor al bloque
-`ProductVersion`.
+**Fuente de verdad del número de versión:** un archivo de **texto** versionado en el repositorio (`VERSION` y/o la propiedad de versión en `Directory.Build.props`). GitHub Actions lee ese archivo para saber qué versión se está publicando.
 
 ## Estándares de código
 
-El proyecto sigue convenciones de código consistentes:
+El proyecto sigue convenciones consistentes tanto en el código C# del compilador como en el código `.fasm`:
 
-- Usa **PascalCase** para tipos, métodos y propiedades: `Cp`, `Alu`, `Jump`, `Rax`.
-- Usa **camelCase** para variables locales y parámetros: `valorOrigen`, `registroDestino`.
-- Usa inferencia de tipos cuando el tipo sea obvio.
-- Comenta el código fuente (`.fasm` y código del compilador) usando `//`, `/* */` o `///`. En `.fasm`, `///` documenta símbolos (`program`, `routine`) y guarda el texto en `fasm.fdoc` con clave automática `Parte.Símbolo`.
-- No uses abreviaturas crípticas. `registroDestino` es mejor que `rd`.
-- Los nombres de registros, mnemónicos y directivas del lenguaje se toman **siempre** de
-  [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) (común) y [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) (x64); no se inventan alias.
-- `.editorconfig` en la raíz es obligatorio y las advertencias se tratan como errores
-  en la integración continua.
+- **Registros y unidades del lenguaje:** `PascalCase` (`Gpr0`, `Frf`, `Ipr`, `Stack`, `Cpu`, `Bit`, `Byte`).
+- **Verbos, atributos y vistas:** `camelCase` (`copy`, `add`, `low32`, `flowCall`, `flowStackJump`).
+- **Identificadores de usuario (`.fasm`) y variables locales (C#):** `camelCase` (`miCalculadoraCli`, `numA`, `sumar`, `valorOrigen`).
+- **Etiquetas locales (`.fasm`):** `@` + `camelCase` (`@bucle`, `@fin`).
+- **Comentarios:** `//` hasta fin de línea o `/* ... */` en bloque.
+- **No uses abreviaturas crípticas.** `registroDestino` es mejor que `rd`.
+- **Fuente única de nombres:** los registros, verbos y reglas del lenguaje se toman siempre de [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) (común) y [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) (x64); no se inventan alias.
+- `.editorconfig` en la raíz es obligatorio y las advertencias se tratan como errores en la integración continua.
 
-**Mnemónicos actuales (según [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#10-catálogo-de-instrucciones-x64-fase-1)):**
+**Verbos y elementos canónicos de Fase 1 (x64 *bare metal*):**
 
-| Categoría | Nombres en DSL |
+| Categoría | Nombres en FluentASM |
 |---|---|
-| Transferencia | `copy`, `copyZeroExtended`, `copySignedExtended`, `lea` |
-| ALU | `alu` (operaciones: `add`, `sub`, `and`, `or`, `xor`, `imul`, `subNoWrite`, `andNoWrite`) |
-| Pila | `stackWrite`, `stackRead`, `stackPointerGet`, `stackPointerSet` |
-| Control de flujo | `jump` (con `if rFlags...`), `call`, `ret` |
-| Sistema (bare metal) | `nop`, `setCarry`, `clearCarry`, `toggleCarry`, `setDirection`, `clearDirection` |
+| Transferencia y memoria | `copy`, `copyUnsigned`, `copySigned`, `loadAddress`, `exchange`, `conditionalCopy`, `copyBlock`, `fillBlock` |
+| Aritmética | `add`, `sub`, `addWithCarry`, `subWithBorrow`, `increment`, `decrement`, `negate`, `multiply`, `multiplyWide`, `divide`, `divideSigned`, `signExtend`, `compare` |
+| Lógica y bits | `and`, `or`, `xor`, `not`, `test`, `shiftLeft`, `shiftRightLogical`, `shiftRightArithmetic`, `rotateLeft`, `rotateRight`, `testBit`, `setBit`, `clearBit`, `toggleBit` |
+| Banderas (`Frf`) | `carry`, `direction`, `interrupt`, condiciones (`zero`, `carry`, `sign`, `overflow`, `parity`, y alias legibles `equal`, `notEqual`, `less`, `greater`, `below`, `above`) |
+| Pila (`Stack`) | `Stack.push`, `pop(Stack)`, `Stack.reserve`, `Stack.release` |
+| Control de flujo (`Ipr`) | `flowJump`, `flowCall`, `flowStackJump`, `flowLoop` |
+| Hardware (*bare metal*) | `Cpu.noOperation`, `Cpu.pause`, `Cpu.halt`, `Port[...]` |
 
-No se usan: `Mov`, `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul`, `Push`, `Pop`, `Jmp`, `Je`, `Jne`, `Ja`, `Jae`, `Jb`, `Jbe`, `Jg`, `Jge`, `Jl`, `Jle`, `Js`, `Jns`, `Jo`, `Jno`, `Jp`, `Jnp`, `Call`, `Ret`, `Nop`, `Int`, `Int3`, `Syscall`, `Leave`, `Stc`, `Clc`, `Cmc`, `Std`, `Cld`, `Movzx`, `Movsx`, `Set`, `Mov`, `Cp`.
+**Nombres prohibidos (legacy o descartados):** `Rax`, `Eax`, `Rcx`–`R15`, `RIP`, `rFlags`/`RFLAGS`, `Mov`, `Alu`/`.alu`, `subNoWrite`, `andNoWrite`, `Gpr.mult<2,0>`, `Push`, `Pop`, `stackWrite`, `stackRead`, `Jmp`, `Je`–`Jnp`, `Call`, `Ret`, `Nop`, `Hlt`, `Movzx`, `Movsx`, `Lea`.
 
 ## Estructura del código fuente (`src/`)
 
-La carpeta `src/` contiene varios proyectos independientes:
+**No existen proyectos de pruebas formales (`*Tests.csproj`) ni generación de tests automáticos.**
+La validación se realiza compilando y ejecutando directamente ejemplos reales en `FluentASM.Sample` (y/o en QEMU *bare metal*). `FluentASM.Sample` varía libremente con cada función y no entra en el versionado.
 
 ```
 src/
-  FluentASM.Core/           → Modelo intermedio, catálogo de instrucciones, codificador, layout y emisores
-  FluentASM.Compiler/       → El ensamblador (fluentasm): lee .fasm y .fproj y genera la salida
-  FluentASM.Admin/          → El CLI administrador de producto (fasm_admin)
-  FluentASM.Sample/         → Proyecto de pruebas manuales: varía con cada función y con cada commit
-  FluentASM.IDE/            → Entorno de desarrollo integrado (Fase 9)
+  FluentASM.Core/           → Lexer, parser, validador Tipo 1 / ATM, codificador x64 y emisor de imagen plana
+  FluentASM.Compiler/       → CLI (fluentasm): lee .fproj y sourcesCode.fasm y genera la salida .x64
+  FluentASM.Sample/         → Proyecto de pruebas manuales (no entra en versionado)
+  miCalculadoraCli/         → Programa de ejemplo de Fase 1 (.fproj + sourcesCode.fasm)
+  FluentASM.Admin/          → Administrador binario futuro (fasm_admin) — diferido a fases posteriores
+  FluentASM.IDE/            → Entorno de desarrollo integrado — diferido a fases posteriores
 ```
 
-Cada proyecto es independiente pero forma parte del mismo ecosistema. Puedes ampliar esta estructura según se necesiten más herramientas.
+La solución .NET de Fase 1 es `src/FluentASM.slnx`; la versión se publica desde `VERSION` (raíz) a través de `src/Directory.Build.props`.
 
-**No hay proyectos de pruebas formales** (`*Tests.csproj`). El proyecto `Sample` se usa para probar funciones sueltas y cambia con cada commit y cada función que se quiera probar; **no se toma en cuenta para el versionado**, pues cada proyecto tiene su propio versionado independiente.
+Las carpetas `Proposal00/` y `Proposal01/` en la raíz se conservan únicamente como archivo histórico de diseño.
 
----
 
 ## Visión del proyecto
 
 ### Qué es FluentASM
 
-FluentASM es un lenguaje ensamblador con sintaxis fluida. Traduce instrucciones encadenadas con sintaxis fluida a **código máquina nativo** y genera imágenes binarias que no necesitan ningún runtime.
+FluentASM es un lenguaje ensamblador moderno, práctico, seguro, eficiente y cómodo. Combina una estructura **fluida guiada por contexto (*type-state*)** con **bloques `{}` legibles**, midiendo toda información físicamente en **`Bit:N`** y **`Byte:N`** y traduciendo directamente a **código máquina nativo** sin máquina virtual ni *runtime*.
 
 ### Principios rectores
 
-1. **Claridad sobre brevedad.** Prefiere `.copy(10 to Eax)` sobre `mov eax, 10`.
-2. **Empatía con quien aprende.** Cada concepto nuevo viene con analogía y ejemplo.
-3. **Sintaxis fluida y encadenada.** Inspirado en patrones de builders fluidos.
-4. **Experiencia fluida.** La API refleja la experiencia de programación fluida.
-5. **Educación antes que potencia.** Primero que la base sea clara, luego se añade potencia.
+1. **Claridad y honestidad física.** Prefiere `Gpr0.copy(Gpr1)` sobre `mov rax, rcx`. Todo constructo refleja lo que ocurre físicamente en la CPU.
+2. **Estructura *type-state* + bloques legibles.** La cabecera del programa sigue un flujo guiado por el nombre del proyecto (`Proyecto.data(...).execute(...).initialize()`), con un argumento por método fluido (comas solo en listas homogéneas). Adentro, bloques `{}` claros: sin `()` señala estado/ventana (`Gpr0.low32`), con `()` ejecuta una instrucción real (`Gpr0.copy(...)`).
+3. **Un solo modelo físico (`Bit` / `Byte`).** Sin abstracciones como `int`, `float`, `string` o `struct`.
+4. **Principio de Garantía de Completitud y cero datos duros en ejecución.** Las plantillas aportan valores predeterminados explícitos. Dentro de `.execute(...)` no se escriben datos literales mágicos: el estado base limpio se expresa con `defaultValue`, y los valores reales viven en `.data(...)` o recursos externos.
+5. **Seguridad Tipo 1 y eficiencia.** Cero código oculto en tiempo de ejecución. El compilador valida tamaños, vistas, banderas válidas y contratos de llamada antes de emitir bytes.
+6. **Libertad *bare metal* y evolución multi-CPU.** Se diseña libre de ataduras a sistemas operativos existentes, implementando primero x64 real y extrayendo el estándar multi-arquitectura al sumar una segunda CPU.
 
 ### Qué FluentASM NO es
 
-- No es un lenguaje de alto nivel como Java.
-- No intenta reemplazar lenguajes de alto nivel.
-- No es un compilador optimizador complejo (por ahora).
-- No requiere entender pipelines de CPU, caché o memoria virtual para empezar.
-- No es una máquina virtual: no ejecuta bytecode intermedio ni necesita runtime instalado.
+- No es un lenguaje de alto nivel con recolección de basura ni tipos abstractos.
+- No es un compilador optimizador que reordene o invente código oculto a espaldas del programador.
+- No es una máquina virtual ni requiere *runtime* instalado.
 
-**Principio fundamental:** nada en FluentASM es una "caja negra". Todo debe ser reducible a instrucciones y bytes visibles.
+**Principio fundamental:** nada en FluentASM es una "caja negra". Todo se reduce a instrucciones y bytes visibles.
 
----
 
-## Modelo de ejecución y ABI
+## Modelo de ejecución y convenciones (Fase 1)
 
-### ABI objetivo de la Fase 1: Microsoft x64 (Win64)
+### Objetivo de Fase 1: x64 *Bare Metal*
 
-| Concepto | Valor |
+- **Salida:** imagen plana (`.x64`, bytes puros sin cabecera PE/ELF), independiente de posición (PIC), ejecutable en arrancador en memoria o emulador QEMU.
+- **Sin OS previo:** el lenguaje no impone convenciones de Windows ni Linux como obligatorias en el diseño, aunque adopta un mapeo físico determinista y claro para rutinas.
+
+### Convención de registros y llamadas en Fase 1
+
+| Concepto | Registro físico asignado |
 |---|---|
-| Parámetro 1 | `Rcx` |
-| Parámetro 2 | `Rdx` |
-| Parámetro 3 | `R8` |
-| Parámetro 4 | `R9` |
-| Valor de retorno entero | `Rax` |
-| Espacio de sombra | 32 bytes, reservado por el llamante |
-| Alineación de pila en la llamada | 16 bytes |
-| Callee-saved | `Rbx`, `Rbp`, `Rdi`, `Rsi`, `R12`–`R15`, `Rsp` |
-| Caller-saved (volátiles) | `Rax`, `Rcx`, `Rdx`, `R8`–`R11` |
+| Entrada 1 | `Gpr1` |
+| Entrada 2 | `Gpr2` |
+| Entrada 3 | `Gpr8` |
+| Entrada 4 | `Gpr9` |
+| Retorno principal | `Gpr0` |
+| Puntero de pila | `Gpr4` (`Stack`) |
+| Puntero de marco | `Gpr5` |
 
-La ABI activa se declara siempre (en `.fproj` o línea de comandos). Nunca se adivina.
+### Contratos de llamada y pila
 
-### `parameter`, prólogo y epílogo
+- Las llamadas se escriben con contrato visible: `Ipr.flowCall(c -> c.target(rutina).inputs(...).output(...))` (o `Ipr.flowCall(rutina)` si no tiene entradas ni salida).
+- Al salir de `flowCall`, el compilador **invalida lógicamente** los registros usados como entrada para evitar lecturas accidentales (sin emitir instrucciones ocultas).
+- Toda rutina declara su retorno (`d.returns(...)`), recibe alias tipados en `d.run(...)` si tiene entradas, y cierra explícitamente con `Ipr.flowStackJump()` o `Cpu.halt()`.
+- La pila crece hacia abajo y debe estar alineada a 16 bytes al ejecutar `Ipr.flowCall(...)`.
 
-- `parameter` **no elige registros**: los asigna la ABI, en orden. El nombre es un alias legible.
-- El compilador **genera** el prólogo (guardar `Rbp`, establecer marco, reservar locales alineado a 16) y el epílogo alrededor del cuerpo.
-- `.flowStackJump()` ejecuta el epílogo y el `ret`. No se escribe `ret` a mano en rutinas con `parameter`.
-- Límite Fase 1: máximo 4 parámetros por rutina.
-- `naked` fuerza ausencia de prólogo/epílogo aunque haya parámetros o locales.
 
-### Modelo de ejecución
-
-- Salida Fase 1: **imagen plana** (bytes puros, sin cabecera) cargada en memoria.
-- Código independiente de posición (PIC). No puede llamar a nada externo.
-- Lo observable: valor de retorno en `Rax`.
-
-### Pila
-
-- Crece hacia abajo.
-- Al momento de `.call`, `Rsp` debe ser múltiplo de 16.
-- Espacio de sombra de 32 bytes en Win64 cumple el ajuste de alineación tras empujar la dirección de retorno.
-- No existe "zona roja" (red zone) en Win64.
-
----
-
-## Modelo intermedio (IR)
+## Pipeline del compilador y Diagnósticos (Fase 1)
 
 ### Etapas del proceso
 
 ```
-Entrada .fasm → IR de origen → Layout → Codificación → Emisión → Imagen .x64
+.fproj + sourcesCode.fasm → Léxico/Sintáctico → Validador Tipo 1 y ATM → Selección de verbos → Layout → Codificador x64 → Imagen .x64
 ```
 
 | Etapa | Invariante al terminar |
 |---|---|
-| IR de origen | Cada símbolo tiene dueño; cada sección tiene nombre, flags, alineación |
-| Layout | Cada símbolo tiene `Offset`; cada sección tiene `VirtualAddress` |
-| Codificación | Cada instrucción tiene codificación seleccionada y tamaño conocido |
-| Emisión | Todas las relocalizaciones resueltas; ninguna pendiente |
+| Léxico y Sintáctico | Árbol sintáctico válido siguiendo el flujo *type-state* y bloques |
+| Validador Tipo 1 / ATM | Sin datos duros en `.execute`, anchos `Bit`/`Byte` consistentes, contratos `flowCall` y banderas `Frf` verificados |
+| Layout | Cada rutina y símbolo tiene `Offset`; saltos `rel8`/`rel32` convergidos de forma determinista |
+| Codificación y Emisión | Codificación más corta determinista; todas las relocalizaciones resueltas |
 
-### Layout y ajuste de saltos
+### Rangos de diagnóstico (v1)
 
-1. Todos los saltos se codifican en forma corta (`Rel8`).
-2. Se asignan direcciones.
-3. Si un desplazamiento no cabe en `Rel8` (-128..127), se promociona a `Rel32`.
-4. Se repite hasta convergencia (monótono, termina).
-
-### Diagnósticos
-
-| Rango | Etapa | Ejemplo |
-|---|---|---|
-| `FASM1xxx` | Léxico | `FASM1002` carácter inesperado |
-| `FASM2xxx` | Sintáctico | `FASM2001` falta paréntesis de cierre |
-| `FASM3xxx` | Semántico y ABI | `FASM3001` más de 4 parámetros; `FASM3002` registro 8 bits alto con REX; `FASM3006` documentación sin declaración; `FASM3008` clave no resuelta en `fasm.fdoc` |
-| `FASM4xxx` | Codificación | `FASM4001` no existe forma para esos operandos; `FASM4010` condición de salto inválida; `FASM4011` `not` mal usado; `FASM4012` bandera indefinida en salto; `FASM4013` operador no soportado en condición |
-| `FASM5xxx` | Layout y relocalizaciones | `FASM5001` símbolo externo en imagen plana |
-
----
-
-## Formatos binarios
-
-### `.fproj` — Archivo de proyecto
-
-Estrictamente binario, tabla de índice al inicio para lectura selectiva. No se edita a mano; se crea y modifica con `fasm_admin`.
-
-**Cabecera (16 bytes):**
-- `Magic`: `FPRJ` (4 bytes ASCII)
-- `VersionMajor`, `VersionMinor`: u16 (actual: 1.1)
-- `EntryCount`: u16
-- `Flags`: u16 (reservado, 0)
-- `IndexOffset`: u32
-
-**Entrada de índice (16 bytes):** `Tag` (u16), `Flags` (u16), `Offset` (u32), `Size` (u32), `Reserved` (u32)
-
-**Etiquetas principales:**
-
-| Tag | Nombre | Obligatorio |
-|---|---|---|
-| `0x0001` | `ProgramName` | Sí |
-| `0x0002` | `ProductVersion` | Sí |
-| `0x0003` | `Architecture` | Sí |
-| `0x0004` | `TargetSystem` | Sí |
-| `0x0005` | `Abi` | Sí |
-| `0x0006` | `Sources` | Sí |
-| `0x0007` | `Libraries` | No |
-| `0x0008` | `OutputName` | Sí |
-| `0x0009` | `EntrySymbol` | No |
-| `0x000A` | `Description` | No |
-| `0x000B` | `BuildOptions` | No |
-| `0x000C` | `ToolVersion` | Sí |
-| `0x000D` | `CreatedUtc` | Sí |
-| `0x000E` | `ModifiedUtc` | Sí |
-| `0x000F` | `Destinations` | No |
-| `0x0010` | `Representations` | No |
-| `0x0011` | `ServiceParts` | No |
-
-**Valores de enumeración:**
-- `Architecture`: 1=x64, 2=x86, 3=arm
-- `TargetSystem`: 0=bare-metal, 1=windows, 2=linux, 3=macos
-- `Abi`: 0=none, 1=win64, 2=systemv
-- `Representations`: 0=portable-only, 1=native-only, 2=both
-
-**BuildOptions (u32, campo de bits):**
-- Bit:0: PIC (defecto: 1)
-- Bit:1: Ajuste automático de saltos (defecto: 1)
-- Bit:2: Símbolos de depuración (defecto: 0)
-- Bit:3: Prohibir símbolos externos (defecto: 1)
-
-### `.fworkspace` — Archivo de solución
-
-Misma estructura que `.fproj` con magic `FWKS`. Agrupa múltiples `.fproj` con grafo de dependencias y orden topológico determinista.
-
-### `.bin` — Parte (v1.1)
-
-Contenedor de representaciones (portable y nativas) de un mismo código. Incluye una tabla de metadatos para que la documentación `///` tenga una clave estable (`Parte.Símbolo`).
-
-**Cabecera (24 bytes):**
-
-| Offset | Bytes | Campo | Tipo | Valor / Descripción |
-|---|---|---|---|---|
-| 0 | 4 | `Magic` | ASCII | `FPRT` |
-| 4 | 2 | `VersionMajor` | u16 | 1 |
-| 6 | 2 | `VersionMinor` | u16 | 1 |
-| 8 | 2 | `RepCount` | u16 | Nº de representaciones |
-| 10 | 2 | `MetaCount` | u16 | Nº de entradas de metadatos |
-| 12 | 2 | `Flags` | u16 | Reservado (0) |
-| 14 | 4 | `RepOffset` | u32 | Offset a la tabla de representaciones |
-| 18 | 4 | `MetaOffset` | u32 | Offset a la tabla de metadatos |
-
-**Entrada de representación (16 bytes):** `RepType` (u8: 0=portable, 1=nativo), `Arch` (u8), `Flags` (u16), `Offset` (u32), `Size` (u32), `CRC32` (u32).
-
-**Tabla de metadatos (entradas de 16 bytes):**
-
-| Tag | Nombre | Obligatorio | Contenido |
-|---|---|---|---|
-| `0x0001` | `PartName` | Sí | Nombre estable de la Parte (`bootloader`) |
-| `0x0002` | `Description` | No | Descripción breve de la Parte |
-| `0x0003` | `DocSymbols` | No | Lista de símbolos documentados (`start`, `putc`, …) |
-
-Solo se guardan los nombres de símbolos, no el texto. La clave de documentación es `PartName.Símbolo`. El texto vive en `fasm.fdoc`.
-
-### `fasm.fdoc` — Catálogo de documentación
-
-Almacenado en la raíz del workspace. Es un archivo binario indexado con texto por idioma (BCP 47). Cada clave `Parte.Símbolo` guarda sus campos estructurados por idioma:
-
-| Tipo | Significado |
+| Rango | Etapa |
 |---|---|
-| 1 | Resumen (una línea) |
-| 2 | Notas (texto largo) |
-| 3 | Parámetro (`Name` = nombre del parámetro) |
-| 4 | Retorno |
-| 5 | Véase también (referencia a otra clave) |
-
-El lector usa una tabla hash mapeada en memoria: búsqueda O(1), solo se carga la entrada pedida, nunca el archivo entero. UTF-8 NFC para evitar duplicados por normalización.
-
-**Resolución de idioma:**
-1. `.fworkspace` → `DefaultLanguage`
-2. `.fproj` → `DocumentationLanguages`
-3. Idioma del sistema operativo
-4. Respaldo: `fr-CA` → `fr` → idioma por defecto → primero disponible
-
-Al compilar, el texto de documentación se valida y se descarta: nunca entra en la imagen ejecutable. Traducir solo edita `fasm.fdoc`; no recompila nada.
+| `FASM1xxx` | Léxico y sintáctico |
+| `FASM2xxx` | Programa, símbolos, secciones y datos duros en `.execute` |
+| `FASM3xxx` | ATM (`Bit`/`Byte`), registros, vistas y banderas |
+| `FASM4xxx` | Operandos, direccionamiento, verbos y flujo |
+| `FASM5xxx` | Contratos de llamada (`flowCall`), pila y alineación |
+| `FASM9xxx` | Errores internos del compilador |
 
 
----
+## Archivos de proyecto y evolución del ecosistema
 
-## Modelo de portabilidad
+### Fase 1 (Texto simple legible)
 
-Cuatro niveles de promesa:
+Cada proyecto vive en su carpeta `src/<nombreProyecto>/` y contiene:
+- `<nombreProyecto>.fproj`: archivo de configuración en **texto simple legible** (nombre del proyecto, arquitectura `x64`, archivos fuente, punto de entrada).
+- `sourcesCode.fasm`: código fuente cuyo identificador raíz coincide con el nombre definido en el `.fproj`.
 
-| Nivel | Nombre | Promesa | Restricción |
-|---|---|---|---|
-| 1 | Núcleo Portable | Mismo resultado en cualquier arquitectura | No nombrar registros nativos ni banderas específicas |
-| 2 | Servicios del Lenguaje | Misma interfaz, distinta implementación por plataforma | Depende de una "Parte" de servicio compatible |
-| 3 | Extensiones ISA | Control total sobre la CPU | Sin promesa de portabilidad |
-| 4 | Artefactos del Lenguaje | Independencia de herramientas externas | Formatos propios `.fasm`, `.bin`, `.fproj`, `.fworkspace` |
+Cuando hay múltiples proyectos en una solución, se agrupan mediante un `.fworkspace` también en texto simple en Fase 1.
 
-### Registros portables (Nivel 1)
+### Fases posteriores (Ecosistema completo)
 
-Numeración canónica independiente de ISA con ancho explícito: `R0q`, `R1d`, `R0w`, `R0b`. El compilador los mapea a registros nativos (`R0q` → `Rax` en x64, `X0` en ARM64).
+Una vez que el compilador de Fase 1 genere y ejecute binarios reales, se incorporarán de forma incremental:
+- Formatos binarios indexados para `.fproj` y `.fworkspace` junto con el CLI `fasm_admin`.
+- Contenedores `.bin` ("Partes") para reutilización binaria y comunicación entre proyectos.
+- Catálogo multilingüe `fasm.fdoc` para documentación de símbolos.
+- Entorno de desarrollo integrado (`FluentASM.IDE`).
 
-**Regla importante:** `parameter` asigna nombres según la ABI. En x64 el parámetro 1 llega en `Rcx` (`R1` canónico); en ARM64 llega en `X0` (`R0` canónico). Nunca asumas que `parameter 1` es `R0`.
-
-### Parte (`.bin`)
-
-Unidad de composición. Contiene representación portable por defecto y opcionalmente representaciones nativas para una o varias ISAs. El compilador extrae los bytes de la representación nativa del destino y los incrusta en la imagen final.
-
-### Frontera mínima (bare metal)
-
-Servicios básicos garantizados sin SO: arranque, consola de E/S, tiempo, memoria básica. Implementados como Partes de Servicio (`metal.bin`, `win32.bin`, etc.).
-
----
 
 ## Roadmap
 
 | Fase | Objetivo |
 |---|---|
-| 1 | Núcleo x64, imagen plana, ejecución en memoria |
-| 2 | Frontend `.fasm`: léxico, sintáctico y semántico |
-| 3 | ARM64 en QEMU: segunda implementación nativa |
-| 4 | Extracción del núcleo portable (comparar x64 y ARM64) |
-| 5 | Partes (`.bin`): contenedor de representaciones |
-| 6 | Proyectos y soluciones (`.fproj`, `.fworkspace`, `fasm_admin`) |
-| 7 | Ejecutables del SO (PE/ELF) |
-| 8 | RISC-V en QEMU: tercera implementación nativa |
-| 9 | Bare metal en QEMU (x64, ARM64, RISC-V) |
-| 10 | ESP32 / Xtensa sobre hardware |
-| 11 | Auto-albergue (*self-hosting*) |
-| 12 | IDE |
+| **1 (Actual)** | Compilador en .NET (`.fproj` simple, léxico, parser, validador Tipo 1, codificador x64 mínimo viable) + imagen plana `.x64` ejecutada en lanzador de pruebas / QEMU *bare metal* |
+| **2** | Ampliación de x64 (memoria avanzada, bloques, utilidades de arranque en QEMU) y comunicación entre binarios / Partes (`.bin`) |
+| **3** | Segunda arquitectura real (ARM64 / RISC-V en QEMU) y extracción del estándar común multi-CPU basado en implementaciones reales |
+| **4** | Formatos binarios del ecosistema (`.fproj`, `.fworkspace`, `fasm_admin`, `fasm.fdoc`) y extensiones x64 avanzadas (SIMD, x87, sistema/paginación) |
+| **5** | Ejecutables de sistemas operativos (PE/ELF) si se requieren y entorno de desarrollo (`FluentASM.IDE`) |
+| **6** | Auto-albergue (*self-hosting*) y operación independiente sin OS previo |
 
-**Criterio de salida Fase 0:** una persona ajena al diseño puede implementar la Fase 1 leyendo solo la documentación, sin hacer preguntas.
-
----
 
 ## Vocabulario prescriptivo
 
 ### Reglas de diseño
 
-1. **Un concepto, un nombre.** Sinónimos se listan como "alias no usados".
-2. **Definir por lo que hace, no por a qué se parece.** Entradas, salidas, efecto observable.
-3. **Nombrar lo que ocurre físicamente.** Si guarda bits, se llama así.
-4. **Anchos siempre explícitos.** Nunca "palabra" o "32 bits" a secas.
-5. **Marketing no es vocabulario técnico.** Términos de venta se excluyen.
-6. **Término estándar aceptable si se define con precisión.** No sustituir nombres conocidos por frases descriptivas.
-7. **Vigencia física.** Un término histórico se conserva solo si su definición actual es físicamente exacta.
+1. **Un concepto, un nombre.** Los sinónimos antiguos se rechazan como legacy.
+2. **Definir por lo que hace físicamente.** Entradas, salidas y efecto observable.
+3. **Anchos siempre explícitos.** `Bit:N` o `Byte:N`; nunca "palabra" ni "entero" a secas.
+4. **Sin `()` = parte o estado; con `()` = acción ejecutada.**
 
-### Términos a evitar y su sustitución
-
-| Evitar | Usar en su lugar |
-|---|---|
-| "RAM" | Memoria de trabajo |
-| "ROM" | Memoria de solo lectura / memoria no volátil |
-| "Disco" | Unidad de almacenamiento |
-| "Endianness" | Orden de bytes: menor-primero / mayor-primero |
-| "Palabra" | Ancho nativo (bits específicos) |
-| "Núcleo" (sin calificar) | Unidad de ejecución independiente |
-| "Hilo" (sin calificar) | Contexto de ejecución hardware |
-| "Caché" (sin definir) | Memoria intermedia de acceso rápido |
-| "RFLAGS" / "EFLAGS" | `rFlags` (registro de banderas, bits individuales) |
-| "Zero Flag" / "ZF" | `rFlags.zero` (Bit:6) |
-| "Carry Flag" / "CF" | `rFlags.carry` (Bit:0) |
-| "Sign Flag" / "SF" | `rFlags.sign` (Bit:7) |
-| "Overflow Flag" / "OF" | `rFlags.overflow` (Bit:11) |
-| "Parity Flag" / "PF" | `rFlags.parity` (Bit:2) |
-| "Auxiliary Carry Flag" / "AF" | `rFlags.auxCarry` (Bit:4) |
-| "Direction Flag" / "DF" | `rFlags.direction` (Bit:10) |
-| "Interrupt Flag" / "IF" | `rFlags.interrupt` (Bit:9) |
-
-### Correspondencia con código (compilador)
-
-| Concepto del glosario | Identificador en código | Prohibido |
-|---|---|---|
-| Memoria de trabajo | `WorkingMemory` | `Ram`, `Memory` a secas |
-| Memoria persistente | `PersistentMemory` | `Rom`, `Storage` a secas |
-| Unidad de almacenamiento | `StorageUnit` | `Disk`, `Drive` |
-| Parte | `Part` | `Library`, `Module` |
-| Bajar (*lowering*) | `Lower` | `Translate` |
-| Imagen plana | `FlatImage` | `RawBinary` |
-| Copia (instrucción) | `Copy` | `Mov` |
-| Operación ALU | `Alu` | `Add`, `Sub`, `And`, `Or`, `Xor`, `Cmp`, `Test`, `Imul` |
-| Escritura en pila | `StackWrite` | `Push` |
-| Lectura de pila | `StackRead` | `Pop` |
-| Salto | `Jump` | `Jmp`, `Je`, `Jne`, `Ja`, `Jae`, `Jb`, `Jbe`, `Jg`, `Jge`, `Jl`, `Jle`, `Js`, `Jns`, `Jo`, `Jno`, `Jp`, `Jnp` |
-| Llamada | `Call` | `Call` (se mantiene, solo minúscula) |
-| Retorno | `Ret` | `Ret` (se mantiene, solo minúscula) |
-| Sin operación | `Nop` | `Nop` |
-| Establecer acarreo | `SetCarry` | `Stc` |
-| Limpiar acarreo | `ClearCarry` | `Clc` |
-| Invertir acarreo | `ToggleCarry` | `Cmc` |
-| Establecer dirección | `SetDirection` | `Std` |
-| Limpiar dirección | `ClearDirection` | `Cld` |
-| Cargar dirección efectiva | `Lea` | `Lea` (se mantiene) |
-| Extender con ceros | `CopyZeroExtended` | `Movzx` |
-| Extender con signo | `CopySignedExtended` | `Movsx` |
-
----
 
 ## Decisiones de diseño
 
-Una decisión que afecte a más de un archivo (formato, sintaxis, arquitectura de código, compatibilidad) no se decide en un comentario de PR: se registra aquí en CONTRIBUTING.md.
+Una decisión que afecte a más de un archivo (formato, sintaxis, arquitectura de código, compatibilidad) se registra aquí en `CONTRIBUTING.md`. Las decisiones no se editan: si una cambia, se escribe una nueva que la reemplaza.
 
-1. Abre un issue de tipo **decisión** explicando el problema y las opciones.
-2. Escribe la decisión con formato: contexto, decisión, consecuencias y alternativas descartadas.
-3. Al fusionarse, la decisión es obligatoria y los documentos afectados se actualizan en el mismo PR.
-4. Las decisiones no se editan: si una cambia, se escribe una nueva que la reemplaza.
+Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` o `plan-`. Estos **no se suben al origen**.
 
-Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` o `plan-`. Estos **no se suben al origen**. Una vez implementado en código y aprobado, el contenido se pasa a documentación en este archivo o en `FLUENT_SYNTAX.md`.
 
----
+### Decisión 0007 — Pacto de Diseño v1: *Type-State* fluido, `Bit`/`Byte`, Seguridad Tipo 1 y x64 *Bare Metal* (2026-11-17)
 
-### Decisión 0006 — Sintaxis física unificada (2026-11-05)
+*(Reemplaza la Decisión 0006 y resuelve las contradicciones entre `Proposal00` y `Proposal01`).*
 
-**Contexto:** La sintaxis anterior usaba mnemónicos históricos de NASM (`Mov`, `Add`, `Sub`, `Jmp`, `Je`, `Call`, `Ret`, `Push`, `Pop`, `Stc`, `Clc`, `Lea`, `Movzx`, `Movsx`) que no reflejan la física real de la CPU. Además, el orden de operandos `destino, origen` sigue la convención de NASM/x64, no el orden lógico "origen a destino".
+**Contexto:** Las especificaciones iniciales (`Proposal00`) y la propuesta extendida (`Proposal01`) presentaban tensiones entre ergonomía, reglas extremas sin datos literales, sintaxis incompatibles (`.alu` vs `destino.verbo`, `program ... end` vs constructor fluido con nombre de proyecto) y un alcance inicial inabarcable (`.fproj` binario, `fasm.fdoc`, SIMD/VMX/IDE desde Fase 1).
 
-**Opciones consideradas:**
-- A) Mantener sintaxis NASM-compatible para verificación directa con oráculo.
-- B) Rediseñar con nombres físicamente precisos y orden `origen to destino`, rompiendo correspondencia 1:1 con NASM.
-
-**Decisión:** Opción B.
-
-**Cambios aplicados:**
-
-| Categoría | Antes | Ahora | Motivo físico |
-|---|---|---|---|
-| Transferencia | `Mov` | `copy` (copy) | No mueve, copia; origen se preserva |
-| Transferencia | `Movzx` / `Movsx` | `copyZeroExtended` / `copySignedExtended` | Explícito sobre extensión (ceros vs signo) |
-| ALU | `Add`/`Sub`/`And`/`Or`/`Xor`/`Cmp`/`Test`/`Imul` | `.alu(origen operacion destino)` | Grupo unificado; separador por espacio; `subNoWrite`/`andNoWrite` para solo banderas |
-| Pila | `Push` / `Pop` | `stackWrite` / `stackRead` | Escriben/leen la pila (memoria), no manipulan puntero directamente |
-| Control de flujo | `Jmp`/`Je`/`Jne`/`Ja`... | `jump` / `jump(... if rFlags...)` | Gramática cerrada de 16 formas; `rFlags` expone banderas como bits |
-| Llamada/retorno | `Call` / `Ret` | `call` / `ret` | Minúscula inicial; `ret` sin operando (retorno en `Rax` por ABI) |
-| Sistema | `Nop`/`Stc`/`Clc`/`Std`/`Cld` | `nop`/`setCarry`/`clearCarry`/`setDirection`/`clearDirection` | Nombres descriptivos físicos; `sti/cli/int3/syscall` deferidos |
-| Dirección | `Lea` | `lea` | Mantenido; calcula dirección efectiva |
-| Extensión | `Movzx`/`Movsx` | `copyZeroExtended`/`copySignedExtended` | Explícito sobre extensión (ceros vs signo) |
-| Orden operandos | `destino, origen` | `origen to destino` (en `copy`) / `origen operacion destino` (en `alu`) | Legible en español; refleja flujo físico de datos |
-| Sección código | `.text` | `.execute` | `.execute` describe físicamente: código que se ejecuta. `.text` es alias legacy. |
+**Decisión:**
+1. **Estructura:** Raíz igual al nombre del proyecto (`.fproj`), flujo *type-state* (`Proyecto.data(...).execute(...).initialize()`) con bloques `{}` y un argumento por método fluido (comas solo en listas homogéneas).
+2. **Modelo de datos:** Solo `Bit:N` y `Byte:N` (+ múltiplos). Sin datos duros en `.execute(...)`; se usa `defaultValue` para el estado limpio en código y `.data(...)` (`.value(...)` o recursos) para valores concretos.
+3. **Contratos y llamadas:** Verbo unificado `destino.verbo(fuente)` y llamadas visibles `Ipr.flowCall(c -> c.target(...).inputs(...).output(...))` con invalidación lógica de entradas al retornar.
+4. **Alcance Fase 1:** x64 *bare metal* (incluyendo `Cpu.halt()`, `Frf.interrupt()` y `Port[...]`), `.fproj`/`.fworkspace` en texto simple legible, diferiendo binarios de producto, `fasm_admin`, `fasm.fdoc`, IDE, SIMD/x87 y multi-CPU a fases posteriores.
 
 **Consecuencias:**
-- **Ganancia:** Nombres físicamente precisos, orden `origen to destino` legible, coherencia con principio "físico, no marketing".
-- **Pérdida:** Rompe correspondencia 1:1 con mnemónicos NASM/x64. Verificación contra NASM requiere traducción mental (`cp` → `mov`, `origen to destino` → `destino, origen`).
-- **Mitigación:** Tabla de bytes sigue verificable con NASM; solo cambia mnemónico fuente y orden operandos en DSL `.fasm`.
+- **Ganancia:** Lenguaje coherente, predecible, seguro en tiempo de compilación (Tipo 1), alineado con el flujo creativo *type-state* y viable para implementar en .NET desde el día uno.
+- **Pérdida:** Rompe compatibilidad con sintaxis de borradores previos (`.alu`, `.copy(... to ...)`, `program ... end`, `Rax`).
+- **Mitigación:** `Proposal00/` y `Proposal01/` quedan como archivo histórico; los 4 documentos oficiales de raíz se alinean bajo esta única especificación.
 
-**Documentación actualizada:** `FLUENT_SYNTAX.md` (secciones 1–17), `CONTRIBUTING.md` (estándares, diagnósticos, vocabulario), `proposal-0001-cp-operand-order.md` (fases 1–5 completas).
 
----
+### Decisión 0008 — Formato `.fproj` v1 en texto simple legible (2026-11-17)
 
-Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` o `plan-`. Estos **no se suben al origen**. Una vez implementado en código y aprobado, el contenido se pasa a documentación en este archivo o en `FLUENT_SYNTAX.md`.
+**Contexto:** El Pacto v1 exige `.fproj` en texto simple legible para Fase 1, pero no fija su gramática. Sin un formato único, el CLI, el ejemplo `miCalculadoraCli` y las pruebas no podrían validarse de extremo a extremo.
 
----
+**Decisión:**
+1. **Texto UTF-8** con una asignación `clave = valor` por línea. Se admiten líneas en blanco, comentarios `//` hasta fin de línea y valores entre comillas dobles cuando contienen espacios. Las claves son sensibles a mayúsculas y minúsculas.
+2. **Claves canónicas:** `name` (obligatoria), `architecture` (por defecto `x64`), `entryPoint` (por defecto `main`), `source` (obligatoria y repetible, una por archivo fuente) y `output` (por defecto `<name>.x64`, solo nombre de archivo).
+3. **Identidad:** `name` es un identificador de usuario `camelCase` y debe coincidir exactamente con el nombre del archivo `<name>.fproj`.
+4. **Diagnósticos:** la lectura del `.fproj` se reporta con el rango `FASM2xxx` (`FASM2001` archivo ausente o ilegible, `FASM2002` sintaxis o clave desconocida, `FASM2003` campo obligatorio ausente, `FASM2004` campo o fuente duplicada, `FASM2005` arquitectura no soportada, `FASM2006` identificador inválido, `FASM2008` fuente inexistente, `FASM2009` nombre distinto al archivo).
+5. **Diferido:** los formatos binarios indexados, `.fworkspace` y `fasm_admin` siguen reservados para fases posteriores.
 
-## Archivo de proyecto `.fproj`
+**Consecuencias:**
+- **Ganancia:** El proyecto es legible, diffeable y parseable sin dependencias externas; los valores predeterminados quedan documentados bajo el Principio de Garantía de Completitud.
+- **Pérdida:** No se admiten comentarios de bloque ni estructuras anidadas en `.fproj` v1.
+- **Mitigación:** Si el formato crece, se escribirá una decisión nueva que reemplace esta.
 
-Cada programa se define mediante un archivo `.fproj` binario ubicado junto a sus archivos fuente (mismo directorio o subdirectorios). Este archivo contiene la configuración de compilación: arquitectura, sistema objetivo, rutas relativas a los fuentes `.fasm` y bibliotecas `.bin`, y nombre de salida.
-
-El `.fproj` es estrictamente binario e incluye una **tabla de índice** al inicio que indica la posición y tamaño de cada sección de información, permitiendo lectura selectiva y rápida por máquinas y herramientas. No se edita a mano con un editor de texto; se crea y se modifica con `fasm_admin`, que acepta todos los campos por línea de comandos y ofrece `dump` y `verify` para revisarlo.
-
-La especificación byte a byte está definida más arriba en esta misma sección (Formatos binarios). La versión del producto **no** se lee de este archivo: vive en un archivo de texto del repositorio.
-
-## Archivo de solución `.fworkspace`
-
-Cuando se trabaja con más de un proyecto, se utiliza un archivo `.fworkspace` ubicado en el directorio padre. Este archivo agrupa múltiples archivos `.fproj` y gestiona dependencias entre ellos.
-
-- Es **opcional para un solo proyecto**.
-- Es **requerido para múltiples proyectos**.
-- Utiliza **formato estrictamente binario** con tabla de índice para lectura rápida por máquinas y herramientas.
-
-## CLI `fasm_admin`
-
-El administrador de producto de FluentASM se ejecuta mediante la herramienta de línea de comandos `fasm_admin`. Este CLI permite gestionar uno o varios proyectos a través de archivos `.fproj` y `.fworkspace`.
-
-Comandos principales:
-
-| Comando | Descripción |
-|---|---|
-| `fasm_admin init` | Crea un archivo `.fworkspace` vacío en el directorio actual. |
-| `fasm_admin add <ruta/proyecto.fproj>` | Agrega un proyecto existente al workspace. |
-| `fasm_admin remove <nombre-proyecto>` | Quita un proyecto del workspace. |
-| `fasm_admin list` | Muestra todos los proyectos registrados con su arquitectura y estado. |
-| `fasm_admin build` | Compila todos los proyectos del workspace en orden de dependencias. |
-| `fasm_admin build <nombre-proyecto>` | Compila solo un proyecto específico. |
-| `fasm_admin clean` | Borra binarios generados de todos los proyectos. |
-| `fasm_admin run <nombre-proyecto>` | Ejecuta un binario generado (si es para el SO actual). |
 
 ## CI-CD (Integración y Despliegue Continuos)
 
-**¿Qué es CI-CD?** Son procesos automatizados que se ejecutan cada vez que subes código al repositorio:
+En FluentASM usamos GitHub Actions para la CI a partir de que exista código en `src/`. Cada Pull Request:
 
-- **CI (Integración Continua):** construye el proyecto y ejecuta pruebas automáticamente para asegurarse de que tu cambio no rompió nada existente.
-- **CD (Despliegue Continuo):** si todo pasa correctamente, puede publicar automáticamente una nueva versión.
-
-En FluentASM usamos GitHub Actions para la CI. **Se habilita en la Fase 1**, cuando exista código; hasta entonces no hay nada que construir. Cada Pull Request:
-
-1. Compila todos los proyectos de `src/` con el SDK de .NET del repositorio.
-2. Ensambla los ejemplos de `rsc/` de extremo a extremo.
+1. Compila todos los proyectos activos de `src/` con el SDK de .NET del repositorio.
+2. Ensambla y valida los ejemplos de `rsc/` de extremo a extremo.
 3. Trata las advertencias como errores y falla si algún archivo no respeta `.editorconfig`.
 
-En la Fase 7 se añade un paso que **ejecuta** el `.exe` generado y comprueba su código de salida.
-
-Cada merge a `develop` genera automáticamente una versión `x.x.x-preview` mediante GitHub Actions.
-La versión se lee del archivo de texto del repositorio (`VERSION` / `Directory.Build.props`), **no**
-del `.fproj` binario: así la integración continua no depende de instalar FluentASM para saber qué
-versión está publicando.
+Cada merge a `develop` genera automáticamente una versión `x.x.x-preview` leyendo la versión del archivo de texto del repositorio (`VERSION` / `Directory.Build.props`).
 
 ## Reportar errores
 
 Si encuentras un error, abre un issue con la siguiente información:
 1. Qué esperabas que pasara.
 2. Qué pasó en realidad.
-3. El código que usaste (fragmento de FluentASM).
+3. El código que usaste (fragmento de FluentASM y su `.fproj` si aplica).
 4. Tu versión del SDK de .NET.
 
 ## Licencia
