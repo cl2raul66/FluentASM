@@ -13,6 +13,9 @@ jobs:
   build:
     name: Compilar y validar
     runs-on: windows-latest
+    if: >
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.body, 'x.x.x-preview')) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, 'x.x.x-preview'))
 
     steps:
       - name: Obtener el repositorio
