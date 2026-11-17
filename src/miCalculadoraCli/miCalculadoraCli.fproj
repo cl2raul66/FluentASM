@@ -1,0 +1,8 @@
+// Proyecto de ejemplo de Fase 1 — x64 bare metal.
+// El nombre debe coincidir con este archivo y con la raíz de sourcesCode.fasm.
+
+name = miCalculadoraCli
+architecture = x64
+entryPoint = main
+source = sourcesCode.fasm
+output = miCalculadoraCli.x64

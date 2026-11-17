@@ -12,6 +12,9 @@ TestResults/
 *.nupkg
 *.snupkg
 
+# Imágenes generadas por fluentasm
+*.x64
+
 # Entorno de usuario / IDE
 .vs/
 .vscode/

@@ -1,446 +1,336 @@
 # Referencia de sintaxis de FluentASM (Común)
 
-> **Documento compartido** — sintaxis común a todas las arquitecturas. Para detalles específicos de x64, véase [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md).
+> **Documento compartido.** Define la sintaxis, el modelo de tipos físicos, las reglas de flujo *type-state*, los contratos y los verbos comunes a **todas** las arquitecturas soportadas por FluentASM.
+> Los registros físicos concretos, modos de direccionamiento propios y codificación a bytes de cada procesador se definen en su documento específico (para x64, véase [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md)).
 
----
+## 1. Propósito de la capa común
 
-## ¿Qué es FluentASM?
+FluentASM separa lo que es **universal en la programación de máquinas** (cómo se estructura un programa, cómo se miden bits y bytes, cómo fluyen los datos, cómo se definen contratos entre rutinas y cómo se garantiza la Seguridad Tipo 1) de lo que pertenece a **una CPU concreta** (cuántos registros físicos tiene, cómo se llaman o qué instrucciones exclusivas posee).
 
-FluentASM es un **ensamblador** con una sintaxis fluida.
+Todo lo definido en este documento busca que un programa que utilice únicamente construcciones comunes produzca el **mismo resultado observable** sin importar la arquitectura destino, verificándose mediante pruebas equivalentes cuando se incorporen nuevas arquitecturas (Fase 3).
 
-Un ensamblador es una herramienta que traduce instrucciones escritas por personas a los bytes que el procesador ejecuta directamente. FluentASM es el ensamblador; su **bootstrap** (la primera implementación, que más adelante se sustituirá por el propio lenguaje, ver Fase 11 en la sección "Roadmap" de [CONTRIBUTING.md](CONTRIBUTING.md)).
+## 2. Proyecto y estructura de un archivo `sourcesCode.fasm`
 
-Un ensamblador traduce instrucciones a **código máquina nativo** (bytes crudos) que la CPU ejecuta directamente, sin máquina virtual intermedia ni *runtime* instalado.
+### 2.1 Vínculo con `.fproj`
 
----
+En Fase 1, cada proyecto vive en su propio directorio (`src/<nombreProyecto>/`) con dos archivos principales:
 
-## 1. Código fluido (DSL `.fasm`)
+- `<nombreProyecto>.fproj`: configuración del proyecto en texto simple legible (nombre del proyecto, arquitectura objetivo, archivos fuente, punto de entrada).
+- `sourcesCode.fasm`: código fuente cuyo identificador raíz **debe coincidir** con el nombre declarado en el `.fproj`.
 
-FluentASM se escribe en archivos `.fasm` con **código fluido**: instrucciones encadenadas con sintaxis fluida (`.copy(42 to Rax)`). Esta es la **única** forma de escribir programas.
+No se repite una palabra clave genérica `program`: el proyecto ya fue nombrado en `.fproj`.
 
----
+### 2.2 Flujo *Type-State* de nivel superior
 
-## 2. Estructura de un archivo `.fasm`
+El archivo sigue un flujo guiado por contexto (*type-state*):
 
-```fasm
-program MiPrograma              // nombre del programa (opcional)
-    section .execute            // declaración de sección
-    entry main                  // símbolo de entrada (opcional)
-
-    routine Doblar              // una rutina con un parámetro
-        parameter n             // n es el nombre del 1.er parámetro (ABI: Rcx en Win64)
-        .copy(n to Rax)         // copia el valor del parámetro en Rax
-        .alu(Rax add Rax)       // Rax = Rax + Rax
-        Ipr.flowStackJump()        // devuelve Rax
-    end
-
-    routine main                // punto de entrada
-        .copy(21 to Rcx)        // pone el argumento 1 en Rcx (donde Doblar lo espera)
-        Ipr.flowCall(Doblar)       // llama a Doblar; el resultado queda en Rax
-        Ipr.flowStackJump()        // devuelve Rax (que ahora vale 42)
-    end
-end
+```text
+NombreDelProyecto  →  [ .data(...) ]  →  .execute(...)  →  .initialize()
 ```
 
-### 2.1 Cómo se lee el ejemplo
+- **`.data(dt -> { ... })` *(opcional)*:** Declara espacios de datos, valores iniciales o recursos externos. Si se omite, el programa no genera sección de datos propia.
+- **`.execute(ex -> { ... })` *(obligatoria)*:** Contiene las rutinas ejecutables del programa.
+- **`.initialize()` *(terminal obligatorio)*:** Cierra el contrato del programa e indica al compilador que la estructura está completa. Después de `.initialize()` no es válido encadenar más secciones.
 
-| Paso | Instrucción | Qué ocurre |
+Bajo el **Principio de Garantía de Completitud**, todo campo de configuración no especificado explícitamente (como tamaño de pila inicial o plantilla por defecto de la arquitectura activa) toma los valores predeterminados documentados del proyecto en `.fproj`, conocidos tanto por el programador como por el compilador.
+
+### 2.3 Ejemplo completo (ilustrado sobre x64)
+
+*(Los nombres `Gpr0`, `Gpr1`, `Gpr2` corresponden al archivo de registros nativo de x64 definido en [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md)).*
+
+```fasm
+// Proyecto: src/miCalculadoraCli/miCalculadoraCli.fproj
+// Código:   src/miCalculadoraCli/sourcesCode.fasm
+
+miCalculadoraCli
+    .data(dt -> {
+        dt.define<Byte:8>(d -> d.id(numA).value(10))
+        dt.define<Byte:8>(d -> d.id(numB).value(20))
+    })
+    .execute(ex -> {
+        ex.routines(rt -> {
+
+            rt.define(d -> {
+                d.id(main)
+                d.returns(Gpr0)
+                d.run(() -> {
+                    Gpr1.copy([numA])
+                    Gpr2.copy([numB])
+                    Ipr.flowCall(c -> c.target(sumar).inputs(Gpr1, Gpr2).output(Gpr0))
+                    Ipr.flowStackJump()
+                })
+            })
+
+            rt.define(d -> {
+                d.id(sumar)
+                d.returns(Gpr0)
+                d.run((arg1<Byte:8>, arg2<Byte:8>) -> {
+                    Gpr0.copy(arg1)
+                    Gpr0.add(arg2)
+                    Ipr.flowStackJump()
+                })
+            })
+
+        })
+    })
+    .initialize()
+```
+
+## 3. Reglas léxicas y sintácticas
+
+### 3.1 Convenciones de escritura y sensibilidad a mayúsculas
+
+El lenguaje es **estrictamente sensible a mayúsculas y minúsculas**.
+
+| Elemento | Convención | Ejemplos |
 |---|---|---|
-| 1 | `.copy(21 to Rcx)` | `main` escribe `21` en `Rcx`, que es donde `Doblar` leerá su primer argumento. |
-| 2 | `Ipr.flowCall(Doblar)` | Salto a `Doblar`. El valor `21` ya está en `Rcx`, así que `Doblar` lo recibe como su `parameter n`. |
-| 3 | `parameter n` | `n` no es un valor ni una variable: es el **nombre** del registro que la ABI asigna al primer parámetro. En Win64, `n` ≡ `Rcx`. |
-| 4 | `.copy(n to Rax)` | Copia `Rcx` (que vale 21) en `Rax`. Ahora `Rax = 21`. |
-| 5 | `.alu(Rax add Rax)` | `Rax = 21 + 21 = 42`. |
-| 6 | `Ipr.flowStackJump()` | `Doblar` devuelve `Rax` (42). |
-| 7 | `Ipr.flowStackJump()` | `main` devuelve `Rax` (que contiene 42). `Rcx` sigue valiendo 21, pero ya no importa. |
+| Registros, unidades y magnitudes | `PascalCase` | `Gpr0`, `Frf`, `Ipr`, `Stack`, `Cpu`, `Bit`, `Byte` |
+| Verbos, vistas y miembros | `camelCase` | `copy`, `add`, `low32`, `flowCall`, `flowStackJump` |
+| Identificadores de usuario | `camelCase` | `miCalculadoraCli`, `numA`, `sumar` |
+| Etiquetas locales | `@` + `camelCase` | `@bucle`, `@fin` |
+| Comentarios | `//` o `/* ... */` | `// nota de línea`, `/* bloque */` |
 
-**Conclusión:** `n` es `Rcx`; el `21` es el contenido de `Rcx` en ese momento. El valor de retorno de `main` viaja en `Rax`, no en `Rcx`.
+### 3.2 Literales numéricos estructurales y de datos
 
-### 2.2 Reglas de estructura
+| Tipo | Sintaxis | Ejemplos |
+|---|---|---|
+| Decimal | dígitos (con `_` opcional) | `8`, `64`, `1_024` |
+| Hexadecimal | `0x` + dígitos hex | `0x10`, `0x03F8`, `0xFF` |
+| Binario | `0b` + bits | `0b1010_0101` |
+| Negativo | `-` + entero (solo offsets de dirección) | `-16` |
+| Cadena | comillas dobles con escapes (solo en `.data`) | `"Hola\n"` |
 
-1. La **indentación es cosmética**: los bloques terminan con `End`, nunca con espacio en blanco.
-2. Puede haber **un** `Program` por archivo; es opcional si el archivo solo tiene rutinas.
-3. Sin `Section` explícita, todo va a `.execute`.
-4. Sin `Entry`, el punto de entrada es el primer símbolo de `.execute`.
-5. El orden de las secciones en la imagen es el orden de declaración, con `.execute` primero.
-6. `parameter n` declara un parámetro nombrado; la ABI activa decide en qué registro físico llega.
+Escapes válidos en cadenas de `.data`: `\n`, `\t`, `\r`, `\0`, `\\`, `\"`, `\xNN`.
+No existen literales de coma flotante ni de carácter aislado en instrucciones.
 
-### 2.3 Más casos de uso
+### 3.3 Puntuación y desambiguación
 
-#### A) Rutina con dos parámetros y retorno usado por el llamante
+| Símbolo / Forma | Regla | Ejemplo |
+|---|---|---|
+| **`()`** | Realmente vacío (sin parámetros ni argumentos) | `d.run(() -> { ... })`, `Ipr.flowStackJump()` |
+| **`(_)` o `_`** | Implícito por plantilla (elemento único o configuración por defecto) | `.routines(_ -> { ... })` |
+| **`(x, y)`** | Lista homogénea del mismo tipo y en orden | `.inputs(Gpr1, Gpr2)`, `(arg1<Byte:8>, arg2<Byte:8>)` |
+| **`.`** | Navegación *type-state*, acceso a ventana/estado o invocación de acción | `Gpr0.low32`, `Gpr0.copy(...)` |
+| **`:`** | Calificación de magnitud y medida física | `Bit:64`, `Byte:8`, `KiloByte:4` |
+| **`<...>`** | Especificación de capacidad/ancho en definiciones o entradas | `dt.define<Byte:8>(...)`, `arg1<Byte:8>` |
+| **`{ ... }`** | Bloque legible de declaraciones o instrucciones | `d.run(() -> { ... })` |
+| **`[ ... ]`** | Contenido de memoria o dirección de puerto | `[numA]`, `Byte:8 [Gpr3]`, `Port[...]` |
+
+### 3.4 Reglas de oro de las llamadas fluidas
+
+1. **Un solo argumento por verbo de acción:** Las acciones fluidas dentro del cuerpo (`destino.verbo(fuente)`) reciben un único argumento; la coma `,` queda reservada exclusivamente para listas homogéneas (`.inputs(...)`, lista de entradas de `d.run(...)` o lista de bytes en `.value(...)`).
+2. **Estado vs. Acción ejecutada:**
+   - **Sin paréntesis `()`:** señala una parte física o estado (`Gpr0.low32`, `Frf.zero`, `Ipr.current`). No genera instrucción por sí solo.
+   - **Con paréntesis `()`:** representa una instrucción real que el procesador ejecuta (`Gpr0.copy(...)`, `Cpu.halt()`, `Ipr.flowStackJump()`).
+3. **Prohibido inventar propiedades sobre constructores o registros:** Después de un `.`, el editor y el compilador solo aceptan miembros pertenecientes al tipo del receptor (nunca nombres de usuario como `rt.sumar` o `Gpr0.sumar`). Los nombres definidos por el usuario se pasan como identificador dentro de métodos dedicados (`d.id(sumar)`, `c.target(sumar)`).
+4. **Una acción por línea en bloques:** En el cuerpo de `d.run(...)` se escribe una instrucción por línea para favorecer la lectura y depuración. En las configuraciones declarativas (`d -> d.id(...).value(...)`) sí se encadenan propiedades del mismo descriptor.
+
+## 4. Modelo de Tipos Físicos (ATM): `Bit:N` y `Byte:N`
+
+FluentASM no posee tipos abstractos (`int`, `uint`, `float`, `bool`, `char`, `string`, `struct`, `pointer`). Todo contenedor o acceso se mide únicamente mediante dos magnitudes físicas:
+
+| Magnitud | Uso | Contexto válido |
+|---|---|---|
+| **`Bit:N`** | Ancho en bits (`1 Byte = 8 Bit`) | Anchos de registros, flags, cuentas de desplazamiento (`shiftLeft(Bit:3)`), índices de bit (`testBit(Bit:7)`) |
+| **`Byte:N`** | Extensión en bytes | Memoria (`dt.define<Byte:8>`, `Byte:8 [Gpr3]`), reservas de pila (`Stack.reserve(Byte:16)`), alineaciones |
+
+### 4.1 Múltiplos binarios
+
+Solo potencias de 2 (`1 024`), destinados a capacidades de memoria o reservas:
+
+- `KiloBit`, `MegaBit`, `GigaBit`, `TeraBit`
+- `KiloByte`, `MegaByte`, `GigaByte`, `TeraByte`
+
+### 4.2 Separación estricta de contextos (Seguridad Tipo 1)
+
+- Usar `Byte:N` donde la CPU espera una cuenta de bits o ancho de registro produce error de contexto (`FASM3xxx`).
+- Usar `Bit:N` donde se espera una extensión o desplazamiento en memoria produce error de contexto (`FASM3xxx`).
+- Equivalencia matemática controlada: un valor definido en memoria como `Byte:8` ocupa exactamente 64 bits (`Bit:64`), por lo que puede transferirse de forma segura hacia o desde un registro de 64 bits.
+
+## 5. Datos, `defaultValue` y Separación de `.execute`
+
+### 5.1 Sin datos duros en `.execute`
+
+Las instrucciones dentro de `.execute(...)` describen flujos y transformaciones, **nunca datos mágicos incrustados** (por ejemplo, `Gpr0.copy(42)` o `Gpr0.add(7)` están prohibidos: `FASM2xxx`).
+
+Un literal numérico dentro de `.execute(...)` solo es válido cuando describe **forma o estructura física**:
+- Índice de registro (`Gpr0`)
+- Ancho o capacidad (`Bit:3`, `Byte:8`)
+- Desplazamiento de dirección (`[Gpr5 - 16]`)
+- Estado de bandera (`Frf.carry(1)`, `Frf.carry(0)`)
+- Dirección de puerto hardware (`Port[0x03F8]`)
+
+### 5.2 Estado base limpio: `defaultValue`
+
+Cuando dentro de `.execute(...)` se necesita inicializar o limpiar un contenedor a su estado base seguro (todos sus bits en cero) sin escribir un `0` literal:
 
 ```fasm
-program SumaDos
-    section .execute
-    entry main
-
-    routine AddTwoNumbers
-        parameter a, b        // a ≡ Rcx, b ≡ Rdx (Win64)
-        .copy(a to Rax)       // Rax = a
-        .alu(Rax add b)       // Rax = a + b
-        Ipr.flowStackJump()      // devuelve Rax
-    end
-
-    routine main
-        .copy(10 to Rcx)      // argumento 1 -> Rcx
-        .copy(32 to Rdx)      // argumento 2 -> Rdx
-        Ipr.flowCall(AddTwoNumbers)  // Rax = 42
-        Ipr.flowStackJump()      // main devuelve 42
-    end
-end
+Gpr0.copy(defaultValue)
 ```
 
-#### B) Sin `parameter` (rutina hoja, sin argumentos)
+El compilador emite la forma física más corta y directa de la arquitectura para poner el contenedor en cero, sin lecturas de memoria externa.
+
+### 5.3 Declaración de valores en `.data(...)`
+
+Los valores concretos viven en `.data(...)` o en recursos externos:
 
 ```fasm
-program RetornaCuarentaYDos
-    section .execute
-    entry main
-
-    routine main
-        .copy(42 to Rax)      // fija el valor de retorno directamente
-        Ipr.flowStackJump()
-    end
-end
+.data(dt -> {
+    dt.define<Byte:8>(d -> d.id(numA).value(10))
+    dt.define<Byte:10>(d -> d.id(mensaje).value("FluentASM\n"))
+    dt.define<Byte:64>(d -> d.id(buffer).value(defaultValue))
+})
 ```
 
-#### C) El mismo código, núcleo portable (funciona en x64 y ARM)
+- **Símbolo definido en `.data`:** al leerlo o escribirlo en `.execute` mediante `[numA]`, el compilador ya conoce su capacidad (`Byte:8`) y valida que coincida con el registro receptor/fuente.
+- **Dirección genérica en registro:** cuando se accede a memoria mediante la dirección contenida en un registro (`[Gpr3]` o `[Gpr3 + 8]`), es obligatorio anteponer la capacidad exacta: `Byte:8 [Gpr3]`.
+- **Dirección del símbolo:** para cargar la dirección en sí misma (y no su contenido), se usa `loadAddress(numA)`.
+
+## 6. Rutinas, Contratos y Flujo de Control
+
+### 6.1 Definición de rutinas
+
+Dentro de `.execute(ex -> { ex.routines(rt -> { ... }) })`:
 
 ```fasm
-program SumaDosPortable
-    section .execute
-    entry main
-
-    routine AddTwoNumbers
-        parameter a, b        // sin registros nativos; el compilador los mapea
-        .copy(a to R0q)       // R0q ≡ Rax (x64) o X0 (ARM64)
-        .alu(R0q add b)
+rt.define(d -> {
+    d.id(sumar)
+    d.returns(Gpr0)
+    d.run((arg1<Byte:8>, arg2<Byte:8>) -> {
+        Gpr0.copy(arg1)
+        Gpr0.add(arg2)
         Ipr.flowStackJump()
-    end
-
-    routine main
-        .copy(10 to R0q)
-        .copy(32 to R1q)
-        Ipr.flowCall(AddTwoNumbers)
-        Ipr.flowStackJump()
-    end
-end
+    })
+})
 ```
 
----
+- `d.id(nombre)`: identificador único de la rutina.
+- `d.returns(registro)`: declara el contrato de retorno (o se omite si la rutina no devuelve valor).
+- `d.run(() -> { ... })` o `d.run((arg1<...>, ...) -> { ... })`: bloque de instrucciones. Los argumentos declarados en `d.run` son **alias directos con tamaño verificado** sobre los registros físicos de entrada asignados por la convención de la arquitectura activa; no crean variables ni copias ocultas.
+- Si una rutina es la única del programa, puede declararse con `main` o mediante la forma implícita `_`. Si hay varias, `main` (o el símbolo configurado en `.fproj`) es el punto de entrada.
 
-## 3. Gramática formal (EBNF) — Común
+### 6.2 Cierre explícito de rutinas
+
+Toda rutina debe cerrar cada camino de ejecución de forma explícita:
+- `Ipr.flowStackJump()` — retorna a quien llamó extrayendo la dirección de la pila (`Stack`).
+- `Cpu.halt()` — detiene el procesador (válido en rutinas *bare metal* que no retornan a ningún arrancador superior).
+
+### 6.3 Llamadas con contrato visible (`Ipr.flowCall`)
+
+Para invocar una rutina que recibe entradas y produce salida:
+
+```fasm
+Ipr.flowCall(c -> c.target(sumar).inputs(Gpr1, Gpr2).output(Gpr0))
+```
+
+Si la rutina no recibe entradas ni devuelve valor, puede abreviarse:
+
+```fasm
+Ipr.flowCall(miRutina)
+```
+
+**Reglas de Seguridad Tipo 1 en `flowCall`:**
+1. El compilador verifica que cada registro listado en `.inputs(...)` haya sido cargado previamente con un tamaño compatible con la rutina destino.
+2. El compilador verifica que `.output(...)` coincida con `d.returns(...)` de la rutina destino.
+3. **Invalidación lógica post-llamada:** al regresar de `Ipr.flowCall(...)`, el compilador marca lógicamente los registros usados en `.inputs(...)` como consumidos/no confiables (sin insertar instrucciones ocultas). Si se intenta volver a leerlos sin recargarlos antes, se emite error de compilación.
+
+### 6.4 Saltos, etiquetas locales y condiciones (`Ipr` y `Frf`)
+
+Las etiquetas locales llevan prefijo `@` y solo son visibles dentro de su rutina:
+
+```fasm
+@bucle:
+    // instrucciones
+    Ipr.flowJump(@bucle if Frf.notEqual)
+```
+
+Las condiciones consultan el registro de banderas `Frf`:
+- **Banderas físicas directas:** `Frf.zero`, `Frf.carry`, `Frf.sign`, `Frf.overflow`, `Frf.parity` (precedibles por `not`, p. ej. `not Frf.zero`).
+- **Alias legibles equivalentes:** `Frf.equal`, `Frf.notEqual`, `Frf.less`, `Frf.lessOrEqual`, `Frf.greater`, `Frf.greaterOrEqual` (con signo); `Frf.below`, `Frf.belowOrEqual`, `Frf.above`, `Frf.aboveOrEqual` (sin signo).
+
+El compilador rastrea qué instrucciones definen o dejan indefinida cada bandera; leer una bandera indefinida en un salto condicional produce error (`FASM4xxx`).
+
+## 7. Verbos Comunes
+
+Los siguientes verbos forman la base común del lenguaje (el soporte exacto, registros válidos y codificación por arquitectura se detallan en cada documento de CPU):
+
+| Grupo | Verbos |
+|---|---|
+| **Transferencia y memoria** | `copy`, `copyUnsigned`, `copySigned`, `loadAddress`, `exchange`, `conditionalCopy`, `copyBlock`, `fillBlock` |
+| **Aritmética entera** | `add`, `sub`, `addWithCarry`, `subWithBorrow`, `increment`, `decrement`, `negate`, `multiply`, `multiplyWide`, `divide`, `divideSigned`, `signExtend`, `compare` |
+| **Lógica y bits** | `and`, `or`, `xor`, `not`, `test`, `shiftLeft`, `shiftRightLogical`, `shiftRightArithmetic`, `rotateLeft`, `rotateRight`, `testBit`, `setBit`, `clearBit`, `toggleBit` |
+| **Banderas (`Frf`)** | `carry(1 \| 0 \| not)`, `direction(1 \| 0)`, `interrupt(1 \| 0)` |
+| **Flujo (`Ipr`)** | `flowJump`, `flowCall`, `flowStackJump`, `flowLoop` |
+| **Pila (`Stack`)** | `Stack.push`, `pop(Stack)`, `Stack.reserve`, `Stack.release` |
+| **Hardware (*bare metal*)** | `Cpu.noOperation`, `Cpu.pause`, `Cpu.halt`, `Port[...]` |
+
+## 8. Gramática Formal Común (EBNF resumida)
 
 ```ebnf
-archivo             = { elemento } ;
+archivo          = nombreProyecto , [ seccionData ] , seccionExecute , ".initialize()" ;
+nombreProyecto   = identificador ;
 
-elemento            = bloquePrograma | bloqueRutina | declaracionSeccion
-                    | directiva | etiqueta | instruccion | constante ;
+seccionData      = ".data" , "(" , ident , "->" , "{" , { defDato } , "}" , ")" ;
+defDato          = ident , ".define" , "<" , magnitud , ">" , "(" , ident , "->" , cadenaConfigDato , ")" ;
 
-bloquePrograma      = "Program" identificador finLinea { elemento } "End" ;
-bloqueRutina        = "Routine" identificador [ "Naked" ] finLinea
-                      { parametro } { elemento } "End" ;
-parametro           = "Parameter" identificador { "," identificador } ;
+seccionExecute   = ".execute" , "(" , ident , "->" , "{" , bloqueRutinas , "}" , ")" ;
+bloqueRutinas    = ident , ".routines" , "(" , ( ident , "->" , "{" , { defRutina } , "}"
+                                               | "_" , "->" , "{" , { sentencia } , "}" ) , ")" ;
 
-declaracionSeccion  = "Section" nombreSeccion [ "," atributo { "," atributo } ] ;
-nombreSeccion       = ".execute" | ".text" | ".data" | ".bss" | identificador ;   (* sin distinguir mayúsculas *)
-atributo            = "Align" "=" expresion | "Read" | "Write" | "Execute" | "Uninitialized" ;
+defRutina        = ident , ".define" , "(" , ident , "->" , "{" , configRutina , "}" , ")" ;
+configRutina     = ident , ".id" , "(" , ident , ")"
+                 , [ ident , ".returns" , "(" , receptor , ")" ]
+                 , ident , ".run" , "(" , firmaRun , "->" , "{" , { sentencia } , "}" , ")" ;
 
-directiva           = directivaExtern | directivaGlobal | directivaEntry
-                    | directivaDatos | directivaReserva | directivaAlign | directivaInclude ;
-directivaExtern     = "Extern" identificador { "," identificador } ;
-directivaGlobal     = "Global" identificador { "," identificador } ;
-directivaEntry      = "Entry" identificador ;
-directivaDatos      = ( "Db" | "Dw" | "Dd" | "Dq" ) dato { "," dato } ;
-directivaReserva    = ( "Resb" | "Resw" | "Resd" | "Resq" ) expresion ;
-directivaAlign      = "Align" expresion ;
-directivaInclude    = "Include" cadena ;
-constante           = identificador "Equ" expresion ;
+firmaRun         = "()"
+                 | "(" , paramRutina , { "," , paramRutina } , ")" ;
+paramRutina      = ident , "<" , magnitud , ">" ;
 
-etiqueta            = ( identificador | etiquetaLocal ) ":" ;
-etiquetaLocal       = "@" identificador ;
+sentencia        = etiqueta | accion ;
+etiqueta         = "@" , identificador , ":" ;
+accion           = receptor , "." , verbo , "(" , [ argumento ] , ")" ;
 
-instruccion         = "." mnemonicos [ "(" [ operando { separador operando } ] ")" ] ;
+receptor         = identificador , { "." , identificador }
+                 | magnitud , "[" , exprDireccion , "]"
+                 | "(" , identificador , ":" , identificador , ")"
+                 | "Port" , "[" , ( identificador | entero ) , "]" ;
 
-mnemonicos          = "copy" | "alu" | "flowCall" | "flowStackJump" | "flowJump" | "flowLoop"
-                    | "stackWrite" | "stackRead" | "stackPointerGet" | "stackPointerSet"
-                    | "nop" | "setCarry" | "clearCarry" | "toggleCarry"
-                    | "setDirection" | "clearDirection"
-                    | "lea" | "copyZeroExtended" | "copySignedExtended"
-                    | mnemonicoAlu ;  (* validado contra el catálogo *)
+argumento        = fuente , [ "if" , condicion ]
+                 | constructorLlamada ;
 
-mnemonicoAlu        = "add" | "sub" | "and" | "or" | "xor" | "imul"
-                    | "subNoWrite" | "andNoWrite" ;
+constructorLlamada = ident , "->" , ident , ".target" , "(" , ident , ")"
+                   , [ ".inputs" , "(" , listaHomogenea , ")" ]
+                   , [ ".output" , "(" , receptor , ")" ] ;
 
-separador           = "to" | " " ;   (* 'to' para copy/copy*; espacio para alu/jump *)
+fuente           = "defaultValue"
+                 | receptor
+                 | "[" , identificador , "]"
+                 | magnitud
+                 | "@" , identificador
+                 | identificador
+                 | "0" | "1" | "not" ;
 
-clausulaIf          = "if" rFlagsCondicion ;  (* solo para jump *)
-
-rFlagsCondicion     = [ "not" ] banderaSimple
-                    | "rFlags.carry" "or" "rFlags.zero"
-                    | "not" "rFlags.carry" "and" "not" "rFlags.zero"
-                    | "rFlags.sign" ( "equal" | "unequal" ) "rFlags.overflow"
-                    | "rFlags.zero" "or" "rFlags.sign" "unequal" "rFlags.overflow"
-                    | "not" "rFlags.zero" "and" "rFlags.sign" "equal" "rFlags.overflow" ;
-
-banderaSimple       = "rFlags." ( "carry" | "parity" | "zero" | "sign" | "overflow" ) ;
-
-operando            = registro | memoria | inmediato | referencia ;
-memoria             = [ tamano ] "[" expresionMemoria "]" ;
-tamano              = "Byte" | "Word" | "DWord" | "QWord" ;
-expresionMemoria    = base { "+" termino } ;
-base                = registro | ("Rel" referencia) ;
-termino             = registro [ "*" escala ] | expresion ;
-escala              = "1" | "2" | "4" | "8" ;
-referencia          = identificador ;
-inmediato           = [ "-" ] ( entero | caracter ) ;
-
-expresion           = terminoExp { ("+" | "-" | "*" | "/") terminoExp } ;
-terminoExp          = entero | caracter | identificador | "$" | "(" expresion ")" ;
-dato                = entero | caracter | cadena | identificador ;
-
-entero              = decimal | hexadecimal | binario ;
-decimal             = digito { digito | "_" } ;
-hexadecimal         = "0x" hexdigito { hexdigito | "_" } ;
-binario             = "0b" ("0" | "1") { ("0" | "1") | "_" } ;
-caracter            = "'" ( caracterSimple | escape ) "'" ;
-cadena              = '"' { caracterSimple | escape } '"' ;
-comentarioLinea   = "//" { ? carácter salvo fin de línea ? } ;
-comentarioBloque  = "/*" { ? cualquier carácter salvo "*/" ? } "*/" ;
-comentarioDoc     = "///" { ? carácter salvo fin de línea ? } ;
+magnitud         = unidad , ":" , entero ;
+unidad           = "Bit" | "Byte"
+                 | "KiloBit" | "MegaBit" | "GigaBit" | "TeraBit"
+                 | "KiloByte" | "MegaByte" | "GigaByte" | "TeraByte" ;
 ```
 
-**Notas de la gramática:**
+## 9. Portabilidad y Unificación Multi-Arquitectura
 
-- **`$`** es la posición actual (offset dentro de la sección). Permite escribir `longitud equ $ - mensaje`.
-- Los nombres de sección empiezan por `.` (ej: `.execute`, `.text`, `.data`, `.bss`). Los nombres personalizados son válidos y siempre deben empezar por `.`.
-- Las instrucciones **exigen** el prefijo `.`, lo que las distingue de etiquetas y directivas sin ambigüedad. Las etiquetas locales usan `@` (no `.`), precisamente para no chocar con ese prefijo.
-- **Registros**: la sintaxis exacta depende de la arquitectura (véase documento específico: [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) para x64).
+Para mantener el diseño honesto y evitar abstracciones inventadas sin respaldo en hardware real:
 
----
+1. **Ya unificado desde la Fase 1:** la estructura de proyecto `.fproj` + `sourcesCode.fasm`, el modelo `Bit`/`Byte`, la prohibición de datos duros en `.execute`, `defaultValue`, el patrón `destino.verbo(fuente)`, los contratos `Ipr.flowCall(c -> ...)` y los verbos comunes (§7).
+2. **Específico por arquitectura en Fase 1:** el archivo físico de registros (`Gpr0`–`Gpr15` en x64) y sus vistas se toman de la guía de la arquitectura destino ([FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md)).
+3. **Consolidación en Fase 3:** una vez que el compilador x64 produzca y ejecute binarios reales y se incorpore una segunda arquitectura real (ARM64 o RISC-V en QEMU), se unificará el mapeo de registros común verificando que programas escritos con el núcleo común generen **exactamente el mismo resultado observable** en todas las arquitecturas soportadas.
 
-## 4. Léxico — Común
+## 10. Diagnósticos Comunes (Resumen)
 
-| Elemento | Regla | Ejemplos |
-|---|---|---|
-| Identificador | Letra o `_`, seguido de letras, dígitos o `_` | `main`, `mensaje`, `_inicio` |
-| Símbolo local | `@` + identificador; visible solo en su rutina | `@bucle`, `@fin` |
-| Mnemónico | No distingue mayúsculas ni minúsculas | `.Copy`, `.copy`, `.COPY` son el mismo |
-| Directiva | No distingue mayúsculas ni minúsculas | `Section`, `section` |
-| Símbolo definido por el usuario | **Sí** distingue mayúsculas | `Total` y `total` son distintos |
-| Comentario de línea | `//` hasta el final de la línea | `// copiamos a` |
-| Comentario de bloque | `/* ... */`; no se anida | `/* esto es un bloque */` |
-| Documentación | `///`; texto guardado en `fasm.fdoc`, clave `Parte.Símbolo` | `/// Punto de arranque del sistema` |
-| Entero decimal | Dígitos, con `_` opcional como separador | `42`, `1_000_000` |
-| Entero hexadecimal | `0x` + dígitos | `0x2A`, `0xDEAD_BEEF` |
-| Entero binario | `0b` + dígitos | `0b1010_1010` |
-| Carácter | Comillas simples con escapes | `'A'`, `'\n'` |
-| Cadena | Comillas dobles con escapes | `"Hola"`, `"a\tb"` |
-| Escapes | `\n` `\t` `\r` `\0` `\\` `\"` `\'` `\xNN` | `"\x41"` es `"A"` |
-
-No hay literales de coma flotante (ver "Próximos pasos").
-
----
-
-## 5. Registros — Nivel 1 (Portable)
-
-Para escribir código que funcione en cualquier arquitectura sin cambios, FluentASM utiliza una numeración canónica independiente de la ISA.
-
-**Sintaxis:** `R` + `Número (0-15)` + `Sufijo de Ancho`.
-
-| Sufijo | Ancho | Significado | Ejemplo |
-|---|---|---|---|
-| `q` | 64 bits | Quadword | `R0q` |
-| `d` | 32 bits | Doubleword | `R0d` |
-| `w` | 16 bits | Word | `R0w` |
-| `b` | 8 bits | Byte | `R0b` |
-
-**Mapeo:** El compilador traduce estos registros a los nativos de la ISA destino (ej: `R0q` → `Rax` en x64, `X0` en ARM64).
-
-> **IMPORTANTE:** No confundas la numeración canónica con los parámetros. La directiva `parameter` asigna nombres a los registros según la ABI. En x64, el primer parámetro llega en `Rcx` (`R1` canónico); en ARM64, llega en `X0` (`R0` canónico). Usa siempre los nombres de los parámetros para asegurar la portabilidad.
-
-> **Detalles de registros nativos:** Véase el documento específico de cada arquitectura. Para x64: [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#52-registros-x64-nivel-3-nativo).
-
----
-
-## 6. Operandos y modos de direccionamiento — Comunes
-
-| Modo | Ejemplo | Significado |
-|---|---|---|
-| Inmediato | `42` | El valor va dentro de la instrucción |
-| Registro | `Rax` | El valor está en el registro |
-| Memoria indirecta | `[Rbx]` | El valor está en la dirección que guarda `Rbx` |
-| Memoria con desplazamiento | `[Rbx - 8]` | Igual, con desplazamiento |
-| Memoria con índice y escala | `[Rbx + Rcx*4 + 16]` | Arreglo: base + índice × tamaño + desplazamiento |
-| Relativo a la instrucción | `[Rel mensaje]` | Posición independiente (PIC) |
-| Dirección de un símbolo | `mensaje` | Dirección del símbolo (se codifica como `Lea`) |
-| Contenido de un símbolo | `[mensaje]` | El dato guardado en el símbolo |
-| Tamaño explícito | `Byte [Rbx]`, `QWord [Rbx]` | Obligatorio cuando el tamaño es ambiguo |
-
-**Reglas comunes:**
-
-1. La **escala** solo puede ser 1, 2, 4 u 8. Otro valor es `FASM4002`.
-2. Si el tamaño del dato no se deduce del otro operando, hay que declararlo. Escribir `.copy(1 to [Rbx])` es `FASM3005`; se escribe `.copy(1 to Byte [Rbx])`.
-3. En Fase 1, el direccionamiento a símbolos es **siempre relativo** (`[Rel símbolo]`). Una dirección absoluta es `FASM5002` con la sugerencia de cómo reescribirla.
-4. `.copy(Rax to mensaje)` carga la **dirección** (equivalente a `.lea(Rax to mensaje)`), mientras que `.copy(Rax to [mensaje])` carga el **contenido**.
-
-> **Detalles x64:** RIP-relative, SIB, escalas, restricciones `Rsp`/`R12` — véase [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#modos-de-direccionamiento-x64).
-
----
-
-## 7. Directivas — Comunes
-
-| Directiva | Efecto | Fase |
-|---|---|---|
-| `Program <nombre>` … `End` | Agrupa el programa y le da nombre | 2 |
-| `Routine <nombre> [Naked]` … `End` | Declara una rutina; `Naked` evita prólogo y epílogo | 2 |
-| `Parameter a, b` | Declara parámetros según la ABI activa | 2 |
-| `Section .execute [, Align=16, Execute, Read]` | Declara una sección y sus atributos | 1 |
-| `Extern nombre` | Declara un símbolo definido fuera de la imagen | 2 (sin uso hasta 5) |
-| `Global nombre` | Exporta un símbolo para que otras rutinas lo usen | 2 |
-| `Entry nombre` | Fija el punto de entrada | 1 |
-| `Db`/`Dw`/`Dd`/`Dq` | Datos de 1, 2, 4 u 8 bytes | 2 |
-| `Resb`/`Resw`/`Resd`/`Resq` | Reserva bytes sin valor inicial (va a `.bss`) | 2 |
-| `Align <n>` | Alinea a `n` bytes (potencia de dos) | 2 |
-| `nombre Equ <expresión>` | Constante calculada en tiempo de ensamblado | 2 |
-| `Include "archivo.fasm"` | Inserta otro archivo de texto | 2 |
-
----
-
-## 8. Rutinas, parámetros y llamadas — Común
-
-```fasm
-routine AddTwoNumbers
-    parameter a, b          // Win64: a -> Rcx, b -> Rdx
-
-    .copy(a to Rax)
-    .alu(Rax add b)
-    Ipr.flowStackJump()        // el valor de retorno es Rax
-end
-```
-
-| Concepto | Regla |
+| Rango | Qué valida |
 |---|---|
-| Parámetros | Se asignan **en orden** según la ABI; el nombre es un alias |
-| Prólogo | Generado cuando la rutina tiene parámetros, locales o llamadas |
-| Epílogo | Generado y emitido una sola vez: `leave` / `ret` |
-| Valor de retorno | Registro de retorno definido por la ABI (x64: `Rax`) |
-| `Ipr.flowStackJump()` | Termina la rutina: ejecuta el epílogo y el `ret` |
-| Rutina hoja | Sin parámetros, locales ni llamadas: **sin** prólogo ni epílogo |
-| `naked` | Sin prólogo ni epílogo aunque tenga parámetros o locales |
-| Llamada | `Ipr.flowCall(símbolo)` → relativa; `Ipr.flowCall(rax)` → indirecta |
-
-> **ABI concreta:** véase documento específico. x64: [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#abi-x64-win64).
-
----
-
-## 9. Documentación de símbolos y `fasm.fdoc` — Común
-
-`///` marca documentación de una declaración (`program` o `routine`). El texto **no se escribe en el fuente**: el IDE lo guarda en `fasm.fdoc` con la clave automática `Parte.Símbolo`.
-
-```fasm
-///
-/// El punto de entrada del bootloader. Inicializa la pila y
-/// salta al núcleo del lenguaje.
-///
-routine start
-    ...
-end
-```
-
-La clave es `bootloader.start`. Renombrar la rutina mueve la entrada del catálogo automáticamente desde el IDE, así que las traducciones no se rompen.
-
-### 9.1 `fasm.fdoc` — Catálogo de documentación
-
-Archivo binario indexado, almacenado en la raíz del workspace. Cada clave tiene su texto por idioma (BCP 47). Búsqueda O(1) mediante tabla hash mapeada en memoria.
-
-**Estructura v1.0:**
-
-| Campo | Tamaño | Descripción |
-|---|---|---|
-| Magic `FDOC` | 4 bytes | Identificador |
-| `VersionMajor`/`VersionMinor` | 2 + 2 bytes | `1.0` |
-| `EntryCount` | 4 bytes | Nº de claves documentadas |
-| `LangCount` | 2 bytes | Nº de idiomas definidos |
-| Tabla de idiomas | variable | `Tag` BCP 47 + dirección (LTR/RTL) |
-| Índice de claves | variable | Tabla hash: `hash(clave) → offset` |
-| Datos de clave | variable | Clave UTF-8 NFC + campos estructurados |
-
-**Campos de cada entrada:**
-
-| Tipo | Significado |
-|---|---|
-| 1 | Resumen (una línea) |
-| 2 | Notas (texto largo) |
-| 3 | Parámetro (`Name` = nombre del parámetro) |
-| 4 | Retorno |
-| 5 | Véase también (referencia a otra clave) |
-
-Los datos usan UTF-8 normalizado NFC.
-
-### 9.2 Resolución de idioma
-
-1. `.fworkspace` → `DefaultLanguage`
-2. `.fproj` → `DocumentationLanguages`
-3. Idioma del sistema operativo
-4. Cadena de respaldo: `fr-CA` → `fr` → idioma por defecto → primero disponible
-
-### 9.3 `.bin` v1.1 — Tabla de metadatos de la Parte
-
-| Tag | Nombre | Contenido |
-|---|---|---|
-| `0x0001` | `PartName` | Nombre estable de la Parte (`bootloader`) |
-| `0x0002` | `Description` | Descripción breve de la Parte |
-| `0x0003` | `DocSymbols` | Símbolos documentados de la Parte |
-
-Solo se guardan los nombres de símbolos, no el texto. Al compilar, el texto de documentación se valida y **se descarta**: nunca entra en la imagen ejecutable.
-
----
-
-## 13. Formatos de salida — Comunes
-
-| Fase | Salida | Extensión | Se ejecuta con |
-|---|---|---|---|
-| **1** | Imagen plana x64 | `.x64` | Arrancador FluentASM, en memoria |
-| 6 | Imagen plana x86 / ARM | `.x86`, `.arm` | Su arrancador correspondiente |
-| 5 | Ejecutable Windows | `.exe` (PE) | Windows |
-| 5 | Ejecutable Linux | (sin extensión, ELF) | Linux |
-| 7 | Imagen de arranque | `.img` | Firmware, hardware o emulador |
-
-> Una imagen plana **no** se puede ejecutar con doble clic ni desde una terminal. El cargador del SO necesita un formato (PE o ELF) con cabeceras y tabla de importaciones.
-
----
-
-## 16. Cambios respecto a la versión anterior — Comunes
-
-| Antes | Ahora | Motivo |
-|---|---|---|
-| Ejemplos x64 con `Eax` | `Rax` para 64 bits, `Eax` solo para 32 | `Eax` = exactamente 32 bits, pone a cero la mitad alta |
-| "El `.x64` se ejecuta como nativo" | Imagen plana ejecutada por arrancador/hardware; `.exe` en Fase 7 | Binario crudo no es formato que el SO sepa cargar |
-| Instrucciones mínimas | 30+ mnemónicos con formas, tablas, directivas | Conjunto anterior no bastaba para "hola mundo" |
-| `program` + `parameter` mezclados | `program` y `routine` son bloques distintos | Un programa no es una función |
-| `parameter a, b` sin destino | Parámetros asignados por ABI, con prólogo/epílogo | Cada implementación inventaba su convención |
-| Etiquetas locales con `.` | Etiquetas locales con `@` | `.` reservado para instrucciones |
-| Sin gramática formal | EBNF en sección 3 | Permite implementar analizador sin interpretar |
-| Dos superficies sin jerarquía | DSL `.fasm` canónica (única) | Evita mantener dos lenguajes |
-| Sin definición de `parameter` | `parameter` = alias del registro de la ABI | El lector no sabía qué era `n` |
-| `Mov` / `Movzx` / `Movsx` | `copy` / `copyZeroExtended` / `copySignedExtended` | `Mov` implica movimiento; físicamente es copia |
-| `Add`/`Sub`/... | `.alu(origen operacion destino)` | Grupo ALU unificado; `subNoWrite`/`andNoWrite` para solo banderas |
-| `Push` / `Pop` | `stackWrite` / `stackRead` | Nombres físicos: escriben/leen pila |
-| `Jmp`/`Je`/... | `flowJump` / `flowJump(... if rFlags...)` | Gramática cerrada 16 formas; `rFlags` expone banderas |
-| `Call` / `Ret` | `flowCall` / `flowStackJump` | Prefijo `flow`; `flowStackJump` sin operando (retorno en `Rax` por ABI) |
-| `Nop`/`Stc`/... | `nop`/`setCarry`/... | Nombres descriptivos físicos |
-| `Lea` | `lea` | Mantenido; calcula dirección efectiva |
-| `Movzx`/`Movsx` | `copyZeroExtended`/`copySignedExtended` | Explícito sobre extensión |
-| `.text` (canónica) | `.execute` (canónica) | `.execute` = código que se ejecuta; `.text` = alias legacy |
-
----
-
-## 17. Próximos pasos — Comunes
-
-1. **Sistema de macros** — `%include`, `%define`, `CHILD`, `SENDI`, `PROLOGUE` para no repetir bloques.
-2. **Condiciones compuestas** (`If`/`While`) — azúcar sobre `.alu` + `.jump`, sin esconder bytes.
-3. **Capa portable (Nivel 1)** — Sintaxis unificada `Ipr.flowJump(@fin if a less b)` que el backend reduce a cada arquitectura.
-4. **Diagnóstico de `rFlags`** — Rastreo de banderas definidas/indefinidas para emitir `FASM4012` en saltos.
-
-> **Próximos pasos específicos por arquitectura:** véase [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md#próximos-pasos-x64) para x64.
+| `FASM1xxx` | Errores léxicos o sintácticos (paréntesis, llaves, flujo *type-state* incompleto) |
+| `FASM2xxx` | Nombre de proyecto vs `.fproj`, duplicados, datos duros prohibidos dentro de `.execute(...)` |
+| `FASM3xxx` | Mezcla inválida entre `Bit` y `Byte`, anchos o vistas incompatibles, nombres legacy prohibidos |
+| `FASM4xxx` | Verbo no válido para el receptor, direccionamiento inválido, lectura de bandera indefinida en salto |
+| `FASM5xxx` | Desajuste en contrato de `Ipr.flowCall`, lectura de registro invalidado tras llamada, pila desalineada |
+| `FASM9xxx` | Error interno del compilador |

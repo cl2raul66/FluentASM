@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Propiedades comunes a todos los proyectos .NET de FluentASM.
+    La versión se lee del archivo de texto VERSION de la raíz del repositorio (fuente de verdad, ver CONTRIBUTING.md).
+    Las advertencias se tratan como errores salvo en el prototipo histórico de IDE,
+    que pertenece a una fase posterior.
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Company>FluentASM</Company>
+    <Product>FluentASM</Product>
+    <VersionFile>$(MSBuildThisFileDirectory)../VERSION</VersionFile>
+    <Version Condition="'$(Version)' == '' and Exists('$(VersionFile)')">$([System.IO.File]::ReadAllText('$(VersionFile)').Trim())</Version>
+    <Version Condition="'$(Version)' == ''">0.0.0-local</Version>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'FluentASM_IDE'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>
