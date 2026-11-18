@@ -349,8 +349,10 @@ internal static class Cli
 
     private static string FormatQemuCommand(string imagePath)
     {
-        var file = imagePath.Contains(' ') ? $"\"{imagePath}\"" : imagePath;
-        return $"qemu-system-x86_64 -drive format=raw,file={file} -serial stdio -display none -no-reboot";
+        var file = imagePath.Contains(',') || imagePath.Contains(' ')
+            ? $"\"{imagePath}\""
+            : imagePath;
+        return $"qemu-system-x86_64 -drive format=raw,file={file},if=ide -serial stdio -display none -no-reboot";
     }
 
     private static int UsageError(string message, TextWriter error)

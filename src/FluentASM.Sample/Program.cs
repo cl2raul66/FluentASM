@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 using FluentASM.Core.Diagnostics;
 using FluentASM.Core.Encoding;
@@ -10,16 +13,22 @@ namespace FluentASM.Sample;
 /// <summary>
 /// Banco de pruebas manual de FluentASM. Ejecuta el lexer, el parser de M1, el
 /// análisis semántico de M2, el emisor de imagen plana de M3 y la ejecución de
-/// M4 (en memoria y empaquetado de arranque QEMU) sobre los tres ejemplos
-/// completos de <c>FLUENT_SYNTAX_X64.md</c> §7, sobre un ejemplo con error
-/// sintáctico intencional, sobre cuatro casos negativos de M2, sobre dos casos
-/// de layout de M3 y, opcionalmente, sobre un archivo indicado por ruta.
+/// M4 (en memoria y arranque real en QEMU) sobre los tres ejemplos completos de
+/// <c>FLUENT_SYNTAX_X64.md</c> §7, sobre un ejemplo con error sintáctico
+/// intencional, sobre cuatro casos negativos de M2, sobre dos casos de layout de
+/// M3 y, opcionalmente, sobre un archivo indicado por ruta.
 /// </summary>
 internal static class Program
 {
     private const string ErrorSample = "errorSintactico.fasm";
 
     private const string BareMetalSample = "serialBareMetal.fasm";
+
+    /// <summary>Nombre del archivo de arranque que se genera junto a los samples.</summary>
+    private const string BootImageName = "serialBareMetal.img";
+
+    /// <summary>Segundos que se espera la salida serie de QEMU antes de cerrarlo.</summary>
+    private const int QemuTimeoutSeconds = 3;
 
     private static readonly (string Section, string File)[] ValidSamples =
     [
@@ -133,8 +142,10 @@ internal static class Program
         }
 
         var imageFailures = CheckImages(directory);
+
+        WriteBanner("M4 (Ejecución real)");
         var executionFailures = CheckExecution(directory);
-        var bootFailures = CheckBootImage(directory);
+        var (bootFailures, qemuStatus) = CheckBootImage(directory);
 
         Console.WriteLine();
         Console.WriteLine(new string('=', 72));
@@ -145,6 +156,13 @@ internal static class Program
             && executionFailures == 0
             && bootFailures == 0)
         {
+            var qemuSummary = qemuStatus switch
+            {
+                QemuStatus.Verified => "arranque real en QEMU con 'A' por COM1",
+                QemuStatus.Skipped => "QEMU no instalado: ruta y comando impresos para probar la .img",
+                _ => "arranque real en QEMU",
+            };
+
             Console.WriteLine(
                 $"RESUMEN: {ValidSamples.Length}/{ValidSamples.Length} ejemplos válidos con 0 diagnósticos; "
                 + "1/1 error sintáctico con posición exacta; "
@@ -153,7 +171,7 @@ internal static class Program
                 + "1/1 desbordamiento de LOOP detectado; "
                 + $"{ExecutionSamples.Length}/{ExecutionSamples.Length} rutinas ejecutadas en memoria con el Gpr0 esperado; "
                 + "1/1 imagen bare metal rechazada; "
-                + "1/1 imagen .img booteable determinista.");
+                + $"1/1 imagen .img booteable determinista; {qemuSummary}.");
             return 0;
         }
 
@@ -163,7 +181,7 @@ internal static class Program
             + $"{negativeFailures} fallo(s) en los casos negativos M2, "
             + $"{imageFailures} fallo(s) en la emisión de la imagen .x64, "
             + $"{executionFailures} fallo(s) en la ejecución en memoria y "
-            + $"{bootFailures} fallo(s) en la imagen de arranque.");
+            + $"{bootFailures} fallo(s) en la imagen de arranque o en QEMU.");
         return 1;
     }
 
@@ -606,25 +624,26 @@ internal static class Program
     }
 
     /// <summary>
-    /// Empaqueta la imagen <c>serialBareMetal</c> en una <c>.img</c> y comprueba
-    /// firma, tamaño, layout, integridad del kernel y determinismo.
+    /// Genera <c>serialBareMetal.img</c> junto a los samples, comprueba firma,
+    /// tamaño, layout, integridad del kernel y determinismo, y arranca la imagen
+    /// en QEMU cuando la herramienta está instalada.
     /// </summary>
-    private static int CheckBootImage(string directory)
+    private static (int Failures, QemuStatus Status) CheckBootImage(string directory)
     {
-        WriteSeparator("imagen booteable .img para QEMU", BareMetalSample);
+        WriteSeparator("imagen de arranque y arranque en QEMU", BareMetalSample);
 
         var image = BuildImage(Path.Combine(directory, BareMetalSample), out _);
         if (!image.Success)
         {
             Console.WriteLine("RESULTADO: FALLO — no se generó la imagen bare metal.");
-            return 1;
+            return (1, QemuStatus.Failed);
         }
 
         var first = BareMetalBootImageBuilder.Build(image.Image);
         if (!first.Success)
         {
             Console.WriteLine($"RESULTADO: FALLO — no se pudo empaquetar la .img: {first.Error}");
-            return 1;
+            return (1, QemuStatus.Failed);
         }
 
         var second = BareMetalBootImageBuilder.Build(image.Image);
@@ -635,6 +654,9 @@ internal static class Program
         var embedded = first.Image
             .AsSpan(layout.KernelFileOffset, layout.KernelLength)
             .SequenceEqual(image.Image);
+        var layoutIsValid = layout.KernelFileOffset == layout.BootSectorSize + layout.StubSize
+            && layout.KernelAddress == BareMetalBootImageBuilder.PayloadAddress + layout.StubSize
+            && layout.ChunkCount >= 1;
 
         Console.WriteLine(
             $"  .img: {first.Image.Length} byte(s); múltiplo de 512: {multiple}; firma 0x55AA: {signature}.");
@@ -643,24 +665,306 @@ internal static class Program
             + $"0x{layout.KernelAddress - layout.StubSize:X}; imagen .x64: {layout.KernelLength} byte(s) "
             + $"en 0x{layout.KernelAddress:X}; bloques de 32 KiB: {layout.ChunkCount}.");
         Console.WriteLine(
-            $"  Imagen embebida idéntica: {embedded}; determinista: {deterministic}.");
+            $"  Imagen embebida idéntica: {embedded}; determinista: {deterministic}; "
+            + $"layout coherente: {layoutIsValid}.");
 
-        if (!multiple || !signature || !embedded || !deterministic)
+        if (!multiple || !signature || !embedded || !deterministic || !layoutIsValid)
         {
             Console.WriteLine("RESULTADO: FALLO — la imagen de arranque no cumple el formato esperado.");
-            return 1;
+            return (1, QemuStatus.Failed);
         }
 
-        if (layout.KernelFileOffset != layout.BootSectorSize + layout.StubSize
-            || layout.KernelAddress != BareMetalBootImageBuilder.PayloadAddress + layout.StubSize
-            || layout.ChunkCount < 1)
+        var bootPath = Path.Combine(directory, BootImageName);
+        try
         {
-            Console.WriteLine("RESULTADO: FALLO — el layout de la .img es inconsistente.");
-            return 1;
+            File.WriteAllBytes(bootPath, first.Image);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine($"RESULTADO: FALLO — no se pudo escribir '{bootPath}': {exception.Message}");
+            return (1, QemuStatus.Failed);
         }
 
-        Console.WriteLine("RESULTADO: OK — .img booteable determinista con el kernel .x64 intacto.");
-        return 0;
+        Console.WriteLine($"  Imagen escrita: {bootPath}");
+        Console.WriteLine("RESULTADO: OK — .img determinista con el kernel .x64 intacto.");
+
+        var status = RunQemu(bootPath);
+        return (status == QemuStatus.Failed ? 1 : 0, status);
+    }
+
+    /// <summary>
+    /// Arranca la <c>.img</c> en QEMU, espera unos segundos la salida de COM1 y
+    /// cierra el proceso. Si QEMU no está instalado no se considera un fallo: se
+    /// imprime la ruta de la imagen y el comando exacto para probarla.
+    /// </summary>
+    private static QemuStatus RunQemu(string imagePath)
+    {
+        var qemu = FindQemu();
+        var command = FormatQemuCommand(imagePath);
+
+        if (qemu is null)
+        {
+            Console.WriteLine(
+                "QEMU no está instalado en este equipo (ni en PATH ni en las rutas estándar): "
+                + "se omite el arranque real sin fallar la validación.");
+            Console.WriteLine($"  Imagen de arranque: {imagePath}");
+            Console.WriteLine($"  Comando: {command}");
+            return QemuStatus.Skipped;
+        }
+
+        Console.WriteLine($"  QEMU: {qemu}");
+        Console.WriteLine($"  Comando: {command}");
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = qemu,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("-drive");
+        startInfo.ArgumentList.Add(BuildDriveOption(imagePath));
+        startInfo.ArgumentList.Add("-serial");
+        startInfo.ArgumentList.Add("stdio");
+        startInfo.ArgumentList.Add("-display");
+        startInfo.ArgumentList.Add("none");
+        startInfo.ArgumentList.Add("-no-reboot");
+
+        using var process = new Process { StartInfo = startInfo };
+        try
+        {
+            if (!process.Start())
+            {
+                Console.WriteLine("RESULTADO: FALLO — no se pudo iniciar QEMU.");
+                return QemuStatus.Failed;
+            }
+        }
+        catch (Exception exception) when (exception is Win32Exception or InvalidOperationException)
+        {
+            Console.WriteLine($"RESULTADO: FALLO — no se pudo iniciar QEMU: {exception.Message}");
+            return QemuStatus.Failed;
+        }
+
+        var serial = new List<byte>();
+        var serialGate = new object();
+        var reader = Task.Run(
+            () => PumpSerial(process.StandardOutput.BaseStream, serial, serialGate));
+        var errorBuffer = new StringBuilder();
+        var errorReader = Task.Run(() => CollectStderr(process.StandardError, errorBuffer));
+
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(QemuTimeoutSeconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            lock (serialGate)
+            {
+                if (serial.Contains((byte)'A'))
+                {
+                    break;
+                }
+            }
+
+            if (process.HasExited)
+            {
+                break;
+            }
+
+            Thread.Sleep(50);
+        }
+
+        if (!process.HasExited)
+        {
+            process.Kill();
+        }
+
+        process.WaitForExit(5000);
+        _ = reader.Wait(TimeSpan.FromSeconds(2));
+        _ = errorReader.Wait(TimeSpan.FromSeconds(2));
+
+        byte[] captured;
+        lock (serialGate)
+        {
+            captured = [.. serial];
+        }
+
+        string stderr;
+        lock (errorBuffer)
+        {
+            stderr = errorBuffer.ToString();
+        }
+
+        Console.WriteLine($"  Salida serie: [{DescribeSerial(captured)}]");
+
+        if (Array.IndexOf(captured, (byte)'A') >= 0)
+        {
+            Console.WriteLine("RESULTADO: OK — QEMU arrancó la .img y el kernel emitió 'A' por COM1.");
+            return QemuStatus.Verified;
+        }
+
+        Console.WriteLine(
+            $"RESULTADO: FALLO — QEMU no emitió 'A' por COM1 en {QemuTimeoutSeconds} segundo(s).");
+        if (stderr.Length > 0)
+        {
+            Console.WriteLine($"  stderr de QEMU: {stderr.Trim()}");
+        }
+
+        return QemuStatus.Failed;
+    }
+
+    /// <summary>
+    /// Busca <c>qemu-system-x86_64</c> en el <c>PATH</c> y en las ubicaciones
+    /// estándar de Windows, Linux y macOS.
+    /// </summary>
+    private static string? FindQemu()
+    {
+        string[] names = OperatingSystem.IsWindows()
+            ? ["qemu-system-x86_64.exe", "qemu-system-x86_64"]
+            : ["qemu-system-x86_64"];
+
+        foreach (var name in names)
+        {
+            if (FindOnPath(name) is { } onPath)
+            {
+                return onPath;
+            }
+        }
+
+        foreach (var candidate in StandardQemuPaths())
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? FindOnPath(string fileName)
+    {
+        var path = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        foreach (var entry in path.Split(
+            Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            try
+            {
+                var candidate = Path.Combine(entry.Trim('"'), fileName);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Entradas del PATH con caracteres inválidos: se ignoran.
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> StandardQemuPaths()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            string[] roots =
+            [
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            ];
+
+            foreach (var root in roots)
+            {
+                if (!string.IsNullOrWhiteSpace(root))
+                {
+                    yield return Path.Combine(root, "qemu", "qemu-system-x86_64.exe");
+                }
+            }
+
+            yield return @"C:\msys64\mingw64\bin\qemu-system-x86_64.exe";
+            yield break;
+        }
+
+        yield return "/usr/bin/qemu-system-x86_64";
+        yield return "/usr/local/bin/qemu-system-x86_64";
+        yield return "/opt/homebrew/bin/qemu-system-x86_64";
+    }
+
+    private static string FormatQemuCommand(string imagePath) =>
+        $"qemu-system-x86_64 -drive {BuildDriveOption(imagePath)} -serial stdio -display none -no-reboot";
+
+    private static string BuildDriveOption(string imagePath)
+    {
+        var file = imagePath.Contains(',') || imagePath.Contains(' ')
+            ? $"\"{imagePath}\""
+            : imagePath;
+        return $"format=raw,file={file},if=ide";
+    }
+
+    private static string DescribeSerial(IReadOnlyList<byte> bytes)
+    {
+        if (bytes.Count == 0)
+        {
+            return "sin datos";
+        }
+
+        var hex = string.Join(
+            ' ',
+            bytes.Select(value => value.ToString("X2", CultureInfo.InvariantCulture)));
+        var text = new string(
+            bytes.Select(value => value is >= 0x20 and < 0x7F ? (char)value : '.').ToArray());
+        return $"{hex} | {text}";
+    }
+
+    private static void PumpSerial(Stream stream, List<byte> bytes, object gate)
+    {
+        var buffer = new byte[256];
+        try
+        {
+            int read;
+            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                lock (gate)
+                {
+                    bytes.AddRange(buffer.AsSpan(0, read));
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // QEMU se cerró: no queda más salida por leer.
+        }
+        catch (ObjectDisposedException)
+        {
+            // El flujo se cerró mientras se leía.
+        }
+    }
+
+    private static void CollectStderr(StreamReader stderr, StringBuilder buffer)
+    {
+        try
+        {
+            var text = stderr.ReadToEnd();
+            lock (buffer)
+            {
+                buffer.Append(text);
+            }
+        }
+        catch (IOException)
+        {
+            // QEMU se cerró mientras se leía su stderr.
+        }
+        catch (ObjectDisposedException)
+        {
+            // El flujo se cerró mientras se leía.
+        }
     }
 
     private static ImageBuildResult BuildImage(string path, out DiagnosticBag diagnostics)
@@ -707,6 +1011,14 @@ internal static class Program
         }
 
         return null;
+    }
+
+    private static void WriteBanner(string title)
+    {
+        Console.WriteLine();
+        Console.WriteLine(new string('=', 72));
+        Console.WriteLine(title);
+        Console.WriteLine(new string('=', 72));
     }
 
     private static void WriteSeparator(string title, string file)
@@ -825,5 +1137,18 @@ internal static class Program
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>Resultado del arranque real de la imagen en QEMU.</summary>
+    private enum QemuStatus
+    {
+        /// <summary>QEMU arrancó la imagen y el kernel emitió <c>A</c> por COM1.</summary>
+        Verified,
+
+        /// <summary>QEMU no está instalado; se imprimió la ruta y el comando.</summary>
+        Skipped,
+
+        /// <summary>QEMU está instalado pero no se obtuvo la salida esperada.</summary>
+        Failed,
     }
 }
