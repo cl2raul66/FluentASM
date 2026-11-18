@@ -86,6 +86,21 @@ public static class BareMetalBootImageBuilder
     private const int KernelLoadSegment = 0x1000;
     private const int ChunkSectors = 64;
     private const int ChunkBytes = ChunkSectors * BootSectorSize;
+
+    /// <summary>Sectores que se piden a la BIOS en cada lectura (16 KiB).</summary>
+    private const int ReadSectors = 32;
+
+    /// <summary>Bytes que cubre cada lectura de la BIOS.</summary>
+    private const int ReadBytes = ReadSectors * BootSectorSize;
+
+    /// <summary>Párrafos que avanza el segmento de destino tras cada lectura.</summary>
+    private const int ReadParagraphs = ReadBytes / 16;
+
+    /// <summary>Lecturas necesarias para cubrir un bloque de 32 KiB del layout.</summary>
+    private const int ReadsPerChunk = ChunkSectors / ReadSectors;
+
+    /// <summary>Intentos por lectura antes de declarar un error de disco.</summary>
+    private const int ReadAttempts = 3;
     private const int GdtSelectors = 4;
     private const int GdtSize = GdtSelectors * 8;
     private const int SectorSignatureOffset = 510;
@@ -213,19 +228,23 @@ public static class BareMetalBootImageBuilder
         writer.Emit(0xE6, 0x92);                                // OUT 0x92, AL
 
         // Disk Address Packet en DS:SI (16 bytes) para int 13h AH=0x42.
+        // Se leen 32 sectores (16 KiB) por llamada en lugar de 64: así ninguna
+        // transferencia cruza el límite de 63 sectores por pista que algunos
+        // BIOS imponen a AH=0x02 y tampoco se cruza un límite de 64 KiB de DMA.
         writer.Emit(0xBE);                                      // MOV SI, dap
         writer.EmitAddress16("dap");
         writer.Emit(0xC6, 0x04, 0x10);                          // MOV BYTE [SI], 0x10   (tamaño del DAP)
-        writer.Emit(0xC6, 0x44, 0x01, 0x00);                    // MOV BYTE [SI+1], 0
-        writer.Emit(0xC7, 0x44, 0x02, ChunkSectors, 0x00);      // MOV WORD [SI+2], 64   (sectores por lectura)
+        writer.Emit(0xC6, 0x44, 0x01, 0x00);                    // MOV BYTE [SI+1], 0    (reservado)
+        writer.Emit(0xC7, 0x44, 0x02, ReadSectors, 0x00);       // MOV WORD [SI+2], 32   (sectores por lectura)
         writer.Emit(0xC7, 0x44, 0x04, 0x00, 0x00);              // MOV WORD [SI+4], 0    (offset del buffer)
         writer.Emit(0xC7, 0x44, 0x08, 0x01, 0x00);              // MOV WORD [SI+8], 1    (LBA bajo = 1)
         writer.Emit(0xC7, 0x44, 0x0A, 0x00, 0x00);              // MOV WORD [SI+10], 0
         writer.Emit(0xC7, 0x44, 0x0C, 0x00, 0x00);              // MOV WORD [SI+12], 0   (LBA alto)
         writer.Emit(0xC7, 0x44, 0x0E, 0x00, 0x00);              // MOV WORD [SI+14], 0
 
-        // Bucle de carga: cada iteración lee 64 sectores (32 KiB) en
-        // ES:0x0000, avanza el segmento 0x800 párrafos y el LBA 64 sectores.
+        // Bucle de carga: cada iteración lee 16 KiB en ES:0x0000, avanza el
+        // segmento 0x400 párrafos y el LBA 32 sectores. Un fallo del BIOS se
+        // reintenta hasta tres veces tras reiniciar el disco (AH=0x00).
         writer.Mark("loadLoop");
         writer.Emit(0xA1);                                      // MOV AX, [loadSegment]
         writer.EmitAddress16("loadSegment");
@@ -233,20 +252,38 @@ public static class BareMetalBootImageBuilder
         writer.Emit(0xBE);                                      // MOV SI, dap
         writer.EmitAddress16("dap");
         writer.Emit(0x89, 0x44, 0x06);                          // MOV [SI+6], AX  (segmento del buffer)
+        writer.Emit(0xC6, 0x06);                                // MOV BYTE [attempts], 3
+        writer.EmitAddress16("attempts");
+        writer.Emit(ReadAttempts);
+
+        writer.Mark("readRetry");
         writer.Emit(0x8A, 0x16);                                // MOV DL, [bootDrive]
         writer.EmitAddress16("bootDrive");
-        writer.Emit(0xB4, 0x42);                                // MOV AH, 0x42   (lectura extendida)
+        writer.Emit(0xB4, 0x42);                                // MOV AH, 0x42   (lectura extendida LBA)
         writer.Emit(0xCD, 0x13);                                // INT 0x13
-        writer.Emit(0x72);                                      // JC diskError
+        writer.Emit(0x73);                                      // JNC readOk
+        writer.EmitRelative8("readOk");
+        writer.Emit(0x30, 0xE4);                                // XOR AH, AH     (reinicio del disco)
+        writer.Emit(0xCD, 0x13);                                // INT 0x13
+        writer.Emit(0xFE, 0x0E);                                // DEC BYTE [attempts]
+        writer.EmitAddress16("attempts");
+        writer.Emit(0x75);                                      // JNZ readRetry
+        writer.EmitRelative8("readRetry");
+        writer.Emit(0xEB);                                      // JMP diskError
         writer.EmitRelative8("diskError");
-        writer.Emit(0x81, 0x06);                                // ADD WORD [loadSegment], 0x0800
+
+        writer.Mark("readOk");
+        writer.Emit(0x81, 0x06);                                // ADD WORD [loadSegment], 0x0400
         writer.EmitAddress16("loadSegment");
-        writer.Emit(0x00, 0x08);
-        writer.Emit(0x83, 0x06);                                // ADD WORD [dap+8], 64
+        writer.Emit((byte)(ReadParagraphs & 0xFF), (byte)(ReadParagraphs >> 8));
+        writer.Emit(0x81, 0x06);                                // ADD WORD [dap+8], 32
         writer.EmitAddress16("dap", 8);
-        writer.Emit(0x40);
-        writer.Emit(0xFF, 0x0E);                                // DEC WORD [remainingChunks]
-        writer.EmitAddress16("remainingChunks");
+        writer.Emit(ReadSectors, 0x00);
+        writer.Emit(0x83, 0x16);                                // ADC WORD [dap+10], 0
+        writer.EmitAddress16("dap", 10);
+        writer.Emit(0x00);
+        writer.Emit(0xFF, 0x0E);                                // DEC WORD [remainingReads]
+        writer.EmitAddress16("remainingReads");
         writer.Emit(0x75);                                      // JNZ loadLoop
         writer.EmitRelative8("loadLoop");
         writer.Emit(0xEB);                                      // JMP loadDone (no caer en el error)
@@ -361,8 +398,11 @@ public static class BareMetalBootImageBuilder
         writer.Mark("loadSegment");
         writer.EmitWord(KernelLoadSegment);                     // Segmento del siguiente bloque.
 
-        writer.Mark("remainingChunks");
-        writer.EmitWord(chunkCount);                            // Bloques de 32 KiB pendientes.
+        writer.Mark("remainingReads");
+        writer.EmitWord(chunkCount * ReadsPerChunk);            // Lecturas de 16 KiB pendientes.
+
+        writer.Mark("attempts");
+        writer.Emit(ReadAttempts);                              // Intentos por lectura.
 
         writer.Mark("gdtr");
         writer.EmitWord(GdtSize - 1);                           // Límite de la GDT.
