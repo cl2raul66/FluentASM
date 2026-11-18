@@ -1,0 +1,24 @@
+entradaInvalidada
+    .execute(ex -> {
+        ex.routines(rt -> {
+            rt.define(d -> {
+                d.id(main)
+                d.run(() -> {
+                    Gpr1.copy(defaultValue)
+                    Ipr.flowCall(c -> c.target(eco).inputs(Gpr1).output(Gpr0))
+                    Gpr1.increment()
+                    Ipr.flowStackJump()
+                })
+            })
+
+            rt.define(d -> {
+                d.id(eco)
+                d.returns(Gpr0)
+                d.run((arg1<Byte:8>) -> {
+                    Gpr0.copy(arg1)
+                    Ipr.flowStackJump()
+                })
+            })
+        })
+    })
+    .initialize()

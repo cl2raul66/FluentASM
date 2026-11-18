@@ -1,14 +1,16 @@
 using System.Text;
 using FluentASM.Core.Diagnostics;
+using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 
 namespace FluentASM.Sample;
 
 /// <summary>
-/// Banco de pruebas manual de FluentASM. Ejecuta el lexer y el parser de M1 sobre
-/// los tres ejemplos completos de <c>FLUENT_SYNTAX_X64.md</c> §7, sobre un ejemplo
-/// con error sintáctico intencional y, opcionalmente, sobre un archivo indicado
-/// por ruta.
+/// Banco de pruebas manual de FluentASM. Ejecuta el lexer, el parser de M1 y el
+/// análisis semántico de M2 sobre los tres ejemplos completos de
+/// <c>FLUENT_SYNTAX_X64.md</c> §7, sobre un ejemplo con error sintáctico
+/// intencional, sobre cuatro casos negativos de M2 y, opcionalmente, sobre un
+/// archivo indicado por ruta.
 /// </summary>
 internal static class Program
 {
@@ -19,6 +21,14 @@ internal static class Program
         ("7.1", "miCalculadoraCli.fasm"),
         ("7.2", "bucleDemo.fasm"),
         ("7.3", "serialBareMetal.fasm"),
+    ];
+
+    private static readonly (string Title, string File, string DiagnosticId, int Line, int Column)[] NegativeSamples =
+    [
+        ("negativo 1: dato duro", "datoDuro.fasm", "FASM2007", 7, 31),
+        ("negativo 2: nombre legacy", "nombreLegacy.fasm", "FASM3012", 7, 21),
+        ("negativo 3: capacidad ausente", "memoriaSinCapacidad.fasm", "FASM3023", 7, 22),
+        ("negativo 4: entrada invalidada", "entradaInvalidada.fasm", "FASM5003", 9, 21),
     ];
 
     private static int Main(string[] args)
@@ -45,7 +55,7 @@ internal static class Program
             return 2;
         }
 
-        Console.WriteLine("FluentASM.Sample — validación de M1 (lexer + parser)");
+        Console.WriteLine("FluentASM.Sample — validación de M1 (lexer + parser) + M2 (semántica)");
         Console.WriteLine($"Ejemplos: {directory}");
 
         var validFailures = 0;
@@ -61,19 +71,31 @@ internal static class Program
         WriteSeparator("error esperado", ErrorSample);
         var errorFailures = CheckIntentionalError(Path.Combine(directory, ErrorSample));
 
+        var negativeFailures = 0;
+        foreach (var (title, file, id, line, column) in NegativeSamples)
+        {
+            WriteSeparator(title, file);
+            if (CheckExpectedDiagnostic(Path.Combine(directory, file), id, line, column) != 0)
+            {
+                negativeFailures++;
+            }
+        }
+
         Console.WriteLine();
         Console.WriteLine(new string('=', 72));
-        if (validFailures == 0 && errorFailures == 0)
+        if (validFailures == 0 && errorFailures == 0 && negativeFailures == 0)
         {
             Console.WriteLine(
                 $"RESUMEN: {ValidSamples.Length}/{ValidSamples.Length} ejemplos válidos con 0 diagnósticos; "
-                + "1/1 ejemplo con error detectado y posición exacta.");
+                + "1/1 error sintáctico con posición exacta; "
+                + $"{NegativeSamples.Length}/{NegativeSamples.Length} casos negativos M2 con diagnóstico y posición exactos.");
             return 0;
         }
 
         Console.WriteLine(
-            $"RESUMEN: {validFailures} ejemplo(s) válido(s) con diagnósticos inesperados y "
-            + $"{errorFailures} fallo(s) en el ejemplo con error intencional.");
+            $"RESUMEN: {validFailures} ejemplo(s) válido(s) con diagnósticos inesperados, "
+            + $"{errorFailures} fallo(s) en el error sintáctico y "
+            + $"{negativeFailures} fallo(s) en los casos negativos M2.");
         return 1;
     }
 
@@ -88,6 +110,7 @@ internal static class Program
         var text = File.ReadAllText(path);
         var lexResult = Lexer.Tokenize(text, path);
         var parseResult = Parser.Parse(lexResult);
+        var semanticResult = SemanticAnalyzer.Analyze(parseResult.Root, parseResult.Diagnostics);
         var errors = CountErrors(parseResult);
 
         Console.WriteLine($"Archivo: {path}");
@@ -113,6 +136,8 @@ internal static class Program
         Console.WriteLine("AST:");
         Console.WriteLine(AstDumper.Dump(parseResult.Root));
         Console.WriteLine();
+        WriteSemanticSummary(semanticResult);
+        Console.WriteLine();
         Console.WriteLine(
             $"{lexResult.Tokens.Count} tokens, {parseResult.Diagnostics.Count} diagnósticos ({errors} errores).");
 
@@ -123,11 +148,11 @@ internal static class Program
 
         if (errors == 0)
         {
-            Console.WriteLine("RESULTADO: OK — AST generado sin errores.");
+            Console.WriteLine("RESULTADO: OK — AST generado y análisis semántico sin errores.");
             return 0;
         }
 
-        Console.WriteLine($"RESULTADO: FALLO — {errors} error(es) de sintaxis o léxico.");
+        Console.WriteLine($"RESULTADO: FALLO — {errors} error(es) léxico(s), sintáctico(s) o semántico(s).");
         return 1;
     }
 
@@ -141,6 +166,7 @@ internal static class Program
 
         var text = File.ReadAllText(path);
         var parseResult = Parser.Parse(Lexer.Tokenize(text, path));
+        _ = SemanticAnalyzer.Analyze(parseResult.Root, parseResult.Diagnostics);
         var errors = parseResult.Diagnostics
             .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             .ToList();
@@ -202,6 +228,102 @@ internal static class Program
 
         Console.WriteLine(
             "RESULTADO: OK — error detectado con posición exacta y AST parcial utilizable.");
+        return 0;
+    }
+
+    private static void WriteSemanticSummary(SemanticResult result)
+    {
+        var symbols = result.Symbols;
+        Console.WriteLine("Resumen semántico:");
+        Console.WriteLine(
+            $"  Símbolos .data: {symbols.DataSymbols.Count}, rutinas: {symbols.Routines.Count}, "
+            + $"etiquetas locales: {symbols.LabelCount}.");
+
+        foreach (var data in symbols.DataSymbols)
+        {
+            Console.WriteLine(
+                $"  data {data.Name}: capacidad {data.Capacity.Display} ({data.BitSize} bits, {data.ByteSize} byte(s)).");
+        }
+
+        foreach (var routine in symbols.Routines)
+        {
+            var parameters = routine.Parameters.Count == 0
+                ? "sin parámetros"
+                : string.Join(
+                    ", ",
+                    routine.Parameters.Select(parameter => $"{parameter.Name} -> Gpr{parameter.RegisterIndex}"));
+            var returns = routine.Returns is { } returnsReference
+                ? returnsReference.Display
+                : "sin retorno declarado";
+            Console.WriteLine($"  rutina {routine.DisplayName}: {parameters}; retorno {returns}.");
+        }
+
+        Console.WriteLine(
+            $"  Diagnósticos semánticos: {result.Diagnostics.Count} "
+            + $"({(result.Success ? "0 errores" : "con errores")}), "
+            + $"contratos flowCall verificados: {result.ContractsVerified}.");
+    }
+
+    private static int CheckExpectedDiagnostic(string path, string expectedId, int expectedLine, int expectedColumn)
+    {
+        if (!File.Exists(path))
+        {
+            Console.Error.WriteLine($"No se encontró el archivo '{path}'.");
+            return 1;
+        }
+
+        var text = File.ReadAllText(path);
+        var lexResult = Lexer.Tokenize(text, path);
+        var parseResult = Parser.Parse(lexResult);
+        var semanticResult = SemanticAnalyzer.Analyze(parseResult.Root, parseResult.Diagnostics);
+
+        Console.WriteLine($"Archivo: {path}");
+        Console.WriteLine(
+            $"{parseResult.Diagnostics.Count} diagnósticos "
+            + $"({CountErrors(parseResult)} errores), {semanticResult.ContractsVerified} contrato(s) verificado(s).");
+        Console.WriteLine();
+
+        foreach (var diagnostic in parseResult.Diagnostics)
+        {
+            Console.WriteLine(Format(diagnostic));
+        }
+
+        var expected = parseResult.Diagnostics.FirstOrDefault(
+            diagnostic => diagnostic.Id == expectedId
+                && diagnostic.Location is { } location
+                && location.Line == expectedLine
+                && location.Column == expectedColumn);
+
+        if (expected is null)
+        {
+            Console.WriteLine(
+                $"RESULTADO: FALLO — no se emitió {expectedId} en línea {expectedLine}, columna {expectedColumn}.");
+            return 1;
+        }
+
+        if (expected.Span is not { Length: > 0 } span || expected.Location is not { } exact)
+        {
+            Console.WriteLine($"RESULTADO: FALLO — {expectedId} no tiene span o posición válidos.");
+            return 1;
+        }
+
+        var computed = ComputePosition(text, span.Start);
+        WriteCaret(text, exact, span);
+
+        var locationMatches = exact.Line == expectedLine && exact.Column == expectedColumn;
+        var spanOnLine = computed.Line == expectedLine;
+        if (!locationMatches || !spanOnLine)
+        {
+            Console.WriteLine(
+                $"RESULTADO: FALLO — {expectedId} declara línea {exact.Line}, columna {exact.Column}, "
+                + $"pero se esperaba línea {expectedLine}, columna {expectedColumn} "
+                + $"(span en línea {computed.Line}, columna {computed.Column}).");
+            return 1;
+        }
+
+        Console.WriteLine(
+            $"RESULTADO: OK — {expectedId} detectado en línea {exact.Line}, columna {exact.Column}, "
+            + $"span {span.Start}..{span.End}.");
         return 0;
     }
 

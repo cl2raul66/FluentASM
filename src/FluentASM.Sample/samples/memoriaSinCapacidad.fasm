@@ -1,0 +1,13 @@
+memoriaSinCapacidad
+    .execute(ex -> {
+        ex.routines(rt -> {
+            rt.define(d -> {
+                d.id(main)
+                d.run(() -> {
+                    [Gpr3].copy(Gpr0)
+                    Ipr.flowStackJump()
+                })
+            })
+        })
+    })
+    .initialize()

@@ -1,0 +1,13 @@
+nombreLegacy
+    .execute(ex -> {
+        ex.routines(rt -> {
+            rt.define(d -> {
+                d.id(main)
+                d.run(() -> {
+                    Rax.copy(Gpr0)
+                    Ipr.flowStackJump()
+                })
+            })
+        })
+    })
+    .initialize()
