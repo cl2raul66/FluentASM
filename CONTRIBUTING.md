@@ -55,30 +55,44 @@ Todo cambio debe pasar por un Pull Request dirigido a la rama `develop`.
 Al menos una persona del equipo debe revisarlo y aprobarlo antes de fusionarse.
 
 #### Plantilla del PR
-El cuerpo del Pull Request debe incluir una **sugerencia de versión** en el siguiente formato:
+Usa la plantilla de `.github/PULL_REQUEST_TEMPLATE.md`. El cuerpo del Pull Request debe declarar las **versiones a publicar**, una línea por proyecto publicable:
 
 ```
-## Resumen de cambios
-[Describe brevemente qué se hizo]
-
-## Issue relacionado
-closes #[número del issue]
-
-## Sugerencia de versión
-x.x.x-preview
+## Versiones a publicar
+ver(core): x.x.x-preview
+ver(compiler): x.x.x-preview
 ```
+
+Solo se publican los proyectos cuya línea tenga una versión concreta (por ejemplo `ver(core): 0.2.0-preview`). Los que queden con el marcador `x.x.x-preview` no se publican; si no quieres publicar ninguno, deja las dos líneas como están. `FluentASM.Sample` no entra en el versionado: no lleva línea de versión ni se publica en releases.
 
 Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente de "Decisiones de diseño" en este documento.
 
-La versión de la sugerencia es una propuesta; la fuente de verdad del número de versión se explica en la sección de versionado.
+El número declarado en el PR es la fuente de verdad para esa publicación; el detalle está en la sección de versionado.
 
 ## Versionado
 
-- Cada merge a la rama `develop` genera una versión preliminar de tipo `x.x.x-preview`.
-- Cuando se hace merge de `develop` a `main`, se genera una versión estable (release) de tipo `x.x.x`, sin el sufijo `-preview`.
-- Se sigue el versionado SemVer: `MAJOR.MINOR.PATCH`.
+Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`) y `compiler` (`FluentASM.Compiler`). Se sigue el versionado SemVer `MAJOR.MINOR.PATCH`.
 
-**Fuente de verdad del número de versión:** un archivo de **texto** versionado en el repositorio (`VERSION` y/o la propiedad de versión en `Directory.Build.props`). GitHub Actions lee ese archivo para saber qué versión se está publicando.
+| Merge | Versión publicada | Etiquetas | Línea necesaria en el PR |
+|---|---|---|---|
+| PR → `develop` | `x.x.x-preview` (prerelease) | `core-vx.x.x-preview`, `compiler-vx.x.x-preview` | `ver(proyecto): x.x.x-preview` con números |
+| PR → `main` | `x.x.x` (estable, sin sufijo) | `core-vx.x.x`, `compiler-vx.x.x` | igual: `ver(proyecto): x.x.x-preview` |
+
+- En los dos flujos el PR se escribe igual (`x.x.x-preview`); al mergear en `main` se publica la misma versión sin el sufijo `-preview`. El PR de promoción `develop` → `main` debe llevar **las mismas líneas `ver(...)`** del ciclo que se está promoviendo.
+- Un proyecto no se publica si su línea conserva el marcador `x.x.x-preview` o si no aparece en el PR.
+- **Solo se publica una versión estrictamente mayor que la última publicada.** Si la versión del PR es igual o menor, el flujo termina sin publicar y sin fallar (`skip`), dejando constancia en el registro del job.
+  - En `develop` la comparación es contra la última *prerelease* del proyecto (`core-v*-preview`, `compiler-v*-preview`).
+  - En `main` la comparación es contra la última estable (`core-v*`, `compiler-v*` sin sufijo).
+- Cada publicación adjunta un ZIP `FluentASM.<Proyecto>-v<versión>.zip` con la salida de `dotnet publish -c Release` de ese proyecto.
+- `FluentASM.Sample` **queda fuera del versionado**: no recibe versión propia, no genera ZIP ni release. Eso no lo excluye del repositorio: sus cambios se suben al origen (commit y push) como cualquier otro archivo, sin modificar `VERSION` ni las versiones de los proyectos.
+
+**Fuente de verdad del número de versión:** las líneas `ver(...)` del cuerpo del PR en el momento del merge. El flujo escribe esa versión en `<Version>` del `.csproj` **solo en el runner** para publicar; no se commitea nada de vuelta. El archivo `VERSION` (raíz, leído por `src/Directory.Build.props`) es solo el valor por defecto de las compilaciones locales: no decide ninguna publicación.
+
+**Ejemplo de ciclo completo:**
+
+1. PR de `feature/x` → `develop` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0-preview`.
+2. Otro PR a `develop` que vuelve a declarar `ver(core): 0.2.0-preview` → se salta (no es mayor).
+3. PR de `develop` → `main` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0` (estable).
 
 ## Estándares de código
 
@@ -91,7 +105,7 @@ El proyecto sigue convenciones consistentes tanto en el código C# del compilado
 - **Comentarios:** `//` hasta fin de línea o `/* ... */` en bloque.
 - **No uses abreviaturas crípticas.** `registroDestino` es mejor que `rd`.
 - **Fuente única de nombres:** los registros, verbos y reglas del lenguaje se toman siempre de [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) (común) y [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) (x64); no se inventan alias.
-- `.editorconfig` en la raíz es obligatorio y las advertencias se tratan como errores en la integración continua.
+- `.editorconfig` en la raíz es obligatorio y las advertencias se tratan como errores (`TreatWarningsAsErrors`) en la compilación local y en la publicación.
 
 **Verbos y elementos canónicos de Fase 1 (x64 *bare metal*):**
 
@@ -110,19 +124,19 @@ El proyecto sigue convenciones consistentes tanto en el código C# del compilado
 ## Estructura del código fuente (`src/`)
 
 **No existen proyectos de pruebas formales (`*Tests.csproj`) ni generación de tests automáticos.**
-La validación se realiza compilando y ejecutando directamente ejemplos reales en `FluentASM.Sample` (y/o en QEMU *bare metal*). `FluentASM.Sample` varía libremente con cada función y no entra en el versionado.
+La validación se realiza compilando y ejecutando directamente ejemplos reales en `FluentASM.Sample` (y/o en QEMU *bare metal*). `FluentASM.Sample` varía libremente con cada función: no entra en el versionado ni se publica como release, pero sus cambios se suben al origen sin modificar las versiones.
 
 ```
 src/
   FluentASM.Core/           → Lexer, parser, validador Tipo 1 / ATM, codificador x64 y emisor de imagen plana
   FluentASM.Compiler/       → CLI (fluentasm): lee .fproj y sourcesCode.fasm y genera la salida .x64
-  FluentASM.Sample/         → Proyecto de pruebas manuales (no entra en versionado)
+  FluentASM.Sample/         → Validación manual (no se versiona ni se publica; sí se sube al origen)
   miCalculadoraCli/         → Programa de ejemplo de Fase 1 (.fproj + sourcesCode.fasm)
   FluentASM.Admin/          → Administrador binario futuro (fasm_admin) — diferido a fases posteriores
   FluentASM.IDE/            → Entorno de desarrollo integrado — diferido a fases posteriores
 ```
 
-La solución .NET de Fase 1 es `src/FluentASM.slnx`; la versión se publica desde `VERSION` (raíz) a través de `src/Directory.Build.props`.
+La solución .NET de Fase 1 es `src/FluentASM.slnx`. Las compilaciones locales toman la versión de `VERSION` (raíz) mediante `src/Directory.Build.props`; las releases usan la versión declarada en el PR (ver «Versionado»).
 
 Las carpetas `Proposal00/` y `Proposal01/` en la raíz se conservan únicamente como archivo histórico de diseño.
 
@@ -290,13 +304,20 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 
 ## CI-CD (Integración y Despliegue Continuos)
 
-En FluentASM usamos GitHub Actions para la CI a partir de que exista código en `src/`. Cada Pull Request:
+GitHub Actions **no se ejecuta en cada Pull Request**: así no se consumen minutos de ejecución por cambios que aún están en revisión. La validación es local y obligatoria antes de abrir el PR:
 
-1. Compila todos los proyectos activos de `src/` con el SDK de .NET del repositorio.
-2. Ensambla y valida los ejemplos de `rsc/` de extremo a extremo.
-3. Trata las advertencias como errores y falla si algún archivo no respeta `.editorconfig`.
+1. `dotnet build src/FluentASM.slnx` sin advertencias (`.editorconfig` y `TreatWarningsAsErrors`).
+2. `dotnet run --project src/FluentASM.Sample` con el `RESUMEN` final en orden y sin diagnósticos inesperados.
+3. Si el cambio toca el codificador x64, contraste de bytes con NASM y prueba de la imagen generada en QEMU (si está instalado).
 
-Cada merge a `develop` genera automáticamente una versión `x.x.x-preview` leyendo la versión del archivo de texto del repositorio (`VERSION` / `Directory.Build.props`).
+La automatización solo actúa cuando un PR **ya está mergeado**:
+
+| Flujo | Rama de destino | Resultado |
+|---|---|---|
+| `.github/workflows/dev-release.yml` | `develop` | Lee las líneas `ver(...)` del PR, aplica la versión, compila en Release y publica cada proyecto con versión como *prerelease* `x.x.x-preview`. Si la versión no es mayor que la última *prerelease*, no publica. |
+| `.github/workflows/prod-release.yml` | `main` | El mismo proceso con las líneas `ver(...)` del PR de promoción, publicando las versiones estables `x.x.x` (sin `-preview`). Si la versión no es mayor que la última estable, no publica. |
+
+Ningún flujo modifica el repositorio: la versión aplicada vive solo en el runner que genera los ZIP. Un `skip` deja el job en verde con el motivo en el registro; solo un error real (versión mal escrita, fallo de compilación o de publicación) marca el job como fallido.
 
 ## Reportar errores
 

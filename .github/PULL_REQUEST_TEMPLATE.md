@@ -24,9 +24,13 @@ closes #
 ## Decisión de diseño (si cambia el comportamiento del lenguaje)
 <!-- Si no aplica, escribe "no aplica". En caso contrario, enlaza la sección añadida en CONTRIBUTING.md. -->
 
-## Sugerencia de versión
-<!-- Usa formato SemVer. Ejemplo: 0.2.0-preview -->
-x.x.x-preview
+## Versiones a publicar
+<!-- Una línea por proyecto publicable. Escribe números reales (p. ej. ver(core): 0.2.0-preview);
+     el marcador x.x.x-preview significa "no publicar". Solo se publica si la versión es estrictamente mayor que la última publicada.
+     En el PR de promoción develop -> main usa exactamente las mismas líneas: el flujo quita -preview y publica la estable.
+     FluentASM.Sample no entra en el versionado ni se publica en releases. -->
+ver(core): x.x.x-preview
+ver(compiler): x.x.x-preview
 
 ## Notas para quien revisa
 <!-- Opcional: puntos de riesgo, dudas abiertas o partes en las que conviene fijarse. -->
