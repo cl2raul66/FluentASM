@@ -57,16 +57,17 @@ public sealed class BootImageResult
 /// <remarks>
 /// <para>
 /// La <c>.img</c> contiene un MBR de 512 bytes (firma <c>0x55 0xAA</c>) que
-/// carga los sectores siguientes con <c>int 0x13 AH=0x42</c>, habilita A20,
-/// monta tablas de paginación de identidad PML4/PDPT/PD con páginas de 2 MiB,
-/// activa <c>CR4.PAE</c>, <c>IA32_EFER.LME</c> y <c>CR0.PG</c>, entra en modo
-/// largo por un salto lejano y llama al offset <c>0</c> de la imagen con la
-/// pila alineada a 16 bytes.
+/// normaliza los segmentos y la pila, conserva la unidad de arranque, carga los
+/// sectores siguientes con <c>int 0x13 AH=0x42</c> en lecturas de 16 KiB,
+/// habilita A20, monta tablas de paginación de identidad PML4/PDPT/PD con
+/// páginas de 2 MiB, activa <c>CR4.PAE</c>, <c>IA32_EFER.LME</c> y
+/// <c>CR0.PG</c>, entra en modo largo por un salto lejano y llama al offset
+/// <c>0</c> de la imagen con la pila alineada a 16 bytes.
 /// </para>
 /// <para>
 /// El cargador se construye byte a byte en C# (sin NASM) y la imagen se
-/// rellena hasta un múltiplo de 32 KiB para que la BIOS pueda leerla en bloques
-/// de 64 sectores sin cruzar límites de 64 KiB.
+/// rellena hasta un múltiplo de 32 KiB, de modo que cada lectura de la BIOS
+/// queda dentro de un mismo bloque y no cruza límites de 64 KiB de DMA.
 /// </para>
 /// </remarks>
 public static class BareMetalBootImageBuilder
@@ -84,6 +85,7 @@ public static class BareMetalBootImageBuilder
     public const int PayloadLimit = 0x8_0000;
 
     private const int KernelLoadSegment = 0x1000;
+
     private const int ChunkSectors = 64;
     private const int ChunkBytes = ChunkSectors * BootSectorSize;
 
@@ -101,9 +103,90 @@ public static class BareMetalBootImageBuilder
 
     /// <summary>Intentos por lectura antes de declarar un error de disco.</summary>
     private const int ReadAttempts = 3;
+
+    /// <summary>Alineación exigida a cada tabla de paginación.</summary>
+    private const int PageTableAlignment = 0x1000;
+
+    /// <summary>Dirección física de la PML4 (tabla de nivel 4).</summary>
+    private const int Pml4Address = 0x1000;
+
+    /// <summary>Dirección física del PDPT (tabla de nivel 3).</summary>
+    private const int PdptAddress = 0x2000;
+
+    /// <summary>Dirección física del PD (tabla de nivel 2, páginas de 2 MiB).</summary>
+    private const int PdAddress = 0x3000;
+
+    /// <summary>Bytes de cada tabla de paginación.</summary>
+    private const int PageTableSize = 0x1000;
+
+    /// <summary>Entradas del PD: 512 * 2 MiB = 1 GiB de identidad.</summary>
+    private const int PageDirectoryEntries = 512;
+
+    /// <summary>Tamaño de página de 2 MiB del PD (bit PS).</summary>
+    private const uint PageSize2MiB = 0x0020_0000;
+
+    /// <summary>Bits de bandera de una entrada de la PD con página de 2 MiB.</summary>
+    private const uint PagePresent = 0x01;
+    private const uint PageWritable = 0x02;
+    private const uint PageSize = 0x80;
+
+    /// <summary>Máximo direccionable por la primera página de identidad.</summary>
+    private const int IdentitySpan = 0x0020_0000;
+
+    /// <summary>Valores de control para entrar en modo largo.</summary>
+    private const uint Cr0ProtectedModeEnable = 0x0000_0001;
+    private const uint Cr0PagingEnable = 0x8000_0000;
+    private const uint Cr4PhysicalAddressExtension = 0x0000_0020;
+    private const uint EferLongModeEnable = 0x0000_0100;
+    private const uint MsrIa32Efer = 0xC000_0080;
+
+    /// <summary>Selectores de la GDT.</summary>
+    private const ushort SelectorCode32 = 0x08;
+    private const ushort SelectorData = 0x10;
+    private const ushort SelectorCode64 = 0x18;
+
     private const int GdtSelectors = 4;
     private const int GdtSize = GdtSelectors * 8;
     private const int SectorSignatureOffset = 510;
+
+    /// <summary>Descriptores de la GDT (base 0, límite 4 GiB, DPL 0).</summary>
+    private const ulong GdtNullDescriptor = 0x0000_0000_0000_0000;
+    private const ulong GdtCode32Descriptor = 0x00CF_9A00_0000_FFFF;
+    private const ulong GdtDataDescriptor = 0x00CF_9200_0000_FFFF;
+    private const ulong GdtCode64Descriptor = 0x00AF_9A00_0000_FFFF;
+
+    static BareMetalBootImageBuilder()
+    {
+        // Invariantes del arranque en modo largo: si las tablas no están
+        // alineadas a 4 KiB, si invaden el payload, si la pila no está alineada
+        // a 16 bytes o si payload/pila salen de la primera página de identidad
+        // de 2 MiB, el salto a 64 bits acabaría en #PF o #GP.
+        if (Pml4Address % PageTableAlignment != 0
+            || PdptAddress % PageTableAlignment != 0
+            || PdAddress % PageTableAlignment != 0)
+        {
+            throw new InvalidOperationException(
+                "Las tablas de paginación del MBR deben estar alineadas a 4 KiB.");
+        }
+
+        if (PdAddress + PageTableSize > PayloadAddress)
+        {
+            throw new InvalidOperationException(
+                "Las tablas de paginación no pueden solaparse con el payload.");
+        }
+
+        if (StackTop % 16 != 0)
+        {
+            throw new InvalidOperationException(
+                "La pila de modo largo debe quedar alineada a 16 bytes.");
+        }
+
+        if (PayloadLimit > IdentitySpan || StackTop >= IdentitySpan)
+        {
+            throw new InvalidOperationException(
+                "El payload y la pila deben caber en la página de identidad de 2 MiB.");
+        }
+    }
 
     /// <summary>
     /// Empaqueta la imagen plana en una <c>.img</c> arrancable por QEMU.
@@ -302,40 +385,51 @@ public static class BareMetalBootImageBuilder
         writer.Mark("loadDone");
 
         // ─────────────────── Tablas de paginación de identidad ───────────────────
-        // Se ponen a cero PML4 (0x1000), PDPT (0x2000) y PD (0x3000) con REP STOSD.
+        // PML4 (0x1000), PDPT (0x2000) y PD (0x3000) están alineadas a 4 KiB y se
+        // limpian con REP STOSD (3 tablas * 4096 bytes / 4 = 0xC00 dwords) antes
+        // de escribir ninguna entrada, para no dejar bits reservados activos.
         writer.Emit(0x31, 0xC0);                                // XOR AX, AX
         writer.Emit(0x8E, 0xD8);                                // MOV DS, AX
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x8E, 0xD0);                                // MOV SS, AX
-        writer.Emit(0xB8, 0x00, 0x01);                          // MOV AX, 0x0100  (ES = 0x0100 -> lineal 0x1000)
+        writer.Emit(0xB8);                                      // MOV AX, segmento de PML4
+        EmitWordValue(writer, (ushort)(Pml4Address >> 4));
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x31, 0xFF);                                // XOR DI, DI
         writer.Emit(0x66, 0x31, 0xC0);                          // XOR EAX, EAX
-        writer.Emit(0x66, 0xB9, 0x00, 0x0C, 0x00, 0x00);        // MOV ECX, 0xC00  (3072 dwords)
+        writer.Emit(0x66, 0xB9);                                // MOV ECX, 0xC00 (3072 dwords)
+        EmitDword(writer, (uint)(3 * PageTableSize / 4));
         writer.Emit(0x66, 0xF3, 0xAB);                          // REP STOSD
 
-        // PML4[0] -> PDPT (presente, escribible).
+        // PML4[0] -> PDPT | 0x03 (presente, escribible).
         writer.Emit(0x31, 0xFF);                                // XOR DI, DI
-        writer.Emit(0x66, 0xB8, 0x03, 0x20, 0x00, 0x00);        // MOV EAX, 0x2003
+        writer.Emit(0x66, 0xB8);                                // MOV EAX, PdptAddress | 0x03
+        EmitDword(writer, PdptAddress | 0x03u);
         writer.Emit(0x66, 0xAB);                                // STOSD
 
-        // PDPT[0] -> PD (presente, escribible).
-        writer.Emit(0xB8, 0x00, 0x02);                          // MOV AX, 0x0200  (ES = 0x0200 -> lineal 0x2000)
+        // PDPT[0] -> PD | 0x03 (presente, escribible).
+        writer.Emit(0xB8);                                      // MOV AX, segmento de PDPT
+        EmitWordValue(writer, (ushort)(PdptAddress >> 4));
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x31, 0xFF);                                // XOR DI, DI
-        writer.Emit(0x66, 0xB8, 0x03, 0x30, 0x00, 0x00);        // MOV EAX, 0x3003
+        writer.Emit(0x66, 0xB8);                                // MOV EAX, PdAddress | 0x03
+        EmitDword(writer, PdAddress | 0x03u);
         writer.Emit(0x66, 0xAB);                                // STOSD
 
         // PD: 512 entradas de 2 MiB -> 1 GiB de identidad (presente, escribible, PS=1).
-        // Cada entrada ocupa 8 bytes (dword bajo = dirección + flags, dword alto = 0),
+        // Cada entrada ocupa 8 bytes (dword bajo = dirección + 0x83, dword alto = 0),
         // por eso se emiten dos STOSD por iteración intercambiando EAX con EDX.
-        writer.Emit(0xB8, 0x00, 0x03);                          // MOV AX, 0x0300  (ES = 0x0300 -> lineal 0x3000)
+        writer.Emit(0xB8);                                      // MOV AX, segmento de PD
+        EmitWordValue(writer, (ushort)(PdAddress >> 4));
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x31, 0xFF);                                // XOR DI, DI
-        writer.Emit(0x66, 0x31, 0xD2);                          // XOR EDX, EDX  (dword alto de la entrada)
-        writer.Emit(0x66, 0xB8, 0x83, 0x00, 0x00, 0x00);        // MOV EAX, 0x00000083
-        writer.Emit(0x66, 0xBB, 0x00, 0x00, 0x20, 0x00);        // MOV EBX, 0x00200000
-        writer.Emit(0x66, 0xB9, 0x00, 0x02, 0x00, 0x00);        // MOV ECX, 512
+        writer.Emit(0x66, 0x31, 0xD2);                          // XOR EDX, EDX  (dword alto)
+        writer.Emit(0x66, 0xB8);                                // MOV EAX, 0x83
+        EmitDword(writer, PagePresent | PageWritable | PageSize);
+        writer.Emit(0x66, 0xBB);                                // MOV EBX, 2 MiB
+        EmitDword(writer, PageSize2MiB);
+        writer.Emit(0x66, 0xB9);                                // MOV ECX, 512
+        EmitDword(writer, PageDirectoryEntries);
         writer.Mark("pdLoop");
         writer.Emit(0x66, 0xAB);                                // STOSD: dword bajo (dirección + flags)
         writer.Emit(0x66, 0x92);                                // XCHG EAX, EDX
@@ -351,45 +445,56 @@ public static class BareMetalBootImageBuilder
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x8E, 0xD0);                                // MOV SS, AX
 
-        // GDT con descriptores nulo, código 32, datos y código 64.
+        // GDT en 0x7C00 + gdt (base lineal en gdtr) con límite 31: nulo, código
+        // de 32 bits (0x08), datos planos (0x10) y código de 64 bits (0x18).
         writer.Emit(0x0F, 0x01, 0x16);                          // LGDT [gdtr]
         writer.EmitAddress16("gdtr");
 
         // CR0.PE = 1 y salto lejano al trampolín de 32 bits (selector 0x08).
         writer.Emit(0x0F, 0x20, 0xC0);                          // MOV EAX, CR0
-        writer.Emit(0x66, 0x83, 0xC8, 0x01);                    // OR EAX, 1
+        writer.Emit(0x66, 0x0D);                                // OR EAX, 0x01 (PE)
+        EmitDword(writer, Cr0ProtectedModeEnable);
         writer.Emit(0x0F, 0x22, 0xC0);                          // MOV CR0, EAX
         writer.Emit(0x66, 0xEA);                                // JMP FAR 0x08:pm32
         writer.EmitAddress32("pm32");
-        writer.Emit(0x08, 0x00);
+        EmitWordValue(writer, SelectorCode32);
 
         // ─────────────────── Modo protegido de 32 bits ───────────────────
         writer.Mark("pm32");
-        writer.Emit(0x66, 0xB8, 0x10, 0x00);                    // MOV AX, 0x10 (operando 16 en modo 32)
+        writer.Emit(0x66, 0xB8);                                // MOV AX, 0x10 (operando 16 en modo 32)
+        EmitWordValue(writer, SelectorData);
         writer.Emit(0x8E, 0xD8);                                // MOV DS, AX
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x8E, 0xD0);                                // MOV SS, AX
         writer.Emit(0x8E, 0xE0);                                // MOV FS, AX
         writer.Emit(0x8E, 0xE8);                                // MOV GS, AX
-        writer.Emit(0xBC, 0x00, 0x7C, 0x00, 0x00);              // MOV ESP, 0x00007C00
+        writer.Emit(0xBC);                                      // MOV ESP, 0x00007C00
+        EmitDword(writer, 0x0000_7C00);
 
+        // Orden exigido por Intel: CR4.PAE = 1, CR3 = PML4, EFER.LME = 1 y,
+        // por último, CR0.PG = 1 con un salto lejano inmediato a 64 bits.
         writer.Emit(0x0F, 0x20, 0xE0);                          // MOV EAX, CR4
-        writer.Emit(0x0D, 0x20, 0x00, 0x00, 0x00);              // OR EAX, 0x20   (PAE = 1)
+        writer.Emit(0x0D);                                      // OR EAX, 0x20 (PAE = 1)
+        EmitDword(writer, Cr4PhysicalAddressExtension);
         writer.Emit(0x0F, 0x22, 0xE0);                          // MOV CR4, EAX
-        writer.Emit(0xB8, 0x00, 0x10, 0x00, 0x00);              // MOV EAX, 0x1000 (PML4)
+        writer.Emit(0xB8);                                      // MOV EAX, Pml4Address
+        EmitDword(writer, Pml4Address);
         writer.Emit(0x0F, 0x22, 0xD8);                          // MOV CR3, EAX
 
-        writer.Emit(0xB9, 0x80, 0x00, 0x00, 0xC0);              // MOV ECX, 0xC0000080 (IA32_EFER)
+        writer.Emit(0xB9);                                      // MOV ECX, IA32_EFER
+        EmitDword(writer, MsrIa32Efer);
         writer.Emit(0x0F, 0x32);                                // RDMSR
-        writer.Emit(0x0D, 0x00, 0x01, 0x00, 0x00);              // OR EAX, 0x100  (LME = 1)
+        writer.Emit(0x0D);                                      // OR EAX, 0x100 (LME = 1)
+        EmitDword(writer, EferLongModeEnable);
         writer.Emit(0x0F, 0x30);                                // WRMSR
 
         writer.Emit(0x0F, 0x20, 0xC0);                          // MOV EAX, CR0
-        writer.Emit(0x0D, 0x00, 0x00, 0x00, 0x80);              // OR EAX, 0x80000000 (PG = 1)
+        writer.Emit(0x0D);                                      // OR EAX, 0x80000000 (PG = 1)
+        EmitDword(writer, Cr0PagingEnable);
         writer.Emit(0x0F, 0x22, 0xC0);                          // MOV CR0, EAX
-        writer.Emit(0xEA);                                      // JMP FAR 0x18:0x00010000
-        writer.Emit(0x00, 0x00, 0x01, 0x00);
-        writer.Emit(0x18, 0x00);
+        writer.Emit(0xEA);                                      // JMP FAR 0x18:PayloadAddress
+        EmitDword(writer, PayloadAddress);
+        EmitWordValue(writer, SelectorCode64);
 
         // ─────────────────────────── Datos del sector ───────────────────────────
         writer.Mark("bootDrive");
@@ -409,10 +514,10 @@ public static class BareMetalBootImageBuilder
         writer.EmitAddress32("gdt");                            // Base lineal de la GDT.
 
         writer.Mark("gdt");
-        AddGdtEntry(writer, 0x0000_0000_0000_0000);             // 0x00: nulo
-        AddGdtEntry(writer, 0x00CF_9A00_0000_FFFF);             // 0x08: código 32 bits (D=1)
-        AddGdtEntry(writer, 0x00CF_9200_0000_FFFF);             // 0x10: datos 32/64 bits
-        AddGdtEntry(writer, 0x00AF_9A00_0000_FFFF);             // 0x18: código 64 bits (L=1)
+        AddGdtEntry(writer, GdtNullDescriptor);                 // 0x00: nulo
+        AddGdtEntry(writer, GdtCode32Descriptor);               // 0x08: código 32 bits (D=1)
+        AddGdtEntry(writer, GdtDataDescriptor);                 // 0x10: datos 32/64 bits
+        AddGdtEntry(writer, GdtCode64Descriptor);               // 0x18: código 64 bits (L=1)
 
         writer.Mark("dap");
         writer.Emit(new byte[16]);                              // Disk Address Packet.
@@ -422,6 +527,16 @@ public static class BareMetalBootImageBuilder
 
     private static void AddGdtEntry(BootSectorWriter writer, ulong descriptor) =>
         writer.EmitQword(descriptor);
+
+    private static void EmitWordValue(BootSectorWriter writer, ushort value) =>
+        writer.Emit((byte)value, (byte)(value >> 8));
+
+    private static void EmitDword(BootSectorWriter writer, uint value) =>
+        writer.Emit(
+            (byte)value,
+            (byte)(value >> 8),
+            (byte)(value >> 16),
+            (byte)(value >> 24));
 
     private static void AddQword(List<byte> bytes, ulong value)
     {
