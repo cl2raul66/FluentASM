@@ -1,3 +1,4 @@
+using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 
 namespace FluentASM.Core.Semantics;
@@ -50,6 +51,24 @@ internal static class SyntaxTraversal
     /// <summary>Enumera las referencias a etiquetas <c>@nombre</c> de una sentencia.</summary>
     public static IEnumerable<LabelReferenceSyntax> LabelReferences(StatementSyntax statement) =>
         Expressions(statement).OfType<LabelReferenceSyntax>();
+
+    /// <summary>Primer token significativo de una expresión, útil para ubicar diagnósticos.</summary>
+    public static Token? FirstToken(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierExpressionSyntax identifier => identifier.Identifier,
+        IntegerLiteralSyntax integer => integer.Literal,
+        StringLiteralSyntax text => text.Literal,
+        DefaultValueSyntax keyword => keyword.Keyword,
+        NotValueSyntax keyword => keyword.Keyword,
+        LabelReferenceSyntax label => label.Label,
+        MagnitudeSyntax magnitude => magnitude.Unit,
+        MemberAccessSyntax member => FirstToken(member.Receiver) ?? member.Member,
+        MemoryOperandSyntax memory => FirstToken(memory.Address.Base),
+        PortOperandSyntax port => port.PortKeyword,
+        RegisterPairSyntax pair => FirstToken(pair.High),
+        ConditionalExpressionSyntax conditional => FirstToken(conditional.Value),
+        _ => null,
+    };
 
     /// <summary>Enumera una expresión y todos sus descendientes.</summary>
     public static IEnumerable<ExpressionSyntax> Descendants(ExpressionSyntax expression)

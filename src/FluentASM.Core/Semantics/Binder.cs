@@ -56,6 +56,16 @@ internal sealed class Binder
             }
 
             var name = nameToken.Text;
+            if (RegisterModel.TryGetLegacySuggestion(name, out var legacySuggestion))
+            {
+                diagnostics.Error(
+                    DiagnosticIds.LegacyName,
+                    $"'{name}' es un nombre legacy prohibido; usa '{legacySuggestion}'.",
+                    nameToken.Location,
+                    nameToken.Span);
+                continue;
+            }
+
             if (IsReserved(name))
             {
                 diagnostics.Error(
@@ -130,6 +140,16 @@ internal sealed class Binder
         if (definition.Name is { } nameToken)
         {
             var name = nameToken.Text;
+            if (RegisterModel.TryGetLegacySuggestion(name, out var legacySuggestion))
+            {
+                diagnostics.Error(
+                    DiagnosticIds.LegacyName,
+                    $"'{name}' es un nombre legacy prohibido; usa '{legacySuggestion}'.",
+                    nameToken.Location,
+                    nameToken.Span);
+                return null;
+            }
+
             if (IsReserved(name))
             {
                 diagnostics.Error(
@@ -160,6 +180,15 @@ internal sealed class Binder
                 && reference.View != RegisterView.Invalid)
             {
                 returns = reference;
+            }
+            else if (FindLegacyToken(returnsExpression) is { } legacyToken
+                && RegisterModel.TryGetLegacySuggestion(legacyToken.Text, out var suggestion))
+            {
+                diagnostics.Error(
+                    DiagnosticIds.LegacyName,
+                    $"'{legacyToken.Text}' es un nombre legacy prohibido; usa '{suggestion}'.",
+                    legacyToken.Location,
+                    legacyToken.Span);
             }
             else
             {
@@ -199,6 +228,16 @@ internal sealed class Binder
             var parameter = run.Parameters[index];
             var parameterName = parameter.Name.Text;
 
+            if (RegisterModel.TryGetLegacySuggestion(parameterName, out var legacySuggestion))
+            {
+                diagnostics.Error(
+                    DiagnosticIds.LegacyName,
+                    $"'{parameterName}' es un nombre legacy prohibido; usa '{legacySuggestion}'.",
+                    parameter.Name.Location,
+                    parameter.Name.Span);
+                continue;
+            }
+
             if (!names.Add(parameterName))
             {
                 diagnostics.Error(
@@ -229,10 +268,23 @@ internal sealed class Binder
                 continue;
             }
 
-            parameters.Add(new RoutineParameter(
-                parameterName,
-                magnitude,
-                RegisterModel.InputRegister(index)));
+            if (magnitude.Bits > 64)
+            {
+                diagnostics.Error(
+                    DiagnosticIds.WidthMismatch,
+                    $"El parámetro '{parameterName}' ocupa {magnitude.Bits} bits y los registros de entrada de Fase 1 son de 64 bits.",
+                    parameter.Name.Location,
+                    parameter.Span);
+                continue;
+            }
+
+            var register = RegisterModel.InputRegister(index);
+            if (register < 0)
+            {
+                continue;
+            }
+
+            parameters.Add(new RoutineParameter(parameterName, magnitude, register));
         }
 
         return parameters;
@@ -372,6 +424,14 @@ internal sealed class Binder
     private bool IsReserved(string name) =>
         ReservedIdentifiers.Contains(name, StringComparer.Ordinal)
         || RegisterModel.TryGetGprIndex(name, out _);
+
+    private static Token? FindLegacyToken(ExpressionSyntax expression) => expression switch
+    {
+        IdentifierExpressionSyntax identifier
+            when RegisterModel.TryGetLegacySuggestion(identifier.Identifier.Text, out _) => identifier.Identifier,
+        MemberAccessSyntax member => FindLegacyToken(member.Receiver),
+        _ => null,
+    };
 
     private static bool FitsUnsigned(long value, long byteCount)
     {
