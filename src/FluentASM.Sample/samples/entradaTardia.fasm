@@ -1,0 +1,25 @@
+entradaTardia
+    .execute(ex -> {
+        ex.routines(rt -> {
+
+            rt.define(d -> {
+                d.id(preparar)
+                d.returns(Gpr0)
+                d.run(() -> {
+                    Gpr0.copy(defaultValue)
+                    Ipr.flowStackJump()
+                })
+            })
+
+            rt.define(d -> {
+                d.id(main)
+                d.returns(Gpr0)
+                d.run(() -> {
+                    Gpr0.copy(defaultValue)
+                    Ipr.flowStackJump()
+                })
+            })
+
+        })
+    })
+    .initialize()

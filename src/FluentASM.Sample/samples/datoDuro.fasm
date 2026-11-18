@@ -1,0 +1,13 @@
+datoDuro
+    .execute(ex -> {
+        ex.routines(rt -> {
+            rt.define(d -> {
+                d.id(main)
+                d.run(() -> {
+                    Gpr0.copy(42)
+                    Ipr.flowStackJump()
+                })
+            })
+        })
+    })
+    .initialize()

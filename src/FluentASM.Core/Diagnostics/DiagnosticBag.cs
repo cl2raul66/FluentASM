@@ -19,12 +19,20 @@ public sealed class DiagnosticBag : IReadOnlyCollection<Diagnostic>
     public IReadOnlyList<Diagnostic> Items => items;
 
     /// <summary>Agrega un diagnóstico de severidad <see cref="DiagnosticSeverity.Error"/>.</summary>
-    public void Error(string id, string message, SourceLocation? location = null) =>
-        items.Add(new Diagnostic(id, DiagnosticSeverity.Error, message, location));
+    public void Error(
+        string id,
+        string message,
+        SourceLocation? location = null,
+        TextSpan? span = null) =>
+        items.Add(new Diagnostic(id, DiagnosticSeverity.Error, message, location, span));
 
     /// <summary>Agrega un diagnóstico de severidad <see cref="DiagnosticSeverity.Warning"/>.</summary>
-    public void Warning(string id, string message, SourceLocation? location = null) =>
-        items.Add(new Diagnostic(id, DiagnosticSeverity.Warning, message, location));
+    public void Warning(
+        string id,
+        string message,
+        SourceLocation? location = null,
+        TextSpan? span = null) =>
+        items.Add(new Diagnostic(id, DiagnosticSeverity.Warning, message, location, span));
 
     /// <summary>Agrega un diagnóstico ya construido.</summary>
     public void Add(Diagnostic diagnostic) => items.Add(diagnostic);

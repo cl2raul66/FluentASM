@@ -1,0 +1,32 @@
+miCalculadoraCli
+    .data(dt -> {
+        dt.define<Byte:8>(d -> d.id(numA).value(10))
+        dt.define<Byte:8>(d -> d.id(numB).value(20))
+    })
+    .execute(ex -> {
+        ex.routines(rt -> {
+
+            rt.define(d -> {
+                d.id(main)
+                d.returns(Gpr0)
+                d.run(() -> {
+                    Gpr1.copy([numA])
+                    Gpr2.copy([numB])
+                    Ipr.flowCall(c -> c.target(sumar).inputs(Gpr1, Gpr2).output(Gpr0))
+                    Ipr.flowStackJump()
+                })
+            })
+
+            rt.define(d -> {
+                d.id(sumar)
+                d.returns(Gpr0)
+                d.run((arg1<Byte:8>, arg2<Byte:8>) -> {
+                    Gpr0.copy(arg1)
+                    Gpr0.add(arg2)
+                    Ipr.flowStackJump()
+                })
+            })
+
+        })
+    })
+    .initialize()
