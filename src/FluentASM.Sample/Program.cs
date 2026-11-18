@@ -1,5 +1,6 @@
 using System.Text;
 using FluentASM.Core.Diagnostics;
+using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 
 namespace FluentASM.Sample;
@@ -88,6 +89,7 @@ internal static class Program
         var text = File.ReadAllText(path);
         var lexResult = Lexer.Tokenize(text, path);
         var parseResult = Parser.Parse(lexResult);
+        var semanticResult = SemanticAnalyzer.Analyze(parseResult.Root, parseResult.Diagnostics);
         var errors = CountErrors(parseResult);
 
         Console.WriteLine($"Archivo: {path}");
@@ -112,6 +114,8 @@ internal static class Program
         Console.WriteLine();
         Console.WriteLine("AST:");
         Console.WriteLine(AstDumper.Dump(parseResult.Root));
+        Console.WriteLine();
+        WriteSemanticSummary(semanticResult);
         Console.WriteLine();
         Console.WriteLine(
             $"{lexResult.Tokens.Count} tokens, {parseResult.Diagnostics.Count} diagnósticos ({errors} errores).");
@@ -141,6 +145,7 @@ internal static class Program
 
         var text = File.ReadAllText(path);
         var parseResult = Parser.Parse(Lexer.Tokenize(text, path));
+        _ = SemanticAnalyzer.Analyze(parseResult.Root, parseResult.Diagnostics);
         var errors = parseResult.Diagnostics
             .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             .ToList();
@@ -203,6 +208,38 @@ internal static class Program
         Console.WriteLine(
             "RESULTADO: OK — error detectado con posición exacta y AST parcial utilizable.");
         return 0;
+    }
+
+    private static void WriteSemanticSummary(SemanticResult result)
+    {
+        var symbols = result.Symbols;
+        Console.WriteLine("Resumen semántico:");
+        Console.WriteLine(
+            $"  Símbolos .data: {symbols.DataSymbols.Count}, rutinas: {symbols.Routines.Count}, "
+            + $"etiquetas locales: {symbols.LabelCount}.");
+
+        foreach (var data in symbols.DataSymbols)
+        {
+            Console.WriteLine(
+                $"  data {data.Name}: capacidad {data.Capacity.Display} ({data.BitSize} bits, {data.ByteSize} bytes).");
+        }
+
+        foreach (var routine in symbols.Routines)
+        {
+            var parameters = routine.Parameters.Count == 0
+                ? "sin parámetros"
+                : string.Join(
+                    ", ",
+                    routine.Parameters.Select(parameter => $"{parameter.Name} -> Gpr{parameter.RegisterIndex}"));
+            var returns = routine.Returns is { } returnsReference
+                ? returnsReference.Display
+                : "sin retorno declarado";
+            Console.WriteLine($"  rutina {routine.DisplayName}: {parameters}; retorno {returns}.");
+        }
+
+        Console.WriteLine(
+            $"  Diagnósticos semánticos: {result.Diagnostics.Count} "
+            + $"({(result.Success ? "0 errores" : "con errores")}).");
     }
 
     private static string? ResolveSamplesDirectory()

@@ -77,4 +77,111 @@ public static class DiagnosticIds
 
     /// <summary>El nombre del proyecto no coincide con el nombre del archivo <c>.fproj</c>.</summary>
     public const string ProjectNameMismatch = "FASM2009";
+
+    // FASM2xxx — Programa, símbolos, secciones y datos duros en .execute.
+
+    /// <summary>Dato literal prohibido escrito dentro de <c>.execute(...)</c>.</summary>
+    public const string LiteralInExecute = "FASM2007";
+
+    /// <summary>Símbolo, rutina, parámetro o etiqueta duplicado.</summary>
+    public const string DuplicateSymbol = "FASM2010";
+
+    /// <summary>El payload declarado en <c>.value(...)</c> no cabe en la capacidad del símbolo.</summary>
+    public const string DataPayloadOverflow = "FASM2011";
+
+    /// <summary>Referencia a un símbolo o etiqueta que no existe en su ámbito.</summary>
+    public const string UnknownSymbol = "FASM2013";
+
+    /// <summary>Una rutina declara más de cuatro parámetros de entrada.</summary>
+    public const string TooManyParameters = "FASM2015";
+
+    /// <summary>Parámetro de <c>d.run(...)</c> sin capacidad física declarada.</summary>
+    public const string ParameterWithoutMagnitude = "FASM2016";
+
+    /// <summary>Valor de datos con forma no admitida (solo entero, cadena o <c>defaultValue</c>).</summary>
+    public const string InvalidDataValue = "FASM2018";
+
+    /// <summary>Identificador reservado por el modelo físico usado como símbolo de usuario.</summary>
+    public const string ReservedIdentifier = "FASM2019";
+
+    // FASM3xxx — ATM (Bit/Byte), registros, vistas y banderas.
+
+    /// <summary>Conflicto entre <c>.high8</c> y <c>.low8</c> con prefijo <c>REX</c> en la misma instrucción.</summary>
+    public const string High8Low8Conflict = "FASM3002";
+
+    /// <summary>Nombre legacy prohibido, con sugerencia al nombre canónico.</summary>
+    public const string LegacyName = "FASM3012";
+
+    /// <summary>Índice de <c>Gpr</c> fuera del rango 0–15.</summary>
+    public const string GprIndexOutOfRange = "FASM3013";
+
+    /// <summary>Vista de registro desconocida.</summary>
+    public const string InvalidRegisterView = "FASM3014";
+
+    /// <summary><c>.high8</c> usado en un registro que no lo posee (<c>Gpr4</c>–<c>Gpr15</c>).</summary>
+    public const string High8NotAvailable = "FASM3015";
+
+    /// <summary>Se esperaba una magnitud en bytes y se recibió una en bits (o viceversa).</summary>
+    public const string ByteContextExpected = "FASM3020";
+
+    /// <summary>Se esperaba una magnitud en bits y se recibió una en bytes (o viceversa).</summary>
+    public const string BitContextExpected = "FASM3021";
+
+    /// <summary>Ancho incompatible entre receptor, fuente y capacidad de memoria.</summary>
+    public const string WidthMismatch = "FASM3022";
+
+    /// <summary>Falta la capacidad explícita <c>Byte:N</c> en un acceso a memoria por registro.</summary>
+    public const string MemoryCapacityRequired = "FASM3023";
+
+    /// <summary>Magnitud mal formada, vacía o fuera de rango.</summary>
+    public const string InvalidMagnitude = "FASM3024";
+
+    /// <summary>Receptor de retorno de rutina inválido.</summary>
+    public const string InvalidReturnRegister = "FASM3025";
+
+    /// <summary>Acceso directo inválido a <c>Ipr</c> con <c>.copy</c>.</summary>
+    public const string IprDirectCopy = "FASM3060";
+
+    // FASM4xxx — Operandos, direccionamiento, verbos y flujo.
+
+    /// <summary>Verbo no válido para el tipo de receptor.</summary>
+    public const string InvalidVerb = "FASM4001";
+
+    /// <summary>Escala de direccionamiento inválida (solo 1, 2, 4 u 8).</summary>
+    public const string InvalidScale = "FASM4002";
+
+    /// <summary><c>Gpr4</c> usado como índice en direccionamiento SIB.</summary>
+    public const string Gpr4AsIndex = "FASM4003";
+
+    /// <summary>Número de argumentos incorrecto para el verbo.</summary>
+    public const string InvalidArgumentCount = "FASM4005";
+
+    /// <summary>Lectura de una bandera de <c>Frf</c> dejada indefinida por la instrucción previa.</summary>
+    public const string UndefinedFlag = "FASM4012";
+
+    /// <summary>Copia directa memoria → memoria con <c>.copy(...)</c>.</summary>
+    public const string MemoryToMemoryCopy = "FASM4026";
+
+    // FASM5xxx — Contratos de llamada (flowCall), pila y cierre de rutinas.
+
+    /// <summary>El destino de <c>Ipr.flowCall(...)</c> no existe.</summary>
+    public const string CallTargetNotFound = "FASM5001";
+
+    /// <summary>Contrato de <c>Ipr.flowCall(...)</c> desajustado con la rutina destino.</summary>
+    public const string CallContractMismatch = "FASM5002";
+
+    /// <summary>Lectura de un registro invalidado lógicamente tras <c>Ipr.flowCall(...)</c>.</summary>
+    public const string InvalidatedInputRead = "FASM5003";
+
+    /// <summary>Balance de pila incorrecto (<c>push</c>/<c>pop</c>/<c>reserve</c>/<c>release</c>).</summary>
+    public const string StackImbalance = "FASM5004";
+
+    /// <summary>La rutina no cierra explícitamente con <c>Ipr.flowStackJump()</c> o <c>Cpu.halt()</c>.</summary>
+    public const string RoutineNotClosed = "FASM5005";
+
+    /// <summary>Entrada de <c>Ipr.flowCall(...)</c> usada antes de ser cargada.</summary>
+    public const string CallInputNotLoaded = "FASM5006";
+
+    /// <summary>Pila desalineada a 16 bytes en el momento de <c>Ipr.flowCall(...)</c>.</summary>
+    public const string StackNotAligned = "FASM5007";
 }
