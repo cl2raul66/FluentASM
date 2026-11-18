@@ -36,12 +36,26 @@ internal sealed class RoutineValidator
     private void ValidateRoutine(RoutineSymbol routine)
     {
         var typeValidator = new TypeValidator(diagnostics, symbols, routine);
+        var verbValidator = new VerbValidator(diagnostics, symbols, routine);
+        var flags = new FlagTracker(diagnostics);
 
         foreach (var statement in routine.Definition.Body)
         {
-            if (statement is ActionStatementSyntax action)
+            switch (statement)
             {
-                typeValidator.ValidateAction(action);
+                case LabelStatementSyntax:
+                    flags.Reset();
+                    break;
+
+                case ActionStatementSyntax action:
+                    typeValidator.ValidateAction(action);
+                    verbValidator.ValidateAction(action);
+                    VerbValidator.ValidateFlagReads(action, flags);
+                    flags.Apply(VerbValidator.EffectOf(action));
+                    break;
+
+                default:
+                    break;
             }
         }
     }

@@ -337,6 +337,18 @@ internal sealed class TypeValidator
 
         ValidateValue(index.Register);
 
+        if (RegisterModel.TryResolve(index.Register, out var indexRegister)
+            && indexRegister.IsGpr
+            && indexRegister.Index == 4)
+        {
+            var anchor = SyntaxTraversal.FirstToken(index.Register);
+            diagnostics.Error(
+                DiagnosticIds.Gpr4AsIndex,
+                "Gpr4 (RSP) no puede usarse como índice SIB; usa otro registro como índice.",
+                anchor?.Location,
+                index.Register.Span);
+        }
+
         if (index.Scale is not { } scale)
         {
             return;
