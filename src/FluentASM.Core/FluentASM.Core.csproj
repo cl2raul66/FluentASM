@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>FluentASM.Core</RootNamespace>
     <AssemblyName>FluentASM.Core</AssemblyName>
+    <!-- El ejecutor en memoria (M4) invoca código x64 nativo con punteros a función. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
 </Project>
