@@ -6,4 +6,5 @@
     </Configurations>
     <Project Path="FluentASM.Core/FluentASM.Core.csproj" />
     <Project Path="FluentASM.Compiler/FluentASM.Compiler.csproj" />
+    <Project Path="FluentASM.Sample/FluentASM.Sample.csproj" />
 </Solution>

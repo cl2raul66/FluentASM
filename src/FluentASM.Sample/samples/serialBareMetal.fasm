@@ -1,0 +1,22 @@
+serialBareMetal
+    .data(dt -> {
+        dt.define<Byte:2>(d -> d.id(puertoCom1).value(0xF8, 0x03)) // 0x03F8 little-endian
+        dt.define<Byte:1>(d -> d.id(letra).value("A"))
+    })
+    .execute(ex -> {
+        ex.routines(rt -> {
+
+            rt.define(d -> {
+                d.id(main)
+                d.run(() -> {
+                    Frf.interrupt(0)                    // desactiva interrupciones al iniciar
+                    Gpr2.low16.copy([puertoCom1])       // Gpr2.low16 (DX) = 0x03F8
+                    Gpr0.low8.copy([letra])             // Gpr0.low8 (AL) = 'A'
+                    Port[Gpr2.low16].copy(Gpr0.low8)    // OUT DX, AL
+                    Cpu.halt()                          // detiene la CPU limpiamente
+                })
+            })
+
+        })
+    })
+    .initialize()

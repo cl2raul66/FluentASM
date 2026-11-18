@@ -1,0 +1,25 @@
+bucleDemo
+    .data(dt -> {
+        dt.define<Byte:8>(d -> d.id(limite).value(5))
+    })
+    .execute(ex -> {
+        ex.routines(rt -> {
+
+            rt.define(d -> {
+                d.id(main)
+                d.returns(Gpr0)
+                d.run(() -> {
+                    Gpr0.copy(defaultValue)       // acumulador = 0
+                    Gpr1.copy(defaultValue)       // contador = 0
+                @ciclo:
+                    Gpr0.add(Gpr1)
+                    Gpr1.increment()
+                    Gpr1.compare([limite])
+                    Ipr.flowJump(@ciclo if Frf.below)
+                    Ipr.flowStackJump()           // devuelve 0+1+2+3+4 = 10 en Gpr0
+                })
+            })
+
+        })
+    })
+    .initialize()
