@@ -25,8 +25,9 @@ closes #
 <!-- Si no aplica, escribe "no aplica". En caso contrario, enlaza la sección añadida en CONTRIBUTING.md. -->
 
 ## Versiones a publicar
-<!-- Deja o cambia a x.x.x-preview solo los proyectos que quieras publicar al hacer merge.
-     Si un proyecto no lleva versión (déjalo comentado o con x.x.x-preview), no se publica.
+<!-- Una línea por proyecto publicable. Escribe números reales (p. ej. ver(core): 0.2.0-preview);
+     el marcador x.x.x-preview significa "no publicar". Solo se publica si la versión es estrictamente mayor que la última publicada.
+     En el PR de promoción develop -> main usa exactamente las mismas líneas: el flujo quita -preview y publica la estable.
      FluentASM.Sample no entra en el versionado ni se publica en releases. -->
 ver(core): x.x.x-preview
 ver(compiler): x.x.x-preview

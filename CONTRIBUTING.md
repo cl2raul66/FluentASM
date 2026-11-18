@@ -78,12 +78,21 @@ Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`) y `
 | PR → `develop` | `x.x.x-preview` (prerelease) | `core-vx.x.x-preview`, `compiler-vx.x.x-preview` | `ver(proyecto): x.x.x-preview` con números |
 | PR → `main` | `x.x.x` (estable, sin sufijo) | `core-vx.x.x`, `compiler-vx.x.x` | igual: `ver(proyecto): x.x.x-preview` |
 
-- En los dos flujos el PR se escribe igual (`x.x.x-preview`); al mergear en `main` se publica la misma versión sin el sufijo `-preview`.
+- En los dos flujos el PR se escribe igual (`x.x.x-preview`); al mergear en `main` se publica la misma versión sin el sufijo `-preview`. El PR de promoción `develop` → `main` debe llevar **las mismas líneas `ver(...)`** del ciclo que se está promoviendo.
 - Un proyecto no se publica si su línea conserva el marcador `x.x.x-preview` o si no aparece en el PR.
+- **Solo se publica una versión estrictamente mayor que la última publicada.** Si la versión del PR es igual o menor, el flujo termina sin publicar y sin fallar (`skip`), dejando constancia en el registro del job.
+  - En `develop` la comparación es contra la última *prerelease* del proyecto (`core-v*-preview`, `compiler-v*-preview`).
+  - En `main` la comparación es contra la última estable (`core-v*`, `compiler-v*` sin sufijo).
 - Cada publicación adjunta un ZIP `FluentASM.<Proyecto>-v<versión>.zip` con la salida de `dotnet publish -c Release` de ese proyecto.
 - `FluentASM.Sample` **queda fuera del versionado**: no recibe versión propia, no genera ZIP ni release. Eso no lo excluye del repositorio: sus cambios se suben al origen (commit y push) como cualquier otro archivo, sin modificar `VERSION` ni las versiones de los proyectos.
 
-**Fuente de verdad del número de versión:** las líneas `ver(...)` del cuerpo del PR en el momento del merge. El flujo escribe esa versión en `<Version>` del `.csproj` **solo en el runner** para publicar; no se commitea nada de vuelta. El archivo `VERSION` (raíz, leído por `src/Directory.Build.props`) es el valor por defecto de las compilaciones locales y debe reflejar la última versión publicada.
+**Fuente de verdad del número de versión:** las líneas `ver(...)` del cuerpo del PR en el momento del merge. El flujo escribe esa versión en `<Version>` del `.csproj` **solo en el runner** para publicar; no se commitea nada de vuelta. El archivo `VERSION` (raíz, leído por `src/Directory.Build.props`) es solo el valor por defecto de las compilaciones locales: no decide ninguna publicación.
+
+**Ejemplo de ciclo completo:**
+
+1. PR de `feature/x` → `develop` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0-preview`.
+2. Otro PR a `develop` que vuelve a declarar `ver(core): 0.2.0-preview` → se salta (no es mayor).
+3. PR de `develop` → `main` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0` (estable).
 
 ## Estándares de código
 
@@ -305,10 +314,10 @@ La automatización solo actúa cuando un PR **ya está mergeado**:
 
 | Flujo | Rama de destino | Resultado |
 |---|---|---|
-| `.github/workflows/dev-release.yml` | `develop` | Lee las líneas `ver(...)` del PR, aplica la versión, compila en Release y publica cada proyecto con versión como *prerelease* `x.x.x-preview`. |
-| `.github/workflows/prod-release.yml` | `main` | El mismo proceso, publicando las versiones estables `x.x.x` (sin `-preview`). |
+| `.github/workflows/dev-release.yml` | `develop` | Lee las líneas `ver(...)` del PR, aplica la versión, compila en Release y publica cada proyecto con versión como *prerelease* `x.x.x-preview`. Si la versión no es mayor que la última *prerelease*, no publica. |
+| `.github/workflows/prod-release.yml` | `main` | El mismo proceso con las líneas `ver(...)` del PR de promoción, publicando las versiones estables `x.x.x` (sin `-preview`). Si la versión no es mayor que la última estable, no publica. |
 
-Ningún flujo modifica el repositorio: la versión aplicada vive solo en el runner que genera los ZIP.
+Ningún flujo modifica el repositorio: la versión aplicada vive solo en el runner que genera los ZIP. Un `skip` deja el job en verde con el motivo en el registro; solo un error real (versión mal escrita, fallo de compilación o de publicación) marca el job como fallido.
 
 ## Reportar errores
 

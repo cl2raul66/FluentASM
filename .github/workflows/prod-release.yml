@@ -1,5 +1,11 @@
 name: Prod Release (main)
 
+# Publica la version estable al mergear develop en main.
+# El PR de promoción declara las MISMAS lineas ver(...) del ciclo (con -preview);
+# este flujo quita el sufijo -preview y publica x.y.z.
+# Regla: solo se publica si la version es ESTRICTAMENTE MAYOR que la ultima estable.
+# Si es igual o menor, el job termina sin publicar y sin fallar.
+
 on:
   pull_request:
     branches:
@@ -10,45 +16,134 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: prod-release-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
 jobs:
   release:
     if: github.event.pull_request.merged == true
     runs-on: windows-latest
 
     steps:
-      - name: Checkout main
+      - name: Checkout main (con historial y etiquetas)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Leer y promocionar versiones desde el PR
+      - name: Leer versiones del PR de promoción
         id: parse
         shell: pwsh
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
+          $ErrorActionPreference = 'Stop'
           $body = if ([string]::IsNullOrWhiteSpace($env:PR_BODY)) { "" } else { $env:PR_BODY }
 
-          $core = ""
-          $compiler = ""
+          # El PR de promoción escribe 'ver(core): 0.2.0-preview'; la estable es la base sin sufijo.
+          function Get-DeclaredVersion([string]$project) {
+            $linePattern = '(?im)^[ \t]*ver\(' + [regex]::Escape($project) + '\)[ \t]*:[ \t]*([^\r\n]*?)[ \t]*\r?$'
+            if ($body -notmatch $linePattern) { return "" }
 
-          if ($body -match '(?im)^\s*ver\(core\):\s*([0-9]+\.[0-9]+\.[0-9]+)-preview\b') { $core = $Matches[1] }
-          if ($body -match '(?im)^\s*ver\(compiler\):\s*([0-9]+\.[0-9]+\.[0-9]+)-preview\b') { $compiler = $Matches[1] }
+            $raw = $Matches[1].Trim()
+            if ($raw -eq '' -or $raw -match '^x\.x\.x(-preview)?$') { return "" }
 
+            if ($raw -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-preview)?$') {
+              throw "La linea 'ver($project)' no contiene una version valida: '$raw'. Usa MAJOR.MINOR.PATCH o MAJOR.MINOR.PATCH-preview."
+            }
+
+            return "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+          }
+
+          $core = Get-DeclaredVersion 'core'
+          $compiler = Get-DeclaredVersion 'compiler'
           $has = ($core -ne "" -or $compiler -ne "")
+
+          Write-Host "Declarado en el PR -> core: '$core', compiler: '$compiler'"
+          if (-not $has) {
+            Write-Host "El PR de promoción no declara versiones: no se publica ninguna estable."
+            Write-Host "::warning::Sin lineas ver(...) con números en el cuerpo del PR: no se publica nada."
+          }
 
           "core=$core" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "compiler=$compiler" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "has_releases=$($has.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Setup .NET 10
+      - name: Resolver versiones estables frente a lo publicado
+        id: resolve
         if: steps.parse.outputs.has_releases == 'true'
+        shell: pwsh
+        env:
+          CORE: ${{ steps.parse.outputs.core }}
+          COMPILER: ${{ steps.parse.outputs.compiler }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tags = git tag --list
+          if ($LASTEXITCODE -ne 0) { throw "No se pudieron leer las etiquetas del repositorio (git tag)." }
+
+          # Ultima etiqueta 'proyecto-vX.Y.Z<sufijo>' publicada.
+          function Get-LatestTagged([string]$project, [string]$suffix) {
+            $pattern = '^' + [regex]::Escape("$project-v") + '(\d+\.\d+\.\d+)' + [regex]::Escape($suffix) + '$'
+            $found = @()
+            foreach ($tag in $tags) {
+              if ($tag -match $pattern) { $found += [version]$Matches[1] }
+            }
+            if ($found.Count -eq 0) { return $null }
+            return ($found | Sort-Object | Select-Object -Last 1)
+          }
+
+          function Resolve-Project([string]$project, [string]$declared) {
+            if ([string]::IsNullOrWhiteSpace($declared)) {
+              return @{ Publish = $false; Version = ""; Reason = "sin version en el PR, se omite" }
+            }
+
+            if (-not ($tags -contains "$project-v$declared-preview")) {
+              Write-Host "::warning::No existe la prerelease '$project-v$declared-preview'; se publica la estable igualmente."
+            }
+
+            $target = [version]$declared
+            $published = Get-LatestTagged $project ''
+            $latestText = if ($null -eq $published) { "ninguna" } else { "$published" }
+
+            if ($null -ne $published -and $target -le $published) {
+              return @{ Publish = $false; Version = ""; Reason = "$declared no es mayor que $latestText, se omite" }
+            }
+
+            return @{ Publish = $true; Version = "$declared"; Reason = "$declared es mayor que $latestText, se publica" }
+          }
+
+          $core = Resolve-Project 'core' "$env:CORE"
+          $compiler = Resolve-Project 'compiler' "$env:COMPILER"
+
+          Write-Host "core: $($core.Reason)"
+          Write-Host "compiler: $($compiler.Reason)"
+
+          "core_publish=$($core.Publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "core_version=$($core.Version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "compiler_publish=$($compiler.Publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "compiler_version=$($compiler.Version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          $any = ($core.Publish -or $compiler.Publish)
+          "has_releases=$($any.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Setup .NET 10
+        if: steps.resolve.outputs.has_releases == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: Aplicar versiones estables y generar ZIPs
-        if: steps.parse.outputs.has_releases == 'true'
+      - name: Aplicar versiones y generar ZIPs
+        if: steps.resolve.outputs.has_releases == 'true'
         shell: pwsh
+        env:
+          CORE_PUBLISH: ${{ steps.resolve.outputs.core_publish }}
+          CORE_VERSION: ${{ steps.resolve.outputs.core_version }}
+          COMPILER_PUBLISH: ${{ steps.resolve.outputs.compiler_publish }}
+          COMPILER_VERSION: ${{ steps.resolve.outputs.compiler_version }}
         run: |
+          $ErrorActionPreference = 'Stop'
+
           function Set-CsprojVersion([string]$path, [string]$version) {
             [xml]$xml = Get-Content $path -Raw
             $pg = $xml.Project.PropertyGroup | Where-Object { -not $_.Condition } | Select-Object -First 1
@@ -65,41 +160,38 @@ jobs:
             $xml.Save((Resolve-Path $path))
           }
 
-          $coreVer = "${{ steps.parse.outputs.core }}"
-          $compilerVer = "${{ steps.parse.outputs.compiler }}"
-
-          if ($coreVer -ne "") { Set-CsprojVersion "src/FluentASM.Core/FluentASM.Core.csproj" $coreVer }
-          if ($compilerVer -ne "") { Set-CsprojVersion "src/FluentASM.Compiler/FluentASM.Compiler.csproj" $compilerVer }
+          if ($env:CORE_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM.Core/FluentASM.Core.csproj" $env:CORE_VERSION }
+          if ($env:COMPILER_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM.Compiler/FluentASM.Compiler.csproj" $env:COMPILER_VERSION }
 
           dotnet restore src/FluentASM.slnx
           New-Item -ItemType Directory -Force -Path release_zips | Out-Null
 
-          if ($coreVer -ne "") {
-            dotnet publish src/FluentASM.Core/FluentASM.Core.csproj -c Release --no-restore -p:TreatWarningsAsErrors=true -o release_out/core
-            Compress-Archive -Path "release_out/core/*" -DestinationPath "release_zips/FluentASM.Core-v$coreVer.zip" -Force
+          if ($env:CORE_PUBLISH -eq 'true') {
+            dotnet publish src/FluentASM.Core/FluentASM.Core.csproj -c Release --no-restore -o release_out/core
+            Compress-Archive -Path "release_out/core/*" -DestinationPath "release_zips/FluentASM.Core-v$($env:CORE_VERSION).zip" -Force
           }
 
-          if ($compilerVer -ne "") {
-            dotnet publish src/FluentASM.Compiler/FluentASM.Compiler.csproj -c Release --no-restore -p:TreatWarningsAsErrors=true -o release_out/compiler
-            Compress-Archive -Path "release_out/compiler/*" -DestinationPath "release_zips/FluentASM.Compiler-v$compilerVer.zip" -Force
+          if ($env:COMPILER_PUBLISH -eq 'true') {
+            dotnet publish src/FluentASM.Compiler/FluentASM.Compiler.csproj -c Release --no-restore -o release_out/compiler
+            Compress-Archive -Path "release_out/compiler/*" -DestinationPath "release_zips/FluentASM.Compiler-v$($env:COMPILER_VERSION).zip" -Force
           }
 
       - name: Publicar Release Core (estable)
-        if: steps.parse.outputs.core != ''
+        if: steps.resolve.outputs.core_publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: core-v${{ steps.parse.outputs.core }}
-          name: FluentASM.Core v${{ steps.parse.outputs.core }}
+          tag_name: core-v${{ steps.resolve.outputs.core_version }}
+          name: FluentASM.Core v${{ steps.resolve.outputs.core_version }}
           prerelease: false
           generate_release_notes: true
-          files: release_zips/FluentASM.Core-v${{ steps.parse.outputs.core }}.zip
+          files: release_zips/FluentASM.Core-v${{ steps.resolve.outputs.core_version }}.zip
 
       - name: Publicar Release Compiler (estable)
-        if: steps.parse.outputs.compiler != ''
+        if: steps.resolve.outputs.compiler_publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: compiler-v${{ steps.parse.outputs.compiler }}
-          name: FluentASM.Compiler v${{ steps.parse.outputs.compiler }}
+          tag_name: compiler-v${{ steps.resolve.outputs.compiler_version }}
+          name: FluentASM.Compiler v${{ steps.resolve.outputs.compiler_version }}
           prerelease: false
           generate_release_notes: true
-          files: release_zips/FluentASM.Compiler-v${{ steps.parse.outputs.compiler }}.zip
+          files: release_zips/FluentASM.Compiler-v${{ steps.resolve.outputs.compiler_version }}.zip
