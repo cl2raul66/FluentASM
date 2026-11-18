@@ -1,6 +1,7 @@
 using System.Text;
 using FluentASM.Core.Diagnostics;
 using FluentASM.Core.Encoding;
+using FluentASM.Core.Execution;
 using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 
@@ -8,20 +9,34 @@ namespace FluentASM.Sample;
 
 /// <summary>
 /// Banco de pruebas manual de FluentASM. Ejecuta el lexer, el parser de M1, el
-/// análisis semántico de M2 y el emisor de imagen plana de M3 sobre los tres
-/// ejemplos completos de <c>FLUENT_SYNTAX_X64.md</c> §7, sobre un ejemplo con
-/// error sintáctico intencional, sobre cuatro casos negativos de M2, sobre dos
-/// casos de layout de M3 y, opcionalmente, sobre un archivo indicado por ruta.
+/// análisis semántico de M2, el emisor de imagen plana de M3 y la ejecución de
+/// M4 (en memoria y empaquetado de arranque QEMU) sobre los tres ejemplos
+/// completos de <c>FLUENT_SYNTAX_X64.md</c> §7, sobre un ejemplo con error
+/// sintáctico intencional, sobre cuatro casos negativos de M2, sobre dos casos
+/// de layout de M3 y, opcionalmente, sobre un archivo indicado por ruta.
 /// </summary>
 internal static class Program
 {
     private const string ErrorSample = "errorSintactico.fasm";
+
+    private const string BareMetalSample = "serialBareMetal.fasm";
 
     private static readonly (string Section, string File)[] ValidSamples =
     [
         ("7.1", "miCalculadoraCli.fasm"),
         ("7.2", "bucleDemo.fasm"),
         ("7.3", "serialBareMetal.fasm"),
+    ];
+
+    /// <summary>
+    /// Rutinas de usuario que el ejecutor en memoria de M4 completa y el valor
+    /// de 64 bits que dejan en <c>Gpr0</c> (<c>RAX</c>).
+    /// </summary>
+    private static readonly (string Title, string File, long ExpectedGpr0)[] ExecutionSamples =
+    [
+        ("ejecución 7.1", "miCalculadoraCli.fasm", 30),
+        ("ejecución 7.2", "bucleDemo.fasm", 10),
+        ("ejecución con salto inicial", "entradaTardia.fasm", 0),
     ];
 
     /// <summary>
@@ -118,25 +133,37 @@ internal static class Program
         }
 
         var imageFailures = CheckImages(directory);
+        var executionFailures = CheckExecution(directory);
+        var bootFailures = CheckBootImage(directory);
 
         Console.WriteLine();
         Console.WriteLine(new string('=', 72));
-        if (validFailures == 0 && errorFailures == 0 && negativeFailures == 0 && imageFailures == 0)
+        if (validFailures == 0
+            && errorFailures == 0
+            && negativeFailures == 0
+            && imageFailures == 0
+            && executionFailures == 0
+            && bootFailures == 0)
         {
             Console.WriteLine(
                 $"RESUMEN: {ValidSamples.Length}/{ValidSamples.Length} ejemplos válidos con 0 diagnósticos; "
                 + "1/1 error sintáctico con posición exacta; "
                 + $"{NegativeSamples.Length}/{NegativeSamples.Length} casos negativos M2 con diagnóstico y posición exactos; "
                 + $"{ImageSamples.Length}/{ImageSamples.Length} imágenes byte a byte deterministas y "
-                + "1/1 desbordamiento de LOOP detectado.");
+                + "1/1 desbordamiento de LOOP detectado; "
+                + $"{ExecutionSamples.Length}/{ExecutionSamples.Length} rutinas ejecutadas en memoria con el Gpr0 esperado; "
+                + "1/1 imagen bare metal rechazada; "
+                + "1/1 imagen .img booteable determinista.");
             return 0;
         }
 
         Console.WriteLine(
             $"RESUMEN: {validFailures} ejemplo(s) válido(s) con diagnósticos inesperados, "
             + $"{errorFailures} fallo(s) en el error sintáctico, "
-            + $"{negativeFailures} fallo(s) en los casos negativos M2 y "
-            + $"{imageFailures} fallo(s) en la emisión de la imagen .x64.");
+            + $"{negativeFailures} fallo(s) en los casos negativos M2, "
+            + $"{imageFailures} fallo(s) en la emisión de la imagen .x64, "
+            + $"{executionFailures} fallo(s) en la ejecución en memoria y "
+            + $"{bootFailures} fallo(s) en la imagen de arranque.");
         return 1;
     }
 
@@ -475,6 +502,164 @@ internal static class Program
 
         Console.WriteLine(
             $"RESULTADO: OK — {overflow.Id} en línea 150, columna 25; el layout rechaza LOOP fuera de rel8.");
+        return 0;
+    }
+
+    /// <summary>
+    /// Ejecuta en memoria las imágenes de M4, comprueba el valor de <c>Gpr0</c>
+    /// y verifica que la imagen *bare metal* se rechace por usar instrucciones
+    /// privilegiadas.
+    /// </summary>
+    private static int CheckExecution(string directory)
+    {
+        var failures = 0;
+
+        foreach (var (title, file, expected) in ExecutionSamples)
+        {
+            WriteSeparator(title, file);
+            if (CheckInMemoryRun(Path.Combine(directory, file), expected) != 0)
+            {
+                failures++;
+            }
+        }
+
+        WriteSeparator("rechazo bare metal: instrucción privilegiada", BareMetalSample);
+        if (CheckBareMetalRejection(Path.Combine(directory, BareMetalSample)) != 0)
+        {
+            failures++;
+        }
+
+        return failures;
+    }
+
+    private static int CheckInMemoryRun(string path, long expected)
+    {
+        if (!File.Exists(path))
+        {
+            Console.Error.WriteLine($"No se encontró el archivo '{path}'.");
+            return 1;
+        }
+
+        var image = BuildImage(path, out var diagnostics);
+        if (!image.Success)
+        {
+            WriteDiagnostics(diagnostics);
+            Console.WriteLine("RESULTADO: FALLO — no se generó la imagen.");
+            return 1;
+        }
+
+        var first = InMemoryRunner.Run(image.Image, image.Map);
+        var second = InMemoryRunner.Run(image.Image, image.Map);
+        Console.WriteLine(
+            $"Ejecución en memoria: Gpr0 = {first.ReturnValue} (esperado {expected}), "
+            + $"segunda ejecución: {second.ReturnValue}.");
+
+        if (!first.Success)
+        {
+            Console.WriteLine($"RESULTADO: FALLO — la imagen no se ejecutó: {first.Error}");
+            return 1;
+        }
+
+        if (first.ReturnValue != expected || second.ReturnValue != expected)
+        {
+            Console.WriteLine(
+                $"RESULTADO: FALLO — Gpr0 = {first.ReturnValue}/{second.ReturnValue}, se esperaba {expected}.");
+            return 1;
+        }
+
+        Console.WriteLine("RESULTADO: OK — rutina ejecutada en memoria con el Gpr0 esperado.");
+        return 0;
+    }
+
+    private static int CheckBareMetalRejection(string path)
+    {
+        if (!File.Exists(path))
+        {
+            Console.Error.WriteLine($"No se encontró el archivo '{path}'.");
+            return 1;
+        }
+
+        var image = BuildImage(path, out _);
+        if (!image.Success)
+        {
+            Console.WriteLine("RESULTADO: FALLO — no se generó la imagen bare metal.");
+            return 1;
+        }
+
+        var result = InMemoryRunner.Run(image.Image, image.Map);
+        Console.WriteLine($"Ejecución en memoria: ejecutado={result.Executed}, error=\"{result.Error}\".");
+
+        if (result.Executed)
+        {
+            Console.WriteLine("RESULTADO: FALLO — el ejecutor aceptó una imagen bare metal.");
+            return 1;
+        }
+
+        if (result.Error is null || !result.Error.Contains("'cli'", StringComparison.Ordinal))
+        {
+            Console.WriteLine("RESULTADO: FALLO — el rechazo no identifica la instrucción privilegiada.");
+            return 1;
+        }
+
+        Console.WriteLine("RESULTADO: OK — imagen bare metal rechazada antes de reservar memoria ejecutable.");
+        return 0;
+    }
+
+    /// <summary>
+    /// Empaqueta la imagen <c>serialBareMetal</c> en una <c>.img</c> y comprueba
+    /// firma, tamaño, layout, integridad del kernel y determinismo.
+    /// </summary>
+    private static int CheckBootImage(string directory)
+    {
+        WriteSeparator("imagen booteable .img para QEMU", BareMetalSample);
+
+        var image = BuildImage(Path.Combine(directory, BareMetalSample), out _);
+        if (!image.Success)
+        {
+            Console.WriteLine("RESULTADO: FALLO — no se generó la imagen bare metal.");
+            return 1;
+        }
+
+        var first = BareMetalBootImageBuilder.Build(image.Image);
+        if (!first.Success)
+        {
+            Console.WriteLine($"RESULTADO: FALLO — no se pudo empaquetar la .img: {first.Error}");
+            return 1;
+        }
+
+        var second = BareMetalBootImageBuilder.Build(image.Image);
+        var layout = first.Layout;
+        var signature = first.Image[510] == 0x55 && first.Image[511] == 0xAA;
+        var multiple = first.Image.Length % BareMetalBootImageBuilder.BootSectorSize == 0;
+        var deterministic = second.Success && first.Image.SequenceEqual(second.Image);
+        var embedded = first.Image
+            .AsSpan(layout.KernelFileOffset, layout.KernelLength)
+            .SequenceEqual(image.Image);
+
+        Console.WriteLine(
+            $"  .img: {first.Image.Length} byte(s); múltiplo de 512: {multiple}; firma 0x55AA: {signature}.");
+        Console.WriteLine(
+            $"  MBR: {layout.BootSectorSize} byte(s); stub: {layout.StubSize} byte(s) en "
+            + $"0x{layout.KernelAddress - layout.StubSize:X}; imagen .x64: {layout.KernelLength} byte(s) "
+            + $"en 0x{layout.KernelAddress:X}; bloques de 32 KiB: {layout.ChunkCount}.");
+        Console.WriteLine(
+            $"  Imagen embebida idéntica: {embedded}; determinista: {deterministic}.");
+
+        if (!multiple || !signature || !embedded || !deterministic)
+        {
+            Console.WriteLine("RESULTADO: FALLO — la imagen de arranque no cumple el formato esperado.");
+            return 1;
+        }
+
+        if (layout.KernelFileOffset != layout.BootSectorSize + layout.StubSize
+            || layout.KernelAddress != BareMetalBootImageBuilder.PayloadAddress + layout.StubSize
+            || layout.ChunkCount < 1)
+        {
+            Console.WriteLine("RESULTADO: FALLO — el layout de la .img es inconsistente.");
+            return 1;
+        }
+
+        Console.WriteLine("RESULTADO: OK — .img booteable determinista con el kernel .x64 intacto.");
         return 0;
     }
 
