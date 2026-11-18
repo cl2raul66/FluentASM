@@ -27,8 +27,11 @@ internal static class Program
     /// <summary>Nombre del archivo de arranque que se genera junto a los samples.</summary>
     private const string BootImageName = "serialBareMetal.img";
 
-    /// <summary>Segundos que se espera la salida serie de QEMU antes de cerrarlo.</summary>
-    private const int QemuTimeoutSeconds = 3;
+    /// <summary>
+    /// Segundos máximos que se espera la marca del kernel por COM1 antes de
+    /// cerrar QEMU; en cuanto llega se corta la espera sin agotar el margen.
+    /// </summary>
+    private const int QemuTimeoutSeconds = 5;
 
     private static readonly (string Section, string File)[] ValidSamples =
     [
@@ -693,9 +696,10 @@ internal static class Program
     }
 
     /// <summary>
-    /// Arranca la <c>.img</c> en QEMU, espera unos segundos la salida de COM1 y
-    /// cierra el proceso. Si QEMU no está instalado no se considera un fallo: se
-    /// imprime la ruta de la imagen y el comando exacto para probarla.
+    /// Arranca la <c>.img</c> en QEMU con la salida de COM1 volcada a un archivo
+    /// temporal (evita el buffering de <c>-serial stdio</c> en Windows), espera
+    /// la marca del kernel y cierra el proceso. Si QEMU no está instalado no se
+    /// considera un fallo: se imprime la ruta de la imagen y el comando exacto.
     /// </summary>
     private static QemuStatus RunQemu(string imagePath)
     {
@@ -708,25 +712,29 @@ internal static class Program
                 "QEMU no está instalado en este equipo (ni en PATH ni en las rutas estándar): "
                 + "se omite el arranque real sin fallar la validación.");
             Console.WriteLine($"  Imagen de arranque: {imagePath}");
-            Console.WriteLine($"  Comando: {command}");
+            Console.WriteLine($"  Comando manual: {command}");
             return QemuStatus.Skipped;
         }
 
+        var serialPath = Path.Combine(
+            Path.GetTempPath(),
+            $"fluentasm-serial-{Guid.NewGuid():N}.log");
+
         Console.WriteLine($"  QEMU: {qemu}");
-        Console.WriteLine($"  Comando: {command}");
+        Console.WriteLine($"  Comando manual: {command}");
+        Console.WriteLine($"  Captura serie: {serialPath}");
 
         var startInfo = new ProcessStartInfo
         {
             FileName = qemu,
             UseShellExecute = false,
             CreateNoWindow = true,
-            RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
         startInfo.ArgumentList.Add("-drive");
         startInfo.ArgumentList.Add(BuildDriveOption(imagePath));
         startInfo.ArgumentList.Add("-serial");
-        startInfo.ArgumentList.Add("stdio");
+        startInfo.ArgumentList.Add($"file:{serialPath}");
         startInfo.ArgumentList.Add("-display");
         startInfo.ArgumentList.Add("none");
         startInfo.ArgumentList.Add("-no-reboot");
@@ -746,19 +754,17 @@ internal static class Program
             return QemuStatus.Failed;
         }
 
-        var serial = new List<byte>();
-        var serialGate = new object();
-        var reader = Task.Run(
-            () => PumpSerial(process.StandardOutput.BaseStream, serial, serialGate));
         var errorBuffer = new StringBuilder();
         var errorReader = Task.Run(() => CollectStderr(process.StandardError, errorBuffer));
 
+        var serial = Array.Empty<byte>();
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(QemuTimeoutSeconds);
         while (DateTime.UtcNow < deadline)
         {
-            lock (serialGate)
+            if (TryReadSerial(serialPath, out var captured))
             {
-                if (serial.Contains((byte)'A'))
+                serial = captured;
+                if (Array.IndexOf(captured, (byte)'A') >= 0)
                 {
                     break;
                 }
@@ -778,13 +784,13 @@ internal static class Program
         }
 
         process.WaitForExit(5000);
-        _ = reader.Wait(TimeSpan.FromSeconds(2));
         _ = errorReader.Wait(TimeSpan.FromSeconds(2));
 
-        byte[] captured;
-        lock (serialGate)
+        // Última lectura con el proceso ya cerrado: QEMU pudo volcar el resto al
+        // terminar y el archivo deja de estar bloqueado.
+        if (TryReadSerial(serialPath, out var finalSerial))
         {
-            captured = [.. serial];
+            serial = finalSerial;
         }
 
         string stderr;
@@ -793,9 +799,10 @@ internal static class Program
             stderr = errorBuffer.ToString();
         }
 
-        Console.WriteLine($"  Salida serie: [{DescribeSerial(captured)}]");
+        Console.WriteLine($"  Salida serie: [{DescribeSerial(serial)}]");
+        TryDelete(serialPath);
 
-        if (Array.IndexOf(captured, (byte)'A') >= 0)
+        if (Array.IndexOf(serial, (byte)'A') >= 0)
         {
             Console.WriteLine("RESULTADO: OK — QEMU arrancó la .img y el kernel emitió 'A' por COM1.");
             return QemuStatus.Verified;
@@ -923,27 +930,46 @@ internal static class Program
         return $"{hex} | {text}";
     }
 
-    private static void PumpSerial(Stream stream, List<byte> bytes, object gate)
+    /// <summary>
+    /// Lee la captura de COM1 mientras QEMU la mantiene abierta, pidiendo solo
+    /// lectura y compartiendo escritura y borrado. Devuelve <see langword="false"/>
+    /// mientras el archivo no exista todavía.
+    /// </summary>
+    private static bool TryReadSerial(string path, out byte[] bytes)
     {
-        var buffer = new byte[256];
         try
         {
-            int read;
-            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                lock (gate)
-                {
-                    bytes.AddRange(buffer.AsSpan(0, read));
-                }
-            }
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            var buffer = new byte[stream.Length];
+            var read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+            bytes = buffer[..read];
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // QEMU aún no ha creado el archivo o lo bloquea momentáneamente.
+            bytes = [];
+            return false;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
         }
         catch (IOException)
         {
-            // QEMU se cerró: no queda más salida por leer.
+            // QEMU todavía lo mantiene abierto: quedará en el directorio temporal.
         }
-        catch (ObjectDisposedException)
+        catch (UnauthorizedAccessException)
         {
-            // El flujo se cerró mientras se leía.
+            // Sin permisos para borrar la captura temporal.
         }
     }
 
