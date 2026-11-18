@@ -24,7 +24,7 @@ public static class SemanticAnalyzer
         var binder = new Binder(bag);
         var symbols = binder.Bind(root);
         var validator = new RoutineValidator(bag, symbols);
-        validator.Validate(root);
-        return new SemanticResult(symbols, bag);
+        var contractsVerified = validator.Validate(root);
+        return new SemanticResult(symbols, bag, contractsVerified);
     }
 }

@@ -23,20 +23,25 @@ internal sealed class RoutineValidator
     }
 
     /// <summary>Valida todas las rutinas registradas en la tabla de símbolos.</summary>
-    public void Validate(CompilationUnitSyntax root)
+    /// <returns>Número de contratos de <c>Ipr.flowCall(...)</c> verificados.</returns>
+    public int Validate(CompilationUnitSyntax root)
     {
         ArgumentNullException.ThrowIfNull(root);
 
+        var verified = 0;
         foreach (var routine in symbols.Routines)
         {
-            ValidateRoutine(routine);
+            verified += ValidateRoutine(routine);
         }
+
+        return verified;
     }
 
-    private void ValidateRoutine(RoutineSymbol routine)
+    private int ValidateRoutine(RoutineSymbol routine)
     {
         var typeValidator = new TypeValidator(diagnostics, symbols, routine);
         var verbValidator = new VerbValidator(diagnostics, symbols, routine);
+        var flowValidator = new FlowValidator(diagnostics, symbols, routine);
         var flags = new FlagTracker(diagnostics);
 
         foreach (var statement in routine.Definition.Body)
@@ -51,6 +56,7 @@ internal sealed class RoutineValidator
                     typeValidator.ValidateAction(action);
                     verbValidator.ValidateAction(action);
                     VerbValidator.ValidateFlagReads(action, flags);
+                    flowValidator.ValidateAction(action);
                     flags.Apply(VerbValidator.EffectOf(action));
                     break;
 
@@ -58,5 +64,8 @@ internal sealed class RoutineValidator
                     break;
             }
         }
+
+        flowValidator.ValidateClosure();
+        return flowValidator.VerifiedContracts;
     }
 }
