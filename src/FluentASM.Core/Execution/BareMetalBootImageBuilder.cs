@@ -182,14 +182,25 @@ public static class BareMetalBootImageBuilder
         var writer = new BootSectorWriter();
 
         // ───────────────────────── Modo real (16 bits) ─────────────────────────
+        // La BIOS puede ceder el control como 0x0000:0x7C00 o como
+        // 0x07C0:0x0000. Se normaliza CS con un salto lejano a 0x0000:entry
+        // para que todas las direcciones absolutas del cargador (calculadas con
+        // origen 0x7C00) sean correctas, y se guarda DL antes de cualquier INT
+        // porque el BIOS lo usa para la unidad de arranque.
         writer.Emit(0xFA);                                      // CLI
         writer.Emit(0x31, 0xC0);                                // XOR AX, AX
         writer.Emit(0x8E, 0xD8);                                // MOV DS, AX  (DS = 0)
         writer.Emit(0x8E, 0xC0);                                // MOV ES, AX
         writer.Emit(0x8E, 0xD0);                                // MOV SS, AX
         writer.Emit(0xBC, 0x00, 0x7C);                          // MOV SP, 0x7C00
+        writer.Emit(0xFC);                                      // CLD (cadena ascendente)
         writer.Emit(0x88, 0x16);                                // MOV [bootDrive], DL
         writer.EmitAddress16("bootDrive");
+        writer.Emit(0xEA);                                      // JMP FAR 0x0000:entry
+        writer.EmitAddress16("entry");
+        writer.Emit(0x00, 0x00);
+
+        writer.Mark("entry");
         writer.Emit(0xFB);                                      // STI (la BIOS necesita interrupciones)
 
         // A20: primero por BIOS (int 15h AX=0x2401), luego el puerto 0x92 como
