@@ -11,18 +11,22 @@ internal static class Cli
 {
     private const string BuildCommand = "build";
     private const string InfoCommand = "info";
+    private const string MapOption = "--map";
 
     private const string UsageText = """
         fluentasm — compilador de FluentASM (Fase 1, x64 bare metal)
 
         Uso:
-          fluentasm build <ruta.fproj>    Valida el proyecto y prepara la compilación.
-          fluentasm info  <ruta.fproj>    Muestra la configuración resuelta del proyecto.
-          fluentasm --help | -h           Muestra esta ayuda.
-          fluentasm --version | -v        Muestra la versión del compilador.
+          fluentasm build <ruta.fproj> [--map]  Compila el proyecto y escribe su imagen .x64.
+          fluentasm info  <ruta.fproj>          Muestra la configuración resuelta del proyecto.
+          fluentasm --help | -h                 Muestra esta ayuda.
+          fluentasm --version | -v              Muestra la versión del compilador.
 
-        Estado actual (M0): lectura y validación del archivo .fproj en texto simple.
-        El análisis de sourcesCode.fasm llega en M1 y la imagen .x64 en M3.
+        Opciones de build:
+          --map    Imprime el mapa de la imagen: secciones, símbolos e instrucciones.
+
+        Estado actual (M3): léxico, sintaxis, validación Tipo 1/ATM y emisión de la
+        imagen plana .x64 con relajación de saltos.
         """;
 
     /// <summary>Ejecuta la CLI y devuelve el código de salida del proceso.</summary>
@@ -42,7 +46,7 @@ internal static class Cli
         {
             "--help" or "-h" => ShowHelp(output),
             "--version" or "-v" => ShowVersion(output),
-            BuildCommand => RunProjectCommand(args, output, error, Build),
+            BuildCommand => RunBuild(args, output, error),
             InfoCommand => RunProjectCommand(args, output, error, Info),
             _ => UnknownCommand(args[0], error),
         };
@@ -93,14 +97,91 @@ internal static class Cli
         return handler(project, output);
     }
 
-    private static int Build(FluentProject project, TextWriter output)
+    private static int RunBuild(string[] args, TextWriter output, TextWriter error)
     {
+        var showMap = false;
+        string? path = null;
+
+        for (var index = 1; index < args.Length; index++)
+        {
+            var argument = args[index];
+            if (string.Equals(argument, MapOption, StringComparison.Ordinal))
+            {
+                showMap = true;
+                continue;
+            }
+
+            if (path is not null)
+            {
+                return UsageError($"El comando '{BuildCommand}' admite una sola ruta a un archivo .fproj.", error);
+            }
+
+            path = argument;
+        }
+
+        if (path is null)
+        {
+            return UsageError($"El comando '{BuildCommand}' requiere la ruta a un archivo .fproj.", error);
+        }
+
+        var result = FprojReader.Read(path);
+        WriteDiagnostics(result.Diagnostics, error);
+
+        if (!result.Success || result.Project is not { } project)
+        {
+            return CliExitCodes.Diagnostics;
+        }
+
         WriteProjectSummary(project, output);
         output.WriteLine();
+
+        var compilation = ProjectCompiler.Compile(project);
+        if (!compilation.Success || compilation.Image is not { } image)
+        {
+            WriteDiagnostics(compilation.Diagnostics, error);
+            output.WriteLine(
+                $"Compilación fallida: {compilation.Diagnostics.Count} diagnóstico(s). "
+                + "No se escribió ninguna imagen.");
+            return CliExitCodes.Diagnostics;
+        }
+
+        try
+        {
+            File.WriteAllBytes(project.OutputPath, image.Image);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            error.WriteLine($"No se pudo escribir '{project.OutputPath}': {exception.Message}");
+            return CliExitCodes.Diagnostics;
+        }
+
         output.WriteLine(
-            "M0: el archivo .fproj es válido y sus fuentes existen. "
-            + "El análisis sintáctico comienza en M1 y la imagen .x64 en M3.");
+            $"Imagen .x64 escrita: {project.OutputPath} ({image.Image.Length} byte(s)).");
+        output.WriteLine(
+            $"Entrada '{image.Map.EntryPoint}' en el offset 0x{image.Map.EntryOffset:X8}; "
+            + $"{image.Map.Symbols.Count} símbolo(s), {image.Map.Instructions.Count} instrucción(es).");
+
+        foreach (var section in image.Map.Sections)
+        {
+            output.WriteLine(
+                $"  {section.Name,-9} 0x{section.Offset:X8}  {section.Size} byte(s)");
+        }
+
+        if (showMap)
+        {
+            output.WriteLine();
+            output.Write(image.Map.Format());
+        }
+
         return CliExitCodes.Success;
+    }
+
+    private static int UsageError(string message, TextWriter error)
+    {
+        error.WriteLine(message);
+        error.WriteLine();
+        error.WriteLine(UsageText);
+        return CliExitCodes.Usage;
     }
 
     private static int Info(FluentProject project, TextWriter output)

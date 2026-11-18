@@ -399,7 +399,7 @@ internal sealed class Binder
                 return;
 
             case StringLiteralSyntax text:
-                var byteCount = Encoding.UTF8.GetByteCount(text.Value);
+                var byteCount = System.Text.Encoding.UTF8.GetByteCount(text.Value);
                 if (byteCount > capacityBytes)
                 {
                     diagnostics.Error(

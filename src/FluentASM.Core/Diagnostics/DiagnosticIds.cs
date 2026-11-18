@@ -159,6 +159,14 @@ public static class DiagnosticIds
     /// <summary>Lectura de una bandera de <c>Frf</c> dejada indefinida por la instrucción previa.</summary>
     public const string UndefinedFlag = "FASM4012";
 
+    /// <summary>Referencia relativa (<c>rel8</c>/<c>rel32</c>) cuyo destino no cabe en su hueco.</summary>
+    /// <remarks>
+    /// Se emite en el layout de M3 cuando <c>Ipr.flowLoop(@etiqueta)</c> no cabe en
+    /// <c>rel8</c> (la instrucción <c>LOOP</c> no tiene forma cercana) o cuando una
+    /// relocalización excede el ancho de su campo.
+    /// </remarks>
+    public const string RelativeOutOfRange = "FASM4022";
+
     /// <summary>Copia directa memoria → memoria con <c>.copy(...)</c>.</summary>
     public const string MemoryToMemoryCopy = "FASM4026";
 
