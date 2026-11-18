@@ -1,0 +1,125 @@
+name: Dev Release (develop)
+
+on:
+  pull_request:
+    branches:
+      - develop
+    types:
+      - closed
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v4
+
+      - name: Leer versiones desde el PR
+        id: parse
+        shell: pwsh
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          $body = if ([string]::IsNullOrWhiteSpace($env:PR_BODY)) { "" } else { $env:PR_BODY }
+
+          $core = ""
+          $compiler = ""
+          $sample = ""
+
+          if ($body -match '(?im)^\s*ver\(core\):\s*([0-9]+\.[0-9]+\.[0-9]+-preview)\b') { $core = $Matches[1] }
+          if ($body -match '(?im)^\s*ver\(compiler\):\s*([0-9]+\.[0-9]+\.[0-9]+-preview)\b') { $compiler = $Matches[1] }
+          if ($body -match '(?im)^\s*ver\(sample\):\s*([0-9]+\.[0-9]+\.[0-9]+-preview)\b') { $sample = $Matches[1] }
+
+          $has = ($core -ne "" -or $compiler -ne "" -or $sample -ne "")
+
+          "core=$core" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "compiler=$compiler" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "sample=$sample" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "has_releases=$($has.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Setup .NET 10
+        if: steps.parse.outputs.has_releases == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Aplicar versiones y generar ZIPs
+        if: steps.parse.outputs.has_releases == 'true'
+        shell: pwsh
+        run: |
+          function Set-CsprojVersion([string]$path, [string]$version) {
+            [xml]$xml = Get-Content $path -Raw
+            $pg = $xml.Project.PropertyGroup | Where-Object { -not $_.Condition } | Select-Object -First 1
+            if ($null -eq $pg) {
+              $pg = $xml.CreateElement("PropertyGroup")
+              $xml.Project.AppendChild($pg) | Out-Null
+            }
+            $node = $pg.SelectSingleNode("Version")
+            if ($null -eq $node) {
+              $node = $xml.CreateElement("Version")
+              $pg.AppendChild($node) | Out-Null
+            }
+            $node.InnerText = $version
+            $xml.Save((Resolve-Path $path))
+          }
+
+          $coreVer = "${{ steps.parse.outputs.core }}"
+          $compilerVer = "${{ steps.parse.outputs.compiler }}"
+          $sampleVer = "${{ steps.parse.outputs.sample }}"
+
+          if ($coreVer -ne "") { Set-CsprojVersion "src/FluentASM.Core/FluentASM.Core.csproj" $coreVer }
+          if ($compilerVer -ne "") { Set-CsprojVersion "src/FluentASM.Compiler/FluentASM.Compiler.csproj" $compilerVer }
+          if ($sampleVer -ne "") { Set-CsprojVersion "src/FluentASM.Sample/FluentASM.Sample.csproj" $sampleVer }
+
+          dotnet restore src/FluentASM.slnx
+          New-Item -ItemType Directory -Force -Path release_zips | Out-Null
+
+          if ($coreVer -ne "") {
+            dotnet publish src/FluentASM.Core/FluentASM.Core.csproj -c Release --no-restore -p:TreatWarningsAsErrors=true -o release_out/core
+            Compress-Archive -Path "release_out/core/*" -DestinationPath "release_zips/FluentASM.Core-v$coreVer.zip" -Force
+          }
+
+          if ($compilerVer -ne "") {
+            dotnet publish src/FluentASM.Compiler/FluentASM.Compiler.csproj -c Release --no-restore -p:TreatWarningsAsErrors=true -o release_out/compiler
+            Compress-Archive -Path "release_out/compiler/*" -DestinationPath "release_zips/FluentASM.Compiler-v$compilerVer.zip" -Force
+          }
+
+          if ($sampleVer -ne "") {
+            dotnet publish src/FluentASM.Sample/FluentASM.Sample.csproj -c Release --no-restore -p:TreatWarningsAsErrors=true -o release_out/sample
+            Compress-Archive -Path "release_out/sample/*" -DestinationPath "release_zips/FluentASM.Sample-v$sampleVer.zip" -Force
+          }
+
+      - name: Publicar Release Core (preview)
+        if: steps.parse.outputs.core != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: core-v${{ steps.parse.outputs.core }}
+          name: FluentASM.Core v${{ steps.parse.outputs.core }}
+          prerelease: true
+          generate_release_notes: true
+          files: release_zips/FluentASM.Core-v${{ steps.parse.outputs.core }}.zip
+
+      - name: Publicar Release Compiler (preview)
+        if: steps.parse.outputs.compiler != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: compiler-v${{ steps.parse.outputs.compiler }}
+          name: FluentASM.Compiler v${{ steps.parse.outputs.compiler }}
+          prerelease: true
+          generate_release_notes: true
+          files: release_zips/FluentASM.Compiler-v${{ steps.parse.outputs.compiler }}.zip
+
+      - name: Publicar Release Sample (preview)
+        if: steps.parse.outputs.sample != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: sample-v${{ steps.parse.outputs.sample }}
+          name: FluentASM.Sample v${{ steps.parse.outputs.sample }}
+          prerelease: true
+          generate_release_notes: true
+          files: release_zips/FluentASM.Sample-v${{ steps.parse.outputs.sample }}.zip

@@ -24,9 +24,12 @@ closes #
 ## Decisión de diseño (si cambia el comportamiento del lenguaje)
 <!-- Si no aplica, escribe "no aplica". En caso contrario, enlaza la sección añadida en CONTRIBUTING.md. -->
 
-## Sugerencia de versión
-<!-- Usa formato SemVer. Ejemplo: 0.2.0-preview -->
-x.x.x-preview
+## Versiones a publicar
+<!-- Deja o cambia a x.x.x-preview solo los proyectos que quieras publicar al hacer merge.
+     Si un proyecto no lleva versión (déjalo comentado o con x.x.x-preview), no se publica. -->
+ver(core): x.x.x-preview
+ver(compiler): x.x.x-preview
+ver(sample): x.x.x-preview
 
 ## Notas para quien revisa
 <!-- Opcional: puntos de riesgo, dudas abiertas o partes en las que conviene fijarse. -->
