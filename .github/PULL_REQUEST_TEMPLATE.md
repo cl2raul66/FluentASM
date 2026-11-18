@@ -26,10 +26,10 @@ closes #
 
 ## Versiones a publicar
 <!-- Deja o cambia a x.x.x-preview solo los proyectos que quieras publicar al hacer merge.
-     Si un proyecto no lleva versión (déjalo comentado o con x.x.x-preview), no se publica. -->
+     Si un proyecto no lleva versión (déjalo comentado o con x.x.x-preview), no se publica.
+     FluentASM.Sample no entra en el versionado ni se publica en releases. -->
 ver(core): x.x.x-preview
 ver(compiler): x.x.x-preview
-ver(sample): x.x.x-preview
 
 ## Notas para quien revisa
 <!-- Opcional: puntos de riesgo, dudas abiertas o partes en las que conviene fijarse. -->
