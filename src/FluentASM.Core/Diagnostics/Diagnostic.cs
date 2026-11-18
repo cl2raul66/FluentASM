@@ -7,11 +7,13 @@ namespace FluentASM.Core.Diagnostics;
 /// <param name="Severity">Severidad del mensaje.</param>
 /// <param name="Message">Descripción legible para el programador.</param>
 /// <param name="Location">Ubicación física, si aplica.</param>
+/// <param name="Span">Intervalo de caracteres afectado dentro del archivo, si se conoce.</param>
 public sealed record Diagnostic(
     string Id,
     DiagnosticSeverity Severity,
     string Message,
-    SourceLocation? Location = null)
+    SourceLocation? Location = null,
+    TextSpan? Span = null)
 {
     /// <summary>Representa el diagnóstico en formato <c>ruta(linea,columna): error FASM2003: mensaje</c>.</summary>
     public override string ToString()
