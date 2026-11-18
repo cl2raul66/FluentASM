@@ -307,8 +307,8 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 GitHub Actions **no se ejecuta en cada Pull Request**: así no se consumen minutos de ejecución por cambios que aún están en revisión. La validación es local y obligatoria antes de abrir el PR:
 
 1. `dotnet build src/FluentASM.slnx` sin advertencias (`.editorconfig` y `TreatWarningsAsErrors`).
-2. `dotnet run --project src/FluentASM.Sample` con el `RESUMEN` final en orden y sin diagnósticos inesperados.
-3. Si el cambio toca el codificador x64, contraste de bytes con NASM y prueba de la imagen generada en QEMU (si está instalado).
+2. `dotnet run --project src/FluentASM.Sample` con el `RESUMEN` final en orden; incluye la ejecución en memoria de M4 y, si QEMU está instalado, el arranque real de `serialBareMetal.img` (si no lo está, imprime la ruta y el comando sin fallar).
+3. Si el cambio toca el codificador x64, contraste de bytes con NASM y prueba de la `.img` en QEMU.
 
 La automatización solo actúa cuando un PR **ya está mergeado**:
 
