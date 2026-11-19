@@ -193,3 +193,5 @@ public static class DiagnosticIds
     /// <summary>Pila desalineada a 16 bytes en el momento de <c>Ipr.flowCall(...)</c>.</summary>
     public const string StackNotAligned = "FASM5007";
 }
+
+

@@ -11,11 +11,11 @@
     <Grid>
         <StackPanel Orientation="Horizontal" Spacing="6">
             <!-- ============================================== -->
-            <!-- LEFT AUTOCOMPLETE DROPDOWN BOX (Stitch Style)   -->
+            <!-- LISTA DE AUTOCOMPLETADO (estilo Fluent) -->
             <!-- ============================================== -->
             <Border Width="280"
-                    Background="#F21B1C1C"
-                    BorderBrush="#663E484E"
+                    Background="{ThemeResource ModalBackgroundBrush}"
+                    BorderBrush="{ThemeResource OutlineVariantBrush}"
                     BorderThickness="1"
                     CornerRadius="10">
                 <Grid>
@@ -24,36 +24,36 @@
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Items List -->
+                    <!-- Lista de elementos -->
                     <ScrollViewer Grid.Row="0"
                                   MaxHeight="260"
                                   VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{x:Bind DisplayedItems, Mode=OneWay}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="models:CompletionItem">
-                                    <Border Background="{x:Bind ItemBackground, Mode=OneWay}"
-                                            BorderBrush="#60CDFF"
-                                            BorderThickness="{x:Bind SelectedBorderThickness, Mode=OneWay}"
+                                <DataTemplate>
+                                    <Border Background="{Binding ItemBackground, Mode=OneWay}"
+                                            BorderBrush="{ThemeResource PrimaryBrush}"
+                                            BorderThickness="{Binding SelectedBorderThickness, Mode=OneWay}"
                                             Padding="10,6"
                                             PointerEntered="OnItemPointerEntered"
                                             PointerPressed="OnItemPointerPressed">
                                         <StackPanel>
                                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <FontIcon Glyph="{x:Bind IconGlyph}"
+                                                <FontIcon Glyph="{Binding IconGlyph}"
                                                           FontSize="13"
-                                                          Foreground="{x:Bind IconBrush}"
+                                                          Foreground="{Binding IconBrush}"
                                                           VerticalAlignment="Center" />
-                                                <TextBlock Text="{x:Bind Label}"
+                                                <TextBlock Text="{Binding Label}"
                                                            FontFamily="Cascadia Code, Consolas"
                                                            FontSize="12"
                                                            FontWeight="SemiBold"
-                                                           Foreground="#E5E2E1"
+                                                           Foreground="{ThemeResource OnSurfaceBrush}"
                                                            VerticalAlignment="Center" />
                                             </StackPanel>
-                                            <TextBlock Text="{x:Bind Detail}"
+                                            <TextBlock Text="{Binding Detail}"
                                                        FontFamily="Cascadia Code, Consolas"
                                                        FontSize="10"
-                                                       Foreground="#889299"
+                                                       Foreground="{ThemeResource OutlineBrush}"
                                                        Margin="21,2,0,0"
                                                        TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
@@ -63,121 +63,111 @@
                         </ItemsControl>
                     </ScrollViewer>
 
-                    <!-- Bottom Category Filter Bar (from Stitch Design) -->
+                    <!-- Barra inferior de filtro por categoría -->
                     <Border Grid.Row="1"
-                            Background="#992A2A2A"
-                            BorderBrush="#333E484E"
+                            Background="{ThemeResource SurfaceContainerHighBrush}"
+                            BorderBrush="{ThemeResource TitleBarBorderBrush}"
                             BorderThickness="0,1,0,0"
                             Padding="8,6">
                         <Grid>
                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <!-- All -->
+                                <!-- Todos -->
                                 <Border Padding="5,2"
                                         CornerRadius="4"
                                         Background="{x:Bind GetCategoryBg('All'), Mode=OneWay}"
                                         PointerPressed="OnFilterCategoryClicked"
                                         Tag="All"
                                         ToolTipService.ToolTip="Todos los símbolos">
-                                    <FontIcon Glyph="&#xE8B9;" FontSize="11" Foreground="#BDC8CF" />
+                                    <FontIcon Glyph="&#xE8B9;" FontSize="11" Foreground="{ThemeResource OnSurfaceVariantBrush}" />
                                 </Border>
 
-                                <!-- Methods -->
+                                <!-- Métodos -->
                                 <Border Padding="5,2"
                                         CornerRadius="4"
                                         Background="{x:Bind GetCategoryBg('Methods'), Mode=OneWay}"
                                         PointerPressed="OnFilterCategoryClicked"
                                         Tag="Methods"
-                                        ToolTipService.ToolTip="Métodos fluidos (.copy, .imult, .sub)">
-                                    <FontIcon Glyph="&#xE756;" FontSize="11" Foreground="#60CDFF" />
+                                        ToolTipService.ToolTip="Métodos fluidos (.copy, .add, .compare)">
+                                    <FontIcon Glyph="&#xE756;" FontSize="11" Foreground="{ThemeResource PrimaryBrush}" />
                                 </Border>
 
-                                <!-- Registers -->
+                                <!-- Registros -->
                                 <Border Padding="5,2"
                                         CornerRadius="4"
                                         Background="{x:Bind GetCategoryBg('Registers'), Mode=OneWay}"
                                         PointerPressed="OnFilterCategoryClicked"
                                         Tag="Registers"
-                                        ToolTipService.ToolTip="Registros y Flags (GprN, rFlags)">
-                                    <FontIcon Glyph="&#xE713;" FontSize="11" Foreground="#81CFFF" />
+                                        ToolTipService.ToolTip="Registros y banderas (GprN, Frf, Ipr)">
+                                    <FontIcon Glyph="&#xE713;" FontSize="11" Foreground="{ThemeResource SecondaryBrush}" />
                                 </Border>
 
-                                <!-- Labels -->
+                                <!-- Etiquetas -->
                                 <Border Padding="5,2"
                                         CornerRadius="4"
                                         Background="{x:Bind GetCategoryBg('Labels'), Mode=OneWay}"
                                         PointerPressed="OnFilterCategoryClicked"
                                         Tag="Labels"
                                         ToolTipService.ToolTip="Etiquetas locales (@loop, @exit)">
-                                    <FontIcon Glyph="&#xE8EC;" FontSize="11" Foreground="#B4E4FF" />
+                                    <FontIcon Glyph="&#xE8EC;" FontSize="11" Foreground="{ThemeResource PrimaryBrush}" />
                                 </Border>
 
-                                <!-- Flow -->
+                                <!-- Flujo -->
                                 <Border Padding="5,2"
                                         CornerRadius="4"
                                         Background="{x:Bind GetCategoryBg('Flow'), Mode=OneWay}"
                                         PointerPressed="OnFilterCategoryClicked"
                                         Tag="Flow"
                                         ToolTipService.ToolTip="Instrucciones de flujo (.flowJump, .flowCall)">
-                                    <FontIcon Glyph="&#xE8EE;" FontSize="11" Foreground="#FFD4BE" />
+                                    <FontIcon Glyph="&#xE8EE;" FontSize="11" Foreground="{ThemeResource TertiaryBrush}" />
                                 </Border>
                             </StackPanel>
 
-                            <!-- Snippets toggle badge -->
-                            <Border HorizontalAlignment="Right"
-                                    Background="#3360CDFF"
-                                    BorderBrush="#60CDFF"
-                                    BorderThickness="1"
-                                    CornerRadius="4"
-                                    Padding="5,2"
-                                    ToolTipService.ToolTip="Fragmentos de código rápidos (Alt+T)">
-                                <FontIcon Glyph="&#xE71D;" FontSize="10" Foreground="#60CDFF" />
-                            </Border>
                         </Grid>
                     </Border>
                 </Grid>
             </Border>
 
             <!-- ============================================== -->
-            <!-- RIGHT DOCUMENTATION CARD (LSP Hover Flyout)     -->
+            <!-- TARJETA DE DOCUMENTACIÓN A LA DERECHA -->
             <!-- ============================================== -->
             <Border Width="310"
-                    Background="#F21B1C1C"
-                    BorderBrush="#663E484E"
+                    Background="{ThemeResource ModalBackgroundBrush}"
+                    BorderBrush="{ThemeResource OutlineVariantBrush}"
                     BorderThickness="1"
                     CornerRadius="8"
                     Padding="12"
                     VerticalAlignment="Top"
                     Visibility="{x:Bind SelectedItem.DocCardVisibility, Mode=OneWay}">
                 <StackPanel Spacing="6">
-                    <!-- Signature -->
+                    <!-- Firma -->
                     <TextBlock Text="{x:Bind SelectedItem.Signature, Mode=OneWay}"
                                FontFamily="Cascadia Code, Consolas"
                                FontSize="12"
                                FontWeight="SemiBold"
-                               Foreground="#60CDFF"
+                               Foreground="{ThemeResource PrimaryBrush}"
                                TextWrapping="Wrap" />
 
-                    <!-- Technical Detail / Description -->
+                    <!-- Detalle técnico y descripción -->
                     <TextBlock Text="{x:Bind SelectedItem.Detail, Mode=OneWay}"
                                FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                                FontSize="11.5"
-                               Foreground="#BDC8CF"
+                               Foreground="{ThemeResource OnSurfaceVariantBrush}"
                                TextWrapping="Wrap"
                                LineHeight="16" />
 
-                    <Border Height="1" Background="#263E484E" Margin="0,2" />
+                    <Border Height="1" Background="{ThemeResource TitleBarBorderBrush}" Margin="0,2" />
 
-                    <!-- Inputs & Modifies & Returns -->
+                    <!-- Entradas, modificaciones y resultados -->
                     <StackPanel Spacing="3">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="Inputs:"
+                            <TextBlock Text="Entradas:"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#889299" />
+                                       Foreground="{ThemeResource OutlineBrush}" />
                             <TextBlock Text="{x:Bind SelectedItem.Inputs, Mode=OneWay}"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#E5E2E1"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
 
@@ -185,11 +175,11 @@
                             <TextBlock Text="Modifica:"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#889299" />
+                                       Foreground="{ThemeResource OutlineBrush}" />
                             <TextBlock Text="{x:Bind SelectedItem.Modifies, Mode=OneWay}"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#E5E2E1"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
 
@@ -197,11 +187,11 @@
                             <TextBlock Text="Retorna:"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#889299" />
+                                       Foreground="{ThemeResource OutlineBrush}" />
                             <TextBlock Text="{x:Bind SelectedItem.Returns, Mode=OneWay}"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#E5E2E1"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>
@@ -210,3 +200,17 @@
         </StackPanel>
     </Grid>
 </UserControl>
+
+
+
+
+
+
+
+
+
+
+
+
+
+

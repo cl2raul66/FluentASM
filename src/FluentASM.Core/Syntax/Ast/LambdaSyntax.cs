@@ -39,3 +39,5 @@ public sealed record FluentCallSyntax(
     Token Name,
     IReadOnlyList<ExpressionSyntax> Arguments,
     TextSpan Span) : SyntaxNode(Span);
+
+

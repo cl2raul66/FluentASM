@@ -38,3 +38,5 @@ public enum MagnitudeKind
     /// <summary><c>TeraByte</c></summary>
     TeraByte,
 }
+
+

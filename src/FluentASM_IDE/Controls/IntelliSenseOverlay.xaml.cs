@@ -12,7 +12,8 @@ namespace FluentASM_IDE.Controls;
 
 public sealed partial class IntelliSenseOverlay : UserControl
 {
-    private static readonly SolidColorBrush ActiveCategoryBg = new(Color.FromArgb(80, 96, 205, 255));
+    private static readonly SolidColorBrush ActiveCategoryBgDark = new(Color.FromArgb(80, 96, 205, 255));
+    private static readonly SolidColorBrush ActiveCategoryBgLight = new(Color.FromArgb(80, 0, 103, 192));
     private static readonly SolidColorBrush InactiveCategoryBg = new(Color.FromArgb(0, 0, 0, 0));
 
     public static readonly DependencyProperty ItemsSourceProperty =
@@ -44,6 +45,11 @@ public sealed partial class IntelliSenseOverlay : UserControl
     public IntelliSenseOverlay()
     {
         InitializeComponent();
+        ActualThemeChanged += (s, e) =>
+        {
+            // Actualiza visualmente los fondos de las categorías.
+            RefreshFilter();
+        };
     }
 
     private static void OnItemsSourceChangedStatic(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -64,7 +70,8 @@ public sealed partial class IntelliSenseOverlay : UserControl
     {
         bool isActive = string.Equals(CurrentCategory, category, StringComparison.OrdinalIgnoreCase) ||
                         ((CurrentCategory == "Verbs" || CurrentCategory == "Methods") && (category == "Verbs" || category == "Methods"));
-        return isActive ? ActiveCategoryBg : InactiveCategoryBg;
+        bool isDark = ActualTheme != ElementTheme.Light;
+        return isActive ? (isDark ? ActiveCategoryBgDark : ActiveCategoryBgLight) : InactiveCategoryBg;
     }
 
     public void RefreshFilter()
@@ -105,32 +112,20 @@ public sealed partial class IntelliSenseOverlay : UserControl
         }
     }
 
-    public void Select(CompletionItem item)
-    {
-        if (ItemsSource != null)
-        {
-            foreach (var it in ItemsSource)
-            {
-                it.IsSelected = (it == item);
-            }
-        }
-        SelectedItem = item;
-    }
-
     public void SelectNext()
     {
         if (DisplayedItems.Count == 0) return;
-        int idx = DisplayedItems.IndexOf(SelectedItem!);
-        int next = (idx + 1) % DisplayedItems.Count;
-        Select(DisplayedItems[next]);
+        int index = SelectedItem != null ? DisplayedItems.IndexOf(SelectedItem) : -1;
+        index = (index + 1) % DisplayedItems.Count;
+        Select(DisplayedItems[index]);
     }
 
     public void SelectPrevious()
     {
         if (DisplayedItems.Count == 0) return;
-        int idx = DisplayedItems.IndexOf(SelectedItem!);
-        int prev = (idx - 1 + DisplayedItems.Count) % DisplayedItems.Count;
-        Select(DisplayedItems[prev]);
+        int index = SelectedItem != null ? DisplayedItems.IndexOf(SelectedItem) : 0;
+        index = (index - 1 + DisplayedItems.Count) % DisplayedItems.Count;
+        Select(DisplayedItems[index]);
     }
 
     public void CommitSelected()
@@ -139,6 +134,15 @@ public sealed partial class IntelliSenseOverlay : UserControl
         {
             ItemCommitted?.Invoke(this, SelectedItem);
         }
+    }
+
+    private void Select(CompletionItem item)
+    {
+        foreach (var it in DisplayedItems)
+        {
+            it.IsSelected = ReferenceEquals(it, item);
+        }
+        SelectedItem = item;
     }
 
     private void OnItemPointerEntered(object sender, PointerRoutedEventArgs e)
@@ -155,7 +159,6 @@ public sealed partial class IntelliSenseOverlay : UserControl
         {
             Select(item);
             CommitSelected();
-            e.Handled = true;
         }
     }
 
@@ -164,8 +167,19 @@ public sealed partial class IntelliSenseOverlay : UserControl
         if (sender is FrameworkElement fe && fe.Tag is string category)
         {
             SetCategory(category);
-            e.Handled = true;
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
 

@@ -25,3 +25,5 @@ public sealed record ActionStatementSyntax(
 public sealed record DataDefinitionStatementSyntax(
     DataDefinitionSyntax Definition,
     TextSpan Span) : StatementSyntax(Span);
+
+

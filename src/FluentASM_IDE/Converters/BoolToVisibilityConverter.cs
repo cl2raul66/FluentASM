@@ -4,6 +4,10 @@ using Microsoft.UI.Xaml.Data;
 
 namespace FluentASM_IDE.Converters;
 
+/// <summary>
+/// Convierte un valor booleano a <see cref="Visibility"/> para uso en XAML.
+/// Soporta inversión opcional mediante la propiedad <see cref="Invert"/>.
+/// </summary>
 public class BoolToVisibilityConverter : IValueConverter
 {
     public bool Invert { get; set; }

@@ -25,3 +25,5 @@ public sealed class LexResult
     /// <summary>Indica si no se emitió ningún error léxico.</summary>
     public bool Success => !Diagnostics.HasErrors;
 }
+
+

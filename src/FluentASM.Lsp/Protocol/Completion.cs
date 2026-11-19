@@ -63,3 +63,5 @@ public sealed record LspCompletionItem(
 public sealed record CompletionList(
     bool IsIncomplete,
     IReadOnlyList<LspCompletionItem> Items);
+
+

@@ -264,3 +264,5 @@ internal static class VerbCatalog
     private static VerbDefinition FlagState(string name, FlagSet flag) =>
         new(name, ReceiverShape.Frf, 1, 1, new FlagEffect(flag, FlagSet.None));
 }
+
+

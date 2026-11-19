@@ -250,3 +250,5 @@ internal static class AstDumper
     private static void WriteLine(StringBuilder builder, int indent, string text) =>
         builder.Append(' ', indent * 2).AppendLine(text);
 }
+
+

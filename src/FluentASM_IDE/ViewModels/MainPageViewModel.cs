@@ -1,33 +1,41 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FluentASM.Lsp.Protocol;
 using FluentASM.Lsp.Server;
 using FluentASM_IDE.Models;
+using FluentASM_IDE.Common.Services;
+using FluentASM_IDE.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace FluentASM_IDE.ViewModels;
 
-public partial class MainPageViewModel : ObservableObject
+public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 {
-    [ObservableProperty]
-    public partial string DocumentTitle { get; set; } = "CalculoPuro.fasm";
+    private static readonly SolidColorBrush ErrorCountBrushDark = new(Color.FromArgb(255, 255, 180, 171));
+    private static readonly SolidColorBrush ErrorCountBrushLight = new(Color.FromArgb(255, 186, 26, 26));
+    private static readonly SolidColorBrush WarningCountBrushDark = new(Color.FromArgb(255, 255, 212, 190));
+    private static readonly SolidColorBrush WarningCountBrushLight = new(Color.FromArgb(255, 168, 83, 0));
+
+    private bool _isDarkTheme = true;
+
+    public const string DocumentFileName = "miCalculadoraCli.fasm";
+    public const string WindowTitle = "FluentASM IDE - " + DocumentFileName;
 
     [ObservableProperty]
-    public partial string WindowTitle { get; set; } = "FluentASM IDE - CalculoPuro.fasm";
+    public partial string DocumentTitle { get; set; } = DocumentFileName;
 
     [ObservableProperty]
     public partial string Architecture { get; set; } = "x64 Fluent";
 
     [ObservableProperty]
-    public partial string StatusText { get; set; } = "Ready";
-
-    [ObservableProperty]
-    public partial string IndentInfo { get; set; } = "Spaces: 4";
+    public partial string StatusText { get; set; } = "Listo";
 
     [ObservableProperty]
     public partial string Encoding { get; set; } = "UTF-8";
@@ -39,11 +47,11 @@ public partial class MainPageViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
     [NotifyPropertyChangedFor(nameof(IntelliSenseMargin))]
     [NotifyPropertyChangedFor(nameof(CursorPositionFormatted))]
-    public partial int CurrentLine { get; set; } = 9;
+    public partial int CurrentLine { get; set; } = 13;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CursorPositionFormatted))]
-    public partial int CurrentCol { get; set; } = 14;
+    public partial int CurrentCol { get; set; } = 1;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
@@ -51,7 +59,7 @@ public partial class MainPageViewModel : ObservableObject
     public partial double ScrollOffset { get; set; } = 0;
 
     [ObservableProperty]
-    public partial int TotalLines { get; set; } = 21;
+    public partial int TotalLines { get; set; } = 32;
 
     [ObservableProperty]
     public partial string LineNumbersText { get; set; } = string.Empty;
@@ -66,19 +74,61 @@ public partial class MainPageViewModel : ObservableObject
     public partial string CommandQuery { get; set; } = "/";
 
     public FluentLanguageServer LspServer { get; } = new();
-    public const string DocumentUri = "file:///CalculoPuro.fasm";
+
+    public const string DocumentUri = "file:///" + DocumentFileName;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DiagnosticErrorSummary))]
     public partial int DiagnosticErrorCount { get; set; } = 0;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DiagnosticWarningSummary))]
     public partial int DiagnosticWarningCount { get; set; } = 0;
+
+    public ObservableCollection<DiagnosticItem> Diagnostics { get; } = new();
+
+    public DiagnosticItem? FirstDiagnostic => Diagnostics.Count > 0 ? Diagnostics[0] : null;
+
+    public DiagnosticItem? FirstErrorDiagnostic => Diagnostics.FirstOrDefault(diagnostic => diagnostic.IsError);
+
+    public DiagnosticItem? FirstWarningDiagnostic => Diagnostics.FirstOrDefault(diagnostic => diagnostic.IsWarning);
 
     public Thickness ActiveLineMargin => new Thickness(0, 8 + (CurrentLine - 1) * 22.0 - ScrollOffset, 0, 0);
 
     public Thickness IntelliSenseMargin => new Thickness(200, 8 + CurrentLine * 22.0 - ScrollOffset + 4, 0, 0);
 
     public string CursorPositionFormatted => $"Ln {CurrentLine}, Col {CurrentCol}";
+
+    public string DiagnosticErrorSummary => DiagnosticErrorCount == 1
+        ? "1 error"
+        : $"{DiagnosticErrorCount} errores";
+
+    public string DiagnosticWarningSummary => DiagnosticWarningCount == 1
+        ? "1 advertencia"
+        : $"{DiagnosticWarningCount} advertencias";
+
+    public SolidColorBrush DiagnosticErrorBrush => _isDarkTheme ? ErrorCountBrushDark : ErrorCountBrushLight;
+
+    public SolidColorBrush DiagnosticWarningBrush => _isDarkTheme ? WarningCountBrushDark : WarningCountBrushLight;
+
+    public void UpdateTheme(bool isDark)
+    {
+        _isDarkTheme = isDark;
+        CommandPaletteItem.IsDarkTheme = isDark;
+        CompletionItem.IsDarkTheme = isDark;
+
+        foreach (var cmd in AllCommands)
+        {
+            cmd.RefreshTheme();
+        }
+        foreach (var item in CompletionItems)
+        {
+            item.RefreshTheme();
+        }
+
+        OnPropertyChanged(nameof(DiagnosticErrorBrush));
+        OnPropertyChanged(nameof(DiagnosticWarningBrush));
+    }
 
     [ObservableProperty]
     public partial CompletionItem? SelectedCompletion { get; set; }
@@ -87,32 +137,61 @@ public partial class MainPageViewModel : ObservableObject
     public ObservableCollection<CommandPaletteItem> FilteredCommands { get; } = new();
     public ObservableCollection<CompletionItem> CompletionItems { get; } = new();
 
+    /// <summary>
+    /// Se dispara cuando la paleta pide volver a validar el documento actual.
+    /// </summary>
+    public event Action? RevalidationRequested;
+
+    /// <summary>
+    /// Se dispara cuando cambian los diagnósticos para que la vista actualice
+    /// los subrayados del editor.
+    /// </summary>
+    public event Action? DiagnosticsChanged;
+
+    /// <summary>
+    /// Se dispara cuando el usuario pide saltar a un diagnóstico concreto.
+    /// </summary>
+    public event Action<DiagnosticItem>? DiagnosticNavigationRequested;
+
     public const string InitialSampleAsm =
-@"program CalculoPuro
-    section .execute
-    entry main
+        """
+        miCalculadoraCli
+            .data(dt -> {
+                dt.define<Byte:8>(d -> d.id(numA).value(10))
+                dt.define<Byte:8>(d -> d.id(numB).value(20))
+            })
+            .execute(ex -> {
+                ex.routines(rt -> {
 
-    routine Factorial
-        parameter n              // n ≡ Gpr1
-        Gpr0.copy(Bit 1)        // acumulador = 1
-        @loop:
-        Gpr0.imult<2,0>(Gpr1)   // Gpr2:Gpr0 *= n (trunca)
-        Gpr1.sub(Bit 1)         // n--
-        Gpr1.cmp(Bit 0)         // comparar n con 0
-        .flowJump(@loop if not rFlags.zero)
-        .flowStackJump()        // retorna Gpr0
-    end
+                    rt.define(d -> {
+                        d.id(main)
+                        d.returns(Gpr0)
+                        d.run(() -> {
+                            Gpr1.copy([numA])
+                            Gpr2.copy([numB])
+                            Ipr.flowCall(c -> c.target(sumar).inputs(Gpr1, Gpr2).output(Gpr0))
+                            Ipr.flowStackJump()
+                        })
+                    })
 
-    routine main
-        Gpr1.copy(Bit 5)
-        .flowCall(Factorial)    // Gpr0 = 120
-        .flowStackJump()
-    end
-end";
+                    rt.define(d -> {
+                        d.id(sumar)
+                        d.returns(Gpr0)
+                        d.run((arg1<Byte:8>, arg2<Byte:8>) -> {
+                            Gpr0.copy(arg1)
+                            Gpr0.add(arg2)
+                            Ipr.flowStackJump()
+                        })
+                    })
+
+                })
+            })
+            .initialize()
+        """;
 
     public MainPageViewModel()
     {
-        UpdateLineCount(21);
+        UpdateLineCount(DocumentText.CountLines(DocumentText.Normalize(InitialSampleAsm)));
         InitializeCommands();
         InitializeIntelliSense();
     }
@@ -178,6 +257,42 @@ end";
     }
 
     [RelayCommand]
+    public void GoToFirstDiagnostic()
+    {
+        DiagnosticItem? diagnostic = FirstErrorDiagnostic ?? FirstDiagnostic;
+        if (diagnostic != null)
+        {
+            DiagnosticNavigationRequested?.Invoke(diagnostic);
+        }
+    }
+
+    [RelayCommand]
+    public void GoToFirstErrorDiagnostic()
+    {
+        DiagnosticItem? diagnostic = FirstErrorDiagnostic;
+        if (diagnostic != null)
+        {
+            DiagnosticNavigationRequested?.Invoke(diagnostic);
+        }
+    }
+
+    [RelayCommand]
+    public void GoToFirstWarningDiagnostic()
+    {
+        DiagnosticItem? diagnostic = FirstWarningDiagnostic;
+        if (diagnostic != null)
+        {
+            DiagnosticNavigationRequested?.Invoke(diagnostic);
+        }
+    }
+
+    [RelayCommand]
+    public void Revalidate()
+    {
+        RevalidationRequested?.Invoke();
+    }
+
+    [RelayCommand]
     public void SelectCompletion(CompletionItem? item)
     {
         if (item == null) return;
@@ -224,48 +339,57 @@ end";
     }
 
     [RelayCommand]
-    public async Task ExecuteActivePaletteItem()
+    public void ExecuteActivePaletteItem()
     {
         var active = FilteredCommands.FirstOrDefault(c => c.IsActive) ?? FilteredCommands.FirstOrDefault();
         if (active != null)
         {
-            await ExecutePaletteItem(active);
+            ExecutePaletteItem(active);
         }
     }
 
     [RelayCommand]
-    public async Task ExecutePaletteItem(CommandPaletteItem? item)
+    public void ExecutePaletteItem(CommandPaletteItem? item)
     {
         if (item == null) return;
         IsCommandPaletteOpen = false;
 
-        switch (item.Command.ToLowerInvariant())
+        switch (item.Command)
         {
+            case "/problema":
+                GoToFirstDiagnostic();
+                break;
+
+            case "/reanalizar":
+                RevalidationRequested?.Invoke();
+                break;
+
             case "/build":
-                StatusText = "Compilando CalculoPuro.fasm (x64 nativo)...";
-                await Task.Delay(850);
-                StatusText = "Compilación exitosa: CalculoPuro.bin (0 errores, 0 warnings)";
+                StatusText = "La compilación real estará disponible en Fase 2.";
                 break;
 
             case "/run":
-                StatusText = "Ejecutando Factorial(5) en entorno aislado...";
-                await Task.Delay(800);
-                StatusText = "Resultado: Gpr0 = 120 (código de salida: 0)";
+                StatusText = "La ejecución real estará disponible en Fase 2.";
                 break;
 
             case "/disasm":
-                StatusText = "Generando desensamblado nativo x64 de CalculoPuro...";
-                await Task.Delay(600);
-                StatusText = $"Desensamblado listo: {TotalLines} líneas analizadas";
-                break;
-
-            case "/format":
-                StatusText = "Sintaxis FluentASM formateada";
+                StatusText = "El desensamblado real estará disponible en Fase 2.";
                 break;
 
             default:
                 StatusText = $"Referencia: {item.Command}";
                 break;
+        }
+    }
+
+    public void ExecuteCommand(string command)
+    {
+        CommandPaletteItem? item = AllCommands.FirstOrDefault(candidate =>
+            string.Equals(candidate.Command, command, StringComparison.OrdinalIgnoreCase));
+
+        if (item != null)
+        {
+            ExecutePaletteItem(item);
         }
     }
 
@@ -301,25 +425,49 @@ end";
     {
         AllCommands.Clear();
 
-        // Section: Comandos (/)
+        // Comandos reales disponibles en Fase 0.
         AllCommands.Add(new CommandPaletteItem
         {
-            Command = "/build",
-            Description = "Compilar binario x64 con compilador FluentASM",
-            Shortcut = "Ctrl+B",
+            Command = "/problema",
+            Description = "Ir al primer diagnóstico del documento",
+            Shortcut = "",
             Category = "Comandos (/)",
-            IconGlyph = "\uE756",
-            IconColorHex = "#60CDFF",
+            IconGlyph = "\uE783",
+            IconColorHex = "#FFB4AB",
             IsActive = true,
             IsCommand = true
         });
 
         AllCommands.Add(new CommandPaletteItem
         {
-            Command = "/run",
-            Description = "Ejecutar routine main en entorno aislado",
-            Shortcut = "F5",
+            Command = "/reanalizar",
+            Description = "Volver a validar el documento con el LSP en memoria",
+            Shortcut = "",
             Category = "Comandos (/)",
+            IconGlyph = "\uE72C",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/build",
+            Description = "Compilación real (disponible en Fase 2)",
+            Shortcut = "Ctrl+B",
+            Category = "Próximamente (Fase 2)",
+            IconGlyph = "\uE756",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/run",
+            Description = "Ejecución real (disponible en Fase 2)",
+            Shortcut = "F5",
+            Category = "Próximamente (Fase 2)",
             IconGlyph = "\uE768",
             IconColorHex = "#81CFFF",
             IsActive = false,
@@ -329,32 +477,20 @@ end";
         AllCommands.Add(new CommandPaletteItem
         {
             Command = "/disasm",
-            Description = "Ver código máquina x64 generado y offsets",
-            Shortcut = "Ctrl+D",
-            Category = "Comandos (/)",
+            Description = "Desensamblado real (disponible en Fase 2)",
+            Shortcut = "",
+            Category = "Próximamente (Fase 2)",
             IconGlyph = "\uE8A5",
             IconColorHex = "#81CFFF",
             IsActive = false,
             IsCommand = true
         });
 
-        AllCommands.Add(new CommandPaletteItem
-        {
-            Command = "/format",
-            Description = "Formatear indentación y bloques de código fluido",
-            Shortcut = "Shift+Alt+F",
-            Category = "Comandos (/)",
-            IconGlyph = "\uE8EC",
-            IconColorHex = "#81CFFF",
-            IsActive = false,
-            IsCommand = true
-        });
-
-        // Section: Ayuda y Referencia
+        // Referencia rápida de la sintaxis canónica.
         AllCommands.Add(new CommandPaletteItem
         {
             Command = "Gpr0..Gpr15",
-            Description = "Register File unificado x64 (GPR) y vistas (.low32, .low8)",
+            Description = "Registro unificado x64 y vistas (.low32, .low16, .low8, .high8; sin .high8 en Gpr4–Gpr15)",
             Shortcut = "",
             Category = "Ayuda y Referencia",
             IconGlyph = "\uE713",
@@ -365,8 +501,8 @@ end";
 
         AllCommands.Add(new CommandPaletteItem
         {
-            Command = ".flowJump & .flowCall",
-            Description = "Control de flujo estructurado y llamadas ABI",
+            Command = "Ipr.flowJump / Ipr.flowCall / Ipr.flowStackJump",
+            Description = "Control de flujo estructurado sobre el puntero de instrucción",
             Shortcut = "",
             Category = "Ayuda y Referencia",
             IconGlyph = "\uE8EE",
@@ -377,12 +513,24 @@ end";
 
         AllCommands.Add(new CommandPaletteItem
         {
-            Command = "rFlags (zero, carry...)",
-            Description = "Banderas de condición para saltos fluidos",
+            Command = "Frf.zero / Frf.carry / Frf.sign / Frf.overflow...",
+            Description = "Banderas de condición para saltos fluidos condicionales",
             Shortcut = "",
             Category = "Ayuda y Referencia",
             IconGlyph = "\uE82D",
             IconColorHex = "#FFD4BE",
+            IsActive = false,
+            IsCommand = false
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = ".data(dt -> { ... })",
+            Description = "Declaración de datos con dt.define y capacidad explícita Byte:N",
+            Shortcut = "",
+            Category = "Ayuda y Referencia",
+            IconGlyph = "\uE8F1",
+            IconColorHex = "#B4E4FF",
             IsActive = false,
             IsCommand = false
         });
@@ -392,34 +540,66 @@ end";
 
     private void InitializeIntelliSense()
     {
-        LspServer.OpenDocument(DocumentUri, InitialSampleAsm, 1);
+        LspServer.OpenDocument(DocumentUri, DocumentText.Normalize(InitialSampleAsm), 1);
         RequestLspCompletions(InitialSampleAsm, openPopup: false);
     }
 
     public void SyncDocumentWithLsp(string sourceCode)
     {
-        LspServer.UpdateDocument(DocumentUri, sourceCode);
-        var diagnostics = LspServer.ValidateDocument(DocumentUri);
+        string normalized = DocumentText.Normalize(sourceCode);
+        LspServer.UpdateDocument(DocumentUri, normalized);
+        ApplyDiagnostics(LspServer.ValidateDocument(DocumentUri));
+    }
 
-        int errors = diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error);
-        int warnings = diagnostics.Count(d => d.Severity == DiagnosticSeverity.Warning);
+    private void ApplyDiagnostics(IReadOnlyList<LspDiagnostic> diagnostics)
+    {
+        int errors = 0;
+        int warnings = 0;
+
+        Diagnostics.Clear();
+        foreach (var diagnostic in diagnostics)
+        {
+            var start = diagnostic.Range.Start;
+            var end = diagnostic.Range.End;
+            bool isError = diagnostic.Severity == DiagnosticSeverity.Error;
+
+            if (isError)
+            {
+                errors++;
+            }
+            else if (diagnostic.Severity == DiagnosticSeverity.Warning)
+            {
+                warnings++;
+            }
+
+            Diagnostics.Add(new DiagnosticItem
+            {
+                Code = string.IsNullOrWhiteSpace(diagnostic.Code) ? "LSP" : diagnostic.Code,
+                Severity = diagnostic.Severity switch
+                {
+                    DiagnosticSeverity.Error => "Error",
+                    DiagnosticSeverity.Warning => "Advertencia",
+                    DiagnosticSeverity.Information => "Información",
+                    _ => "Sugerencia"
+                },
+                Message = diagnostic.Message,
+                Line = start.Line + 1,
+                Column = start.Character + 1,
+                EndLine = end.Line + 1,
+                EndColumn = end.Character + 1,
+                IsError = isError,
+                IsWarning = diagnostic.Severity == DiagnosticSeverity.Warning
+            });
+        }
 
         DiagnosticErrorCount = errors;
         DiagnosticWarningCount = warnings;
-
-        if (errors == 0 && warnings == 0)
-        {
-            StatusText = "Ready • 0 errors, 0 warnings (LSP Active)";
-        }
-        else
-        {
-            StatusText = $"LSP: {errors} error(s), {warnings} warning(s)";
-        }
+        DiagnosticsChanged?.Invoke();
     }
 
     public void RequestLspCompletions(string sourceCode, bool openPopup = true)
     {
-        LspServer.UpdateDocument(DocumentUri, sourceCode);
+        LspServer.UpdateDocument(DocumentUri, DocumentText.Normalize(sourceCode), 1);
         var lspCompletions = LspServer.GetCompletions(DocumentUri, new Position(CurrentLine - 1, CurrentCol - 1));
 
         CompletionItems.Clear();
@@ -438,3 +618,5 @@ end";
         }
     }
 }
+
+

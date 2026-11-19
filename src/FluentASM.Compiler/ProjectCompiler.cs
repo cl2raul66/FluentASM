@@ -142,3 +142,5 @@ internal sealed record CompileResult(ImageBuildResult? Image, DiagnosticBag Diag
     /// <summary>Indica si la imagen se generó sin diagnósticos de error.</summary>
     public bool Success => Image is not null && !Diagnostics.HasErrors;
 }
+
+

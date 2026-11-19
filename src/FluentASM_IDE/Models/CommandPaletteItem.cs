@@ -7,11 +7,14 @@ using Windows.UI;
 
 namespace FluentASM_IDE.Models;
 
-public partial class CommandPaletteItem : ObservableObject
+public partial class CommandPaletteItem : ObservableObject, ICommandPaletteItem
 {
     private static readonly Dictionary<string, SolidColorBrush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly SolidColorBrush ActiveItemBrush = new(Color.FromArgb(180, 53, 53, 53));
+    private static readonly SolidColorBrush ActiveItemBrushDark = new(Color.FromArgb(180, 53, 53, 53));
+    private static readonly SolidColorBrush ActiveItemBrushLight = new(Color.FromArgb(180, 224, 226, 230));
     private static readonly SolidColorBrush TransparentBrush = new(Color.FromArgb(0, 0, 0, 0));
+
+    public static bool IsDarkTheme { get; set; } = true;
 
     public string Command { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
@@ -26,8 +29,13 @@ public partial class CommandPaletteItem : ObservableObject
     [NotifyPropertyChangedFor(nameof(ActiveIndicatorVisibility))]
     public partial bool IsActive { get; set; }
 
-    public SolidColorBrush ItemBackground => IsActive ? ActiveItemBrush : TransparentBrush;
+    public SolidColorBrush ItemBackground => IsActive ? (IsDarkTheme ? ActiveItemBrushDark : ActiveItemBrushLight) : TransparentBrush;
     public Visibility ActiveIndicatorVisibility => IsActive ? Visibility.Visible : Visibility.Collapsed;
+
+    public void RefreshTheme()
+    {
+        OnPropertyChanged(nameof(ItemBackground));
+    }
 
     public SolidColorBrush IconBrush
     {
@@ -56,3 +64,17 @@ public partial class CommandPaletteItem : ObservableObject
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
