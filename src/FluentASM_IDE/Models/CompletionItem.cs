@@ -24,6 +24,58 @@ public partial class CompletionItem : ObservableObject
     public string IconColorHex { get; set; } = "#60CDFF";
     public string Category { get; set; } = "Methods";
     public bool HasDocumentation { get; set; }
+    public string InsertText { get; set; } = string.Empty;
+
+    public static CompletionItem FromLsp(FluentASM.Lsp.Protocol.LspCompletionItem lsp)
+    {
+        string glyph = lsp.Kind switch
+        {
+            FluentASM.Lsp.Protocol.CompletionItemKind.Method => "\uE756",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Variable => "\uE713",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Field => "\uE805",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Function => "\uE8EE",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Keyword => "\uE8D4",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Reference => "\uE8EC",
+            _ => "\uE756"
+        };
+
+        string colorHex = lsp.Kind switch
+        {
+            FluentASM.Lsp.Protocol.CompletionItemKind.Method => "#60CDFF",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Variable => "#81CFFF",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Field => "#A4C9DE",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Function => "#FFD4BE",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Keyword => "#BDC8CF",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Reference => "#B4E4FF",
+            _ => "#60CDFF"
+        };
+
+        string category = lsp.Metadata?.Category ?? lsp.Kind switch
+        {
+            FluentASM.Lsp.Protocol.CompletionItemKind.Method => "Methods",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Variable or FluentASM.Lsp.Protocol.CompletionItemKind.Field => "Registers",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Function => "Flow",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Reference => "Labels",
+            FluentASM.Lsp.Protocol.CompletionItemKind.Keyword => "Directives",
+            _ => "Methods"
+        };
+
+        return new CompletionItem
+        {
+            Label = lsp.Label,
+            Kind = lsp.Kind.ToString().ToLowerInvariant(),
+            Detail = lsp.Detail ?? lsp.Metadata?.Description ?? string.Empty,
+            InsertText = lsp.InsertText ?? lsp.Label,
+            Signature = lsp.Metadata?.Signature ?? lsp.Label,
+            Inputs = lsp.Metadata?.Inputs ?? "Ninguno",
+            Modifies = lsp.Metadata?.Modifies ?? "Ninguno",
+            Returns = lsp.Metadata?.Returns ?? "void",
+            IconGlyph = glyph,
+            IconColorHex = colorHex,
+            Category = category,
+            HasDocumentation = lsp.Metadata != null || lsp.Documentation != null
+        };
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ItemBackground))]

@@ -43,19 +43,38 @@ public sealed partial class MainPage : Page
         }
         catch { }
 
+        // Configure default paragraph format for exact 22px line height
+        var defaultPara = EditorBox.Document.GetDefaultParagraphFormat();
+        defaultPara.SetLineSpacing(LineSpacingRule.Exactly, 22f);
+        defaultPara.SpaceBefore = 0;
+        defaultPara.SpaceAfter = 0;
+
         // Populate Editor with FluentASM sample code (CalculoPuro)
         EditorBox.Document.SetText(TextSetOptions.None, MainPageViewModel.InitialSampleAsm);
+
+        // Enforce 22px line height on the loaded document
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        if (!string.IsNullOrEmpty(text))
+        {
+            var allRange = EditorBox.Document.GetRange(0, text.Length);
+            allRange.ParagraphFormat.SetLineSpacing(LineSpacingRule.Exactly, 22f);
+            allRange.ParagraphFormat.SpaceBefore = 0;
+            allRange.ParagraphFormat.SpaceAfter = 0;
+        }
 
         // Update line numbers count
         UpdateLineCountFromDocument();
 
+        // Sync initial document with FluentASM LSP
+        ViewModel.SyncDocumentWithLsp(MainPageViewModel.InitialSampleAsm);
+
         // Run initial syntax highlighting
         RunSyntaxHighlighting();
 
-        // Position caret at line 8 (Gpr0.imult<2,0>(Gpr1))
+        // Position caret at line 9 (Gpr0.imult<2,0>(Gpr1))
         PositionCaretAtInitialLine();
 
-        // Synchronize Gutter scroll with Editor internal scroll viewer
+        // Synchronize Gutter scroll and active line highlight band with Editor internal scroll viewer
         HookEditorScrollViewer();
     }
 
@@ -67,6 +86,7 @@ public sealed partial class MainPage : Page
             _editorInternalScrollViewer.ViewChanged += (s, args) =>
             {
                 GutterScrollViewer.ChangeView(null, _editorInternalScrollViewer.VerticalOffset, null, true);
+                ViewModel.ScrollOffset = _editorInternalScrollViewer.VerticalOffset;
             };
         }
     }
@@ -92,6 +112,9 @@ public sealed partial class MainPage : Page
 
         UpdateLineCountFromDocument();
         UpdateCursorCoordinates();
+
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        ViewModel.SyncDocumentWithLsp(text ?? string.Empty);
 
         // Restart debounce timer for syntax highlighting
         _highlightDebounceTimer.Stop();
@@ -164,7 +187,7 @@ public sealed partial class MainPage : Page
         EditorBox.Document.GetText(TextGetOptions.None, out string text);
         if (string.IsNullOrEmpty(text)) return;
 
-        int targetLine = 8;
+        int targetLine = 9;
         int currentLine = 1;
         int targetPos = 0;
 
@@ -186,8 +209,9 @@ public sealed partial class MainPage : Page
             }
         }
 
-        // Set selection cursor to line 8
-        EditorBox.Document.Selection.SetRange(targetPos + 12, targetPos + 12);
+        // On line 9: "        Gpr0.imult<2,0>(Gpr1)"
+        // Place cursor right after "Gpr0." (column 14)
+        EditorBox.Document.Selection.SetRange(targetPos + 13, targetPos + 13);
         UpdateCursorCoordinates();
     }
 
@@ -233,7 +257,9 @@ public sealed partial class MainPage : Page
         else if (isCtrl && e.Key == VirtualKey.Space)
         {
             e.Handled = true;
-            ViewModel.ToggleIntelliSense();
+            EditorBox.Document.GetText(TextGetOptions.None, out string codeText);
+            ViewModel.RequestLspCompletions(codeText ?? string.Empty, openPopup: true);
+            IntelliSenseControl.RefreshFilter();
         }
         else if (isCtrl && e.Key == VirtualKey.P)
         {
@@ -262,7 +288,9 @@ public sealed partial class MainPage : Page
     {
         if (item != null)
         {
-            EditorBox.Document.Selection.TypeText(item.Label);
+            string insert = !string.IsNullOrEmpty(item.InsertText) ? item.InsertText : item.Label;
+            insert = insert.Replace("$0", "");
+            EditorBox.Document.Selection.TypeText(insert);
             ViewModel.CloseIntelliSense();
             EditorBox.Focus(FocusState.Programmatic);
         }

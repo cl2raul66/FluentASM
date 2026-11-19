@@ -157,6 +157,14 @@
                                Foreground="#60CDFF"
                                TextWrapping="Wrap" />
 
+                    <!-- Technical Detail / Description -->
+                    <TextBlock Text="{x:Bind SelectedItem.Detail, Mode=OneWay}"
+                               FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                               FontSize="11.5"
+                               Foreground="#BDC8CF"
+                               TextWrapping="Wrap"
+                               LineHeight="16" />
+
                     <Border Height="1" Background="#263E484E" Margin="0,2" />
 
                     <!-- Inputs & Modifies & Returns -->

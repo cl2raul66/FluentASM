@@ -105,7 +105,7 @@
                     <controls:IntelliSenseOverlay x:Name="IntelliSenseControl"
                                                   VerticalAlignment="Top"
                                                   HorizontalAlignment="Left"
-                                                  Margin="200,165,0,0"
+                                                  Margin="{x:Bind ViewModel.IntelliSenseMargin, Mode=OneWay}"
                                                   ItemsSource="{x:Bind ViewModel.CompletionItems, Mode=OneWay}"
                                                   SelectedItem="{x:Bind ViewModel.SelectedCompletion, Mode=TwoWay}"
                                                   Visibility="{x:Bind ViewModel.IsIntelliSenseOpen, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"

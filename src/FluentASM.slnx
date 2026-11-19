@@ -4,7 +4,46 @@
       <Platform Name="x64" />
       <Platform Name="x86" />
     </Configurations>
-    <Project Path="FluentASM.Core/FluentASM.Core.csproj" />
-    <Project Path="FluentASM.Compiler/FluentASM.Compiler.csproj" />
-    <Project Path="FluentASM.Sample/FluentASM.Sample.csproj" />
+    <Project Path="FluentASM.Core/FluentASM.Core.csproj">
+      <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x86" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|ARM64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="Any CPU" />
+    </Project>
+    <Project Path="FluentASM.Lsp/FluentASM.Lsp.csproj">
+      <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x86" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|ARM64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="Any CPU" />
+    </Project>
+    <Project Path="FluentASM.Compiler/FluentASM.Compiler.csproj">
+      <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x86" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|ARM64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="Any CPU" />
+    </Project>
+    <Project Path="FluentASM.Sample/FluentASM.Sample.csproj">
+      <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x86" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|ARM64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="Any CPU" />
+    </Project>
+    <Project Path="FluentASM_IDE/FluentASM_IDE.csproj">
+      <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="ARM64" />
+      <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="x64" />
+      <ProjectConfiguration Include="Debug|x86" Configuration="Debug" Platform="x86" />
+      <ProjectConfiguration Include="Release|ARM64" Configuration="Release" Platform="ARM64" />
+      <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="x64" />
+      <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="x86" />
+        <Platform Solution="Debug|x64" Project="x64" />
+        <Deploy Solution="Debug|x64" />
+    </Project>
 </Solution>
