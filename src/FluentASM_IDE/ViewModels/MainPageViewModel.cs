@@ -5,6 +5,8 @@ using System.Text;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FluentASM.Lsp.Protocol;
+using FluentASM.Lsp.Server;
 using FluentASM_IDE.Models;
 using Microsoft.UI.Xaml;
 
@@ -35,12 +37,18 @@ public partial class MainPageViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
+    [NotifyPropertyChangedFor(nameof(IntelliSenseMargin))]
     [NotifyPropertyChangedFor(nameof(CursorPositionFormatted))]
-    public partial int CurrentLine { get; set; } = 8;
+    public partial int CurrentLine { get; set; } = 9;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CursorPositionFormatted))]
     public partial int CurrentCol { get; set; } = 14;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
+    [NotifyPropertyChangedFor(nameof(IntelliSenseMargin))]
+    public partial double ScrollOffset { get; set; } = 0;
 
     [ObservableProperty]
     public partial int TotalLines { get; set; } = 21;
@@ -57,7 +65,18 @@ public partial class MainPageViewModel : ObservableObject
     [ObservableProperty]
     public partial string CommandQuery { get; set; } = "/";
 
-    public Thickness ActiveLineMargin => new Thickness(0, (CurrentLine - 1) * 22, 0, 0);
+    public FluentLanguageServer LspServer { get; } = new();
+    public const string DocumentUri = "file:///CalculoPuro.fasm";
+
+    [ObservableProperty]
+    public partial int DiagnosticErrorCount { get; set; } = 0;
+
+    [ObservableProperty]
+    public partial int DiagnosticWarningCount { get; set; } = 0;
+
+    public Thickness ActiveLineMargin => new Thickness(0, 8 + (CurrentLine - 1) * 22.0 - ScrollOffset, 0, 0);
+
+    public Thickness IntelliSenseMargin => new Thickness(200, 8 + CurrentLine * 22.0 - ScrollOffset + 4, 0, 0);
 
     public string CursorPositionFormatted => $"Ln {CurrentLine}, Col {CurrentCol}";
 
@@ -373,145 +392,49 @@ end";
 
     private void InitializeIntelliSense()
     {
+        LspServer.OpenDocument(DocumentUri, InitialSampleAsm, 1);
+        RequestLspCompletions(InitialSampleAsm, openPopup: false);
+    }
+
+    public void SyncDocumentWithLsp(string sourceCode)
+    {
+        LspServer.UpdateDocument(DocumentUri, sourceCode);
+        var diagnostics = LspServer.ValidateDocument(DocumentUri);
+
+        int errors = diagnostics.Count(d => d.Severity == DiagnosticSeverity.Error);
+        int warnings = diagnostics.Count(d => d.Severity == DiagnosticSeverity.Warning);
+
+        DiagnosticErrorCount = errors;
+        DiagnosticWarningCount = warnings;
+
+        if (errors == 0 && warnings == 0)
+        {
+            StatusText = "Ready • 0 errors, 0 warnings (LSP Active)";
+        }
+        else
+        {
+            StatusText = $"LSP: {errors} error(s), {warnings} warning(s)";
+        }
+    }
+
+    public void RequestLspCompletions(string sourceCode, bool openPopup = true)
+    {
+        LspServer.UpdateDocument(DocumentUri, sourceCode);
+        var lspCompletions = LspServer.GetCompletions(DocumentUri, new Position(CurrentLine - 1, CurrentCol - 1));
+
         CompletionItems.Clear();
-
-        var item1 = new CompletionItem
+        foreach (var lspItem in lspCompletions.Items)
         {
-            Label = "imult<2,0>(Gpr1)",
-            Kind = "method",
-            Detail = "multiplicación con tupla de registros Gpr2:Gpr0 = Gpr0 * Gpr1",
-            Signature = "Gpr0.imult<2,0>(multiplicando: Gpr1)",
-            Inputs = "Gpr0 (acumulador), Gpr1 (multiplicando)",
-            Modifies = "Gpr0 (low 64b), Gpr2 (high 64b), rFlags.overflow",
-            Returns = "Gpr2:Gpr0 (producto de 128 bits)",
-            IconGlyph = "\uE756",
-            IconColorHex = "#60CDFF",
-            Category = "Methods",
-            HasDocumentation = true,
-            IsSelected = true
-        };
+            CompletionItems.Add(CompletionItem.FromLsp(lspItem));
+        }
 
-        var item2 = new CompletionItem
+        if (CompletionItems.Count > 0)
         {
-            Label = "copy(Bit 1)",
-            Kind = "method",
-            Detail = "carga valor inmediato con tipo Bit en registro",
-            Signature = "Gpr0.copy(valor: Bit 64)",
-            Inputs = "Bit 1 (inmediato de 64 bits)",
-            Modifies = "Gpr0 (sobrescribe celda de 64 bits)",
-            Returns = "Gpr0",
-            IconGlyph = "\uE756",
-            IconColorHex = "#60CDFF",
-            Category = "Methods",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        var item3 = new CompletionItem
-        {
-            Label = "sub(Bit 1)",
-            Kind = "method",
-            Detail = "decrementa operando y actualiza rFlags",
-            Signature = "Gpr1.sub(decremento: Bit 64)",
-            Inputs = "Gpr1, Bit 1",
-            Modifies = "Gpr1, rFlags (zero, sign, carry)",
-            Returns = "Gpr1",
-            IconGlyph = "\uE756",
-            IconColorHex = "#60CDFF",
-            Category = "Methods",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        var item4 = new CompletionItem
-        {
-            Label = "cmp(Bit 0)",
-            Kind = "method",
-            Detail = "compara operando con cero sin modificar Gpr1",
-            Signature = "Gpr1.cmp(referencia: Bit 64)",
-            Inputs = "Gpr1, Bit 0",
-            Modifies = "rFlags (zero, sign, carry, overflow)",
-            Returns = "void",
-            IconGlyph = "\uE756",
-            IconColorHex = "#60CDFF",
-            Category = "Methods",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        var item5 = new CompletionItem
-        {
-            Label = ".flowJump(@loop if not rFlags.zero)",
-            Kind = "flow",
-            Detail = "salto condicional evaluando rFlags.zero",
-            Signature = ".flowJump(destino: Label if not rFlags.zero)",
-            Inputs = "destino (@loop), condición (not rFlags.zero)",
-            Modifies = "rip (instruction pointer)",
-            Returns = "void",
-            IconGlyph = "\uE8EE",
-            IconColorHex = "#FFD4BE",
-            Category = "Flow",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        var item6 = new CompletionItem
-        {
-            Label = ".flowCall(Factorial)",
-            Kind = "flow",
-            Detail = "invoca subrutina siguiendo ABI de x64",
-            Signature = ".flowCall(rutina: Routine)",
-            Inputs = "Factorial (parámetro n en Gpr1)",
-            Modifies = "rip, rsp, Gpr0 (retorno)",
-            Returns = "Gpr0 (valor 120)",
-            IconGlyph = "\uE8EE",
-            IconColorHex = "#FFD4BE",
-            Category = "Flow",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        var item7 = new CompletionItem
-        {
-            Label = "@loop",
-            Kind = "label",
-            Detail = "etiqueta local de iteración en routine Factorial",
-            Signature = "label @loop: bloque de iteración",
-            Inputs = "none",
-            Modifies = "none",
-            Returns = "offset de instrucción",
-            IconGlyph = "\uE8EC",
-            IconColorHex = "#B4E4FF",
-            Category = "Labels",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        var item8 = new CompletionItem
-        {
-            Label = "Gpr1",
-            Kind = "register",
-            Detail = "registro GPR 1 (Rcx en ABI Win64 / n)",
-            Signature = "register Gpr1: celda física de 64 bits",
-            Inputs = "64-bit general purpose register",
-            Modifies = "n/a",
-            Returns = "n/a",
-            IconGlyph = "\uE713",
-            IconColorHex = "#81CFFF",
-            Category = "Registers",
-            HasDocumentation = true,
-            IsSelected = false
-        };
-
-        CompletionItems.Add(item1);
-        CompletionItems.Add(item2);
-        CompletionItems.Add(item3);
-        CompletionItems.Add(item4);
-        CompletionItems.Add(item5);
-        CompletionItems.Add(item6);
-        CompletionItems.Add(item7);
-        CompletionItems.Add(item8);
-
-        SelectedCompletion = item1;
+            SelectCompletion(CompletionItems[0]);
+            if (openPopup)
+            {
+                IsIntelliSenseOpen = true;
+            }
+        }
     }
 }

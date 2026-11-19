@@ -62,9 +62,9 @@ public sealed partial class IntelliSenseOverlay : UserControl
 
     public SolidColorBrush GetCategoryBg(string category)
     {
-        return string.Equals(CurrentCategory, category, StringComparison.OrdinalIgnoreCase)
-            ? ActiveCategoryBg
-            : InactiveCategoryBg;
+        bool isActive = string.Equals(CurrentCategory, category, StringComparison.OrdinalIgnoreCase) ||
+                        ((CurrentCategory == "Verbs" || CurrentCategory == "Methods") && (category == "Verbs" || category == "Methods"));
+        return isActive ? ActiveCategoryBg : InactiveCategoryBg;
     }
 
     public void RefreshFilter()
@@ -74,7 +74,22 @@ public sealed partial class IntelliSenseOverlay : UserControl
 
         foreach (var item in ItemsSource)
         {
-            if (CurrentCategory == "All" || string.Equals(item.Category, CurrentCategory, StringComparison.OrdinalIgnoreCase))
+            bool match = false;
+            if (CurrentCategory == "All")
+            {
+                match = true;
+            }
+            else if ((CurrentCategory == "Verbs" || CurrentCategory == "Methods") &&
+                     (item.Category == "Verbs" || item.Category == "Methods"))
+            {
+                match = true;
+            }
+            else if (string.Equals(item.Category, CurrentCategory, StringComparison.OrdinalIgnoreCase))
+            {
+                match = true;
+            }
+
+            if (match)
             {
                 DisplayedItems.Add(item);
             }

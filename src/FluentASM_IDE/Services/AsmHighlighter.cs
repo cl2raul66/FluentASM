@@ -57,11 +57,14 @@ public static class AsmHighlighter
         document.BatchDisplayUpdates();
         try
         {
-            // Reset entire range to default
+            // Reset entire range to default and enforce rigid 22px line height
             var allRange = document.GetRange(0, text.Length);
             allRange.CharacterFormat.ForegroundColor = ColorDefault;
             allRange.CharacterFormat.Bold = FormatEffect.Off;
             allRange.CharacterFormat.Italic = FormatEffect.Off;
+            allRange.ParagraphFormat.SetLineSpacing(LineSpacingRule.Exactly, 22f);
+            allRange.ParagraphFormat.SpaceBefore = 0;
+            allRange.ParagraphFormat.SpaceAfter = 0;
 
             var matches = TokenRegex.Matches(text);
             foreach (Match match in matches)
