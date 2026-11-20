@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FluentASM.Lsp;
 using FluentASM.Lsp.Protocol;
 using FluentASM.Lsp.Server;
 using FluentASM_IDE.Models;
@@ -73,7 +74,9 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [ObservableProperty]
     public partial string CommandQuery { get; set; } = "/";
 
-    public FluentLanguageServer LspServer { get; } = new();
+    public ILanguageService LspServer { get; } = new FluentLanguageServer();
+
+    private int documentVersion = 1;
 
     public const string DocumentUri = "file:///" + DocumentFileName;
 
@@ -547,7 +550,8 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public void SyncDocumentWithLsp(string sourceCode)
     {
         string normalized = DocumentText.Normalize(sourceCode);
-        LspServer.UpdateDocument(DocumentUri, normalized);
+        documentVersion++;
+        LspServer.UpdateDocument(DocumentUri, normalized, documentVersion);
         ApplyDiagnostics(LspServer.ValidateDocument(DocumentUri));
     }
 
@@ -599,7 +603,8 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     public void RequestLspCompletions(string sourceCode, bool openPopup = true)
     {
-        LspServer.UpdateDocument(DocumentUri, DocumentText.Normalize(sourceCode), 1);
+        documentVersion++;
+        LspServer.UpdateDocument(DocumentUri, DocumentText.Normalize(sourceCode), documentVersion);
         var lspCompletions = LspServer.GetCompletions(DocumentUri, new Position(CurrentLine - 1, CurrentCol - 1));
 
         CompletionItems.Clear();

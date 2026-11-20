@@ -1,7 +1,4 @@
-using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
 using FluentASM.Core.Diagnostics;
-using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 using FluentASM.Lsp.Catalog;
@@ -11,291 +8,134 @@ namespace FluentASM.Lsp.Server;
 
 /// <summary>
 /// Servidor de lenguaje en memoria para FluentASM según el estándar LSP.
-/// Implementa validación semántica, autocompletado inteligente con metadatos de Stitch,
-/// inspección hover y extracción de símbolos de documento.
+/// Implementa validación semántica, autocompletado contextual con metadatos,
+/// inspección hover, resaltado y extracción de símbolos de documento.
 /// </summary>
-public sealed class FluentLanguageServer
+/// <remarks>
+/// Todos los servicios se apoyan en el mismo <see cref="DocumentStore"/>: el
+/// pipeline de análisis se ejecuta una sola vez por versión y se reutiliza en
+/// diagnósticos, resaltado, completado, hover y símbolos.
+/// </remarks>
+public sealed class FluentLanguageServer : ILanguageService
 {
-    private readonly ConcurrentDictionary<string, TextDocumentItem> _documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly DocumentStore store = new();
 
-    public void OpenDocument(string uri, string text, int version = 1)
+    /// <inheritdoc />
+    public void OpenDocument(string uri, string text, int version = 1) => store.Open(uri, text, version);
+
+    /// <inheritdoc />
+    public void UpdateDocument(string uri, string text, int version = 1) => store.Update(uri, text, version);
+
+    /// <inheritdoc />
+    public void CloseDocument(string uri) => store.Close(uri);
+
+    /// <inheritdoc />
+    public string? GetDocumentText(string uri) => store.GetText(uri);
+
+    /// <inheritdoc />
+    public DocumentSnapshot? GetSnapshot(string uri, CancellationToken cancellationToken = default) =>
+        store.GetSnapshot(uri, cancellationToken);
+
+    /// <inheritdoc />
+    public IReadOnlyList<LspDiagnostic> ValidateDocument(string uri, CancellationToken cancellationToken = default) =>
+        store.GetDiagnostics(uri, cancellationToken);
+
+    /// <inheritdoc />
+    public IReadOnlyList<HighlightToken> GetHighlightTokens(string uri, CancellationToken cancellationToken = default) =>
+        store.GetHighlightTokens(uri, cancellationToken);
+
+    /// <inheritdoc />
+    public CompletionList GetCompletions(string uri, Position position, CancellationToken cancellationToken = default)
     {
-        _documents[uri] = new TextDocumentItem(uri, "fluentasm", version, text);
-    }
-
-    public void UpdateDocument(string uri, string text, int version = 1)
-    {
-        _documents[uri] = new TextDocumentItem(uri, "fluentasm", version, text);
-    }
-
-    public void CloseDocument(string uri)
-    {
-        _documents.TryRemove(uri, out _);
-    }
-
-    public string? GetDocumentText(string uri)
-    {
-        return _documents.TryGetValue(uri, out var doc) ? doc.Text : null;
-    }
-
-    /// <summary>
-    /// Valida el documento ejecutando el Lexer, Parser y SemanticAnalyzer de FluentASM.Core
-    /// y emite diagnósticos LSP con rangos exactos.
-    /// </summary>
-    public IReadOnlyList<LspDiagnostic> ValidateDocument(string uri)
-    {
-        if (!_documents.TryGetValue(uri, out var doc) || string.IsNullOrEmpty(doc.Text))
-        {
-            return Array.Empty<LspDiagnostic>();
-        }
-
-        var diagnostics = new List<LspDiagnostic>();
-        var bag = new DiagnosticBag();
-        var lines = new DocumentLines(doc.Text);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-
-        try
-        {
-            var lexResult = Lexer.Tokenize(doc.Text, uri, bag);
-            var parseResult = Parser.Parse(lexResult.Tokens, bag);
-
-            if (parseResult.Root != null)
-            {
-                try
-                {
-                    SemanticAnalyzer.Analyze(parseResult.Root, bag);
-                }
-                catch
-                {
-                    // La recuperación semántica conserva diagnósticos anteriores
-                }
-            }
-
-            foreach (var diag in bag)
-            {
-                var range = ResolveRange(diag, lines, doc.Text.Length);
-                // Varias fases pueden informar la misma incidencia sobre el mismo rango.
-                string key = $"{diag.Id}|{range.Start.Line}:{range.Start.Character}|{range.End.Line}:{range.End.Character}";
-
-                if (!seen.Add(key))
-                {
-                    continue;
-                }
-
-                var severity = diag.Severity switch
-                {
-                    Core.Diagnostics.DiagnosticSeverity.Error => Protocol.DiagnosticSeverity.Error,
-                    Core.Diagnostics.DiagnosticSeverity.Warning => Protocol.DiagnosticSeverity.Warning,
-                    _ => Protocol.DiagnosticSeverity.Information
-                };
-
-                diagnostics.Add(new LspDiagnostic(range, severity, diag.Message, diag.Id));
-            }
-        }
-        catch (Exception ex)
-        {
-            diagnostics.Add(new LspDiagnostic(
-                new LspRange(Position.Zero, Position.Zero),
-                Protocol.DiagnosticSeverity.Error,
-                $"Error interno en análisis LSP: {ex.Message}"));
-        }
-
-        diagnostics.Sort(static (left, right) =>
-        {
-            int byLine = left.Range.Start.Line.CompareTo(right.Range.Start.Line);
-            return byLine != 0
-                ? byLine
-                : left.Range.Start.Character.CompareTo(right.Range.Start.Character);
-        });
-
-        return diagnostics;
-    }
-
-    /// <summary>
-    /// Traduce un diagnóstico de <c>Core</c> a un rango LSP usando el offset absoluto
-    /// de <see cref="Diagnostic.Span"/>. Solo cae en <see cref="Diagnostic.Location"/>
-    /// cuando el span no está disponible.
-    /// </summary>
-    private static LspRange ResolveRange(Diagnostic diagnostic, DocumentLines lines, int textLength)
-    {
-        int start;
-        int length;
-
-        if (diagnostic.Span is { } span && span.Start >= 0 && span.Start <= textLength)
-        {
-            start = span.Start;
-            length = span.Length;
-        }
-        else if (diagnostic.Location is { } location)
-        {
-            start = lines.ToOffset(new Position(
-                Math.Max(0, location.Line - 1),
-                Math.Max(0, location.Column - 1)));
-            length = 1;
-        }
-        else
-        {
-            start = 0;
-            length = 0;
-        }
-
-        int end = Math.Clamp(start + Math.Max(0, length), start, textLength);
-        if (end == start && start < textLength)
-        {
-            end++;
-        }
-
-        return new LspRange(lines.ToPosition(start), lines.ToPosition(end));
-    }
-
-    /// <summary>
-    /// Genera la lista de sugerencias de autocompletado en el punto dado del documento.
-    /// </summary>
-    public CompletionList GetCompletions(string uri, Position position)
-    {
-        if (!_documents.TryGetValue(uri, out var doc) || string.IsNullOrEmpty(doc.Text))
+        var snapshot = store.GetSnapshot(uri, cancellationToken);
+        if (snapshot is null || string.IsNullOrEmpty(snapshot.Text))
         {
             return new CompletionList(false, LspCatalog.GetAllItems());
         }
 
-        string text = doc.Text;
-        string[] lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-        string currentLine = position.Line < lines.Length ? lines[position.Line] : "";
-        string prefix = position.Character <= currentLine.Length
-            ? currentLine.Substring(0, position.Character).TrimStart()
-            : currentLine.TrimStart();
-
+        var routines = CollectRoutines(snapshot);
+        var labels = CollectLabels(snapshot);
+        string prefix = GetLinePrefix(snapshot, position);
         var result = new List<LspCompletionItem>();
 
-        // 1. Extraer símbolos locales definidos por el usuario en el archivo (rutinas y etiquetas)
-        var localRoutines = ExtractRoutines(lines);
-        var localLabels = ExtractLabels(lines);
-
-        // 2. Contexto de llamada a rutina (.flowCall(...))
-        if (prefix.Contains(".flowCall") || prefix.EndsWith("flowCall("))
+        // 1. Contexto de llamada a rutina (.flowCall(...)).
+        if (prefix.Contains(".flowCall", StringComparison.Ordinal) ||
+            prefix.EndsWith("flowCall(", StringComparison.Ordinal))
         {
-            foreach (var routine in localRoutines)
+            foreach (var routine in routines)
             {
-                result.Add(new LspCompletionItem(
-                    Label: routine,
-                    Kind: CompletionItemKind.Function,
-                    Detail: $"Rutina de usuario: {routine}",
-                    Documentation: MarkupContent.Markdown($"Invocación a la rutina definida `{routine}`."),
-                    InsertText: routine,
-                    SortText: $"00_{routine}",
-                    Metadata: new FluentItemMetadata(
-                        Category: "Directives",
-                        Signature: $"routine {routine}",
-                        Description: "Subrutina de usuario declarada en el programa.",
-                        Inputs: "Argumentos según parámetros",
-                        Modifies: "Stack, Gpr0 (retorno)",
-                        Returns: "Gpr0")));
+                result.Add(CreateRoutineItem(routine, callContext: true));
             }
+
             return new CompletionList(false, result);
         }
 
-        // 3. Contexto de salto a etiqueta (@loop, etc.)
-        if (prefix.EndsWith("@") || prefix.Contains(".flowJump") || prefix.Contains("@"))
+        // 2. Contexto de salto a etiqueta (@loop, .flowJump, etc.).
+        if (prefix.EndsWith('@') ||
+            prefix.Contains(".flowJump", StringComparison.Ordinal) ||
+            prefix.Contains('@'))
         {
-            foreach (var label in localLabels)
+            foreach (var label in labels)
             {
-                result.Add(new LspCompletionItem(
-                    Label: label,
-                    Kind: CompletionItemKind.Reference,
-                    Detail: $"Etiqueta local de salto: {label}",
-                    Documentation: MarkupContent.Markdown($"Etiqueta local `{label}` definida en el código."),
-                    InsertText: label,
-                    SortText: $"00_{label}",
-                    Metadata: new FluentItemMetadata(
-                        Category: "Flow",
-                        Signature: $"{label}:",
-                        Description: "Punto de anclaje de flujo local.",
-                        Inputs: "Ninguno",
-                        Modifies: "Ipr",
-                        Returns: "Destino de salto")));
+                result.Add(CreateLabelItem(label));
             }
 
-            if (prefix.EndsWith("@"))
+            if (prefix.EndsWith('@'))
             {
                 return new CompletionList(false, result);
             }
         }
 
-        // 4. Contexto de miembro o verbo con punto (ej. Gpr0., .flowJump, etc.)
-        if (prefix.EndsWith(".") || prefix.Contains("."))
+        // 3. Contexto de miembro o verbo con punto (Gpr0., .flowJump, etc.).
+        if (prefix.EndsWith('.') || prefix.Contains('.'))
         {
             foreach (var item in LspCatalog.GetAllItems())
             {
-                if (item.Metadata?.Category == "Verbs" ||
-                    item.Metadata?.Category == "Flow" ||
-                    item.Label.Contains(".low"))
+                if (item.Metadata?.Category == "Verbos" ||
+                    item.Metadata?.Category == "Flujo" ||
+                    item.Label.Contains(".low", StringComparison.Ordinal))
                 {
                     result.Add(item);
                 }
             }
+
             return new CompletionList(false, result);
         }
 
-        // 5. Sugerencias generales: catálogo completo + rutinas + etiquetas locales
+        // 4. Sugerencias generales: catálogo completo + rutinas + etiquetas locales.
         result.AddRange(LspCatalog.GetAllItems());
 
-        foreach (var routine in localRoutines)
+        foreach (var routine in routines)
         {
-            result.Add(new LspCompletionItem(
-                Label: routine,
-                Kind: CompletionItemKind.Function,
-                Detail: $"Rutina: {routine}",
-                Documentation: MarkupContent.Markdown($"Rutina definida en el código actual: `{routine}`."),
-                InsertText: routine,
-                SortText: $"00_{routine}",
-                Metadata: new FluentItemMetadata(
-                    Category: "Directives",
-                    Signature: $"routine {routine}",
-                    Description: "Subrutina definida en el módulo.",
-                    Inputs: "Argumentos de usuario",
-                    Modifies: "Gpr0, Stack",
-                    Returns: "Gpr0")));
+            result.Add(CreateRoutineItem(routine, callContext: false));
         }
 
-        foreach (var label in localLabels)
+        foreach (var label in labels)
         {
-            result.Add(new LspCompletionItem(
-                Label: label,
-                Kind: CompletionItemKind.Reference,
-                Detail: $"Etiqueta: {label}",
-                Documentation: MarkupContent.Markdown($"Etiqueta de flujo `{label}`."),
-                InsertText: label,
-                SortText: $"00_{label}",
-                Metadata: new FluentItemMetadata(
-                    Category: "Flow",
-                    Signature: $"{label}:",
-                    Description: "Etiqueta local de salto.",
-                    Inputs: "Ninguno",
-                    Modifies: "Ipr",
-                    Returns: "Destino de salto")));
+            result.Add(CreateLabelItem(label));
         }
 
         return new CompletionList(false, result);
     }
 
-    /// <summary>
-    /// Devuelve información de documentación Hover sobre el elemento situado en la posición dada.
-    /// </summary>
+    /// <inheritdoc />
     public Hover? GetHover(string uri, Position position)
     {
-        if (!_documents.TryGetValue(uri, out var doc) || string.IsNullOrEmpty(doc.Text))
+        var snapshot = store.GetSnapshot(uri);
+        if (snapshot is null || string.IsNullOrEmpty(snapshot.Text))
         {
             return null;
         }
 
-        string[] lines = doc.Text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-        if (position.Line >= lines.Length)
+        int offset = snapshot.Lines.ToOffset(position);
+        var tokens = snapshot.LexResult.Tokens;
+        int index = FindTokenIndex(tokens, offset);
+        if (index < 0)
         {
             return null;
         }
 
-        string line = lines[position.Line];
-        string word = ExtractWordAt(line, position.Character);
+        string word = GetHoverWord(tokens, index);
         if (string.IsNullOrWhiteSpace(word))
         {
             return null;
@@ -303,114 +143,369 @@ public sealed class FluentLanguageServer
 
         if (LspCatalog.TryGetItem(word, out var item))
         {
-            string md = item.Documentation?.Value ?? $"**{item.Label}**\n\n{item.Detail}";
-            if (item.Metadata != null)
-            {
-                md += $"\n\n---\n- **Categoría:** {item.Metadata.Category}\n- **Firma:** `{item.Metadata.Signature}`\n- **Modifica:** {item.Metadata.Modifies}\n- **Banderas:** {item.Metadata.FlagsAffected ?? "Ninguna"}";
-            }
-            return new Hover(MarkupContent.Markdown(md));
+            return CreateHover(item);
         }
 
-        return null;
+        if (!string.Equals(word, tokens[index].Text, StringComparison.Ordinal) &&
+            LspCatalog.TryGetItem(tokens[index].Text, out item))
+        {
+            return CreateHover(item);
+        }
+
+        return GetSymbolHover(snapshot, word) ?? GetSymbolHover(snapshot, tokens[index].Text);
     }
 
-    /// <summary>
-    /// Devuelve el árbol de símbolos de documento estructurado según LSP.
-    /// </summary>
+    /// <inheritdoc />
     public IReadOnlyList<DocumentSymbol> GetDocumentSymbols(string uri)
     {
-        if (!_documents.TryGetValue(uri, out var doc) || string.IsNullOrEmpty(doc.Text))
+        var snapshot = store.GetSnapshot(uri);
+        if (snapshot is null || string.IsNullOrEmpty(snapshot.Text))
         {
             return Array.Empty<DocumentSymbol>();
         }
 
         var symbols = new List<DocumentSymbol>();
-        string[] lines = doc.Text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        var dataNames = new HashSet<string>(StringComparer.Ordinal);
+        var routineNames = new HashSet<string>(StringComparer.Ordinal);
 
-        for (int i = 0; i < lines.Length; i++)
+        if (snapshot.SemanticResult is { } semantic)
         {
-            string line = lines[i].Trim();
-            if (line.StartsWith("routine ", StringComparison.OrdinalIgnoreCase))
+            foreach (var data in semantic.Symbols.DataSymbols)
             {
-                string routineName = line.Substring(8).Trim();
-                var range = new LspRange(new Position(i, 0), new Position(i, line.Length));
+                if (!dataNames.Add(data.Name))
+                {
+                    continue;
+                }
+
                 symbols.Add(new DocumentSymbol(
-                    Name: routineName,
-                    Kind: SymbolKind.Function,
-                    Range: range,
-                    SelectionRange: range,
-                    Detail: "Subrutina FluentASM"));
-            }
-            else if (line.StartsWith("@") && line.Contains(':'))
-            {
-                string label = line.Substring(0, line.IndexOf(':')).Trim();
-                var range = new LspRange(new Position(i, 0), new Position(i, line.Length));
-                symbols.Add(new DocumentSymbol(
-                    Name: label,
+                    Name: data.Name,
                     Kind: SymbolKind.Field,
-                    Range: range,
-                    SelectionRange: range,
-                    Detail: "Etiqueta de flujo"));
+                    Range: ToRange(snapshot.Lines, data.Declaration.Span),
+                    SelectionRange: ToRange(snapshot.Lines, data.Declaration.Span),
+                    Detail: $"Datos · {data.ByteSize} bytes"));
+            }
+
+            foreach (var routine in semantic.Symbols.Routines)
+            {
+                string name = routine.Name ?? "<implícita>";
+                if (!routineNames.Add(name))
+                {
+                    continue;
+                }
+
+                var children = new List<DocumentSymbol>();
+                foreach (var label in semantic.Symbols.LabelsOf(routine).Values)
+                {
+                    children.Add(CreateLabelSymbol(snapshot, label.Name, label.Declaration.Span));
+                }
+
+                symbols.Add(CreateRoutineSymbol(
+                    snapshot,
+                    name,
+                    routine.Definition.Span,
+                    routine.Definition.Name?.Span ?? routine.Definition.Span,
+                    routine.Parameters.Count,
+                    children));
             }
         }
+
+        // Respaldo tolerante: completa huecos con el árbol parcial cuando la fase
+        // semántica no pudo ligar todos los símbolos.
+        if (snapshot.ParseResult.Root.Data is { } dataSection)
+        {
+            foreach (var definition in dataSection.Definitions)
+            {
+                if (definition.Name is not { } nameToken || !dataNames.Add(nameToken.Text))
+                {
+                    continue;
+                }
+
+                symbols.Add(new DocumentSymbol(
+                    Name: nameToken.Text,
+                    Kind: SymbolKind.Field,
+                    Range: ToRange(snapshot.Lines, definition.Span),
+                    SelectionRange: ToRange(snapshot.Lines, nameToken.Span),
+                    Detail: "Datos"));
+            }
+        }
+
+        if (snapshot.ParseResult.Root.Execute is { } executeSection)
+        {
+            foreach (var definition in executeSection.Routines)
+            {
+                if (definition.Name is not { } nameToken || !routineNames.Add(nameToken.Text))
+                {
+                    continue;
+                }
+
+                var children = new List<DocumentSymbol>();
+                foreach (var statement in definition.Body)
+                {
+                    if (statement is LabelStatementSyntax label)
+                    {
+                        children.Add(CreateLabelSymbol(snapshot, label.Label.Text, label.Label.Span));
+                    }
+                }
+
+                symbols.Add(CreateRoutineSymbol(
+                    snapshot,
+                    nameToken.Text,
+                    definition.Span,
+                    nameToken.Span,
+                    definition.Run?.Parameters.Count ?? 0,
+                    children));
+            }
+        }
+
+        symbols.Sort(static (left, right) =>
+        {
+            int byLine = left.Range.Start.Line.CompareTo(right.Range.Start.Line);
+            return byLine != 0
+                ? byLine
+                : left.Range.Start.Character.CompareTo(right.Range.Start.Character);
+        });
 
         return symbols;
     }
 
-    private static List<string> ExtractRoutines(string[] lines)
+    private static List<LocalRoutine> CollectRoutines(DocumentSnapshot snapshot)
     {
-        var routines = new List<string>();
-        foreach (var line in lines)
+        var routines = new List<LocalRoutine>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (snapshot.SemanticResult is { } semantic)
         {
-            var match = Regex.Match(line, @"\broutine\s+([a-zA-Z0-9_]+)");
-            if (match.Success)
+            foreach (var routine in semantic.Symbols.Routines)
             {
-                routines.Add(match.Groups[1].Value);
+                if (routine.Name is not { Length: > 0 } name || !seen.Add(name))
+                {
+                    continue;
+                }
+
+                routines.Add(new LocalRoutine(name, routine.Parameters.Count));
             }
         }
+
+        if (snapshot.ParseResult.Root.Execute is { } execute)
+        {
+            foreach (var definition in execute.Routines)
+            {
+                if (definition.Name is not { } nameToken || !seen.Add(nameToken.Text))
+                {
+                    continue;
+                }
+
+                routines.Add(new LocalRoutine(nameToken.Text, definition.Run?.Parameters.Count ?? 0));
+            }
+        }
+
         return routines;
     }
 
-    private static List<string> ExtractLabels(string[] lines)
+    private static List<LocalLabel> CollectLabels(DocumentSnapshot snapshot)
     {
-        var labels = new List<string>();
-        foreach (var line in lines)
+        var labels = new List<LocalLabel>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        if (snapshot.SemanticResult is { } semantic)
         {
-            var match = Regex.Match(line, @"(@[a-zA-Z0-9_]+):?");
-            if (match.Success)
+            foreach (var routine in semantic.Symbols.Routines)
             {
-                labels.Add(match.Groups[1].Value);
+                foreach (var label in semantic.Symbols.LabelsOf(routine).Values)
+                {
+                    if (seen.Add(label.Name))
+                    {
+                        labels.Add(new LocalLabel(label.Name));
+                    }
+                }
             }
         }
+
+        if (snapshot.ParseResult.Root.Execute is { } execute)
+        {
+            foreach (var definition in execute.Routines)
+            {
+                foreach (var statement in definition.Body)
+                {
+                    if (statement is LabelStatementSyntax label && seen.Add(label.Label.Text))
+                    {
+                        labels.Add(new LocalLabel(label.Label.Text));
+                    }
+                }
+            }
+        }
+
         return labels;
     }
 
-    private static string ExtractWordAt(string line, int col)
+    private static string GetLinePrefix(DocumentSnapshot snapshot, Position position)
     {
-        if (string.IsNullOrEmpty(line) || col < 0 || col > line.Length)
-        {
-            return "";
-        }
-
-        int start = Math.Min(col, line.Length - 1);
-        while (start > 0 && (char.IsLetterOrDigit(line[start - 1]) || line[start - 1] == '.' || line[start - 1] == '@' || line[start - 1] == '_'))
-        {
-            start--;
-        }
-
-        int end = Math.Min(col, line.Length);
-        while (end < line.Length && (char.IsLetterOrDigit(line[end]) || line[end] == '.' || line[end] == '@' || line[end] == '_'))
-        {
-            end++;
-        }
-
-        if (start < end)
-        {
-            return line.Substring(start, end - start);
-        }
-
-        return "";
+        int line = Math.Clamp(position.Line, 0, snapshot.Lines.LineCount - 1);
+        int lineStart = snapshot.Lines.GetLineStart(line);
+        int lineEnd = snapshot.Lines.GetLineEnd(line);
+        int offset = Math.Clamp(lineStart + Math.Max(0, position.Character), lineStart, lineEnd);
+        return snapshot.Text.Substring(lineStart, offset - lineStart).TrimStart();
     }
+
+    private static int FindTokenIndex(IReadOnlyList<Token> tokens, int offset)
+    {
+        int fallback = -1;
+
+        for (int index = 0; index < tokens.Count; index++)
+        {
+            var token = tokens[index];
+            if (token.Kind == TokenKind.EndOfFile)
+            {
+                break;
+            }
+
+            if (token.Span.Start <= offset && offset < token.Span.End)
+            {
+                return index;
+            }
+
+            if (token.Span.End == offset)
+            {
+                fallback = index;
+            }
+        }
+
+        return fallback;
+    }
+
+    private static string GetHoverWord(IReadOnlyList<Token> tokens, int index)
+    {
+        var token = tokens[index];
+
+        if (token.Kind == TokenKind.Identifier &&
+            index >= 2 &&
+            tokens[index - 1].Kind == TokenKind.Dot &&
+            tokens[index - 2].Kind == TokenKind.Identifier)
+        {
+            return tokens[index - 2].Text + "." + token.Text;
+        }
+
+        return token.Text;
+    }
+
+    private static Hover CreateHover(LspCompletionItem item)
+    {
+        string markdown = item.Documentation?.Value ?? $"**{item.Label}**\n\n{item.Detail}";
+        if (item.Metadata is { } metadata)
+        {
+            markdown += $"\n\n---\n- **Categoría:** {metadata.Category}\n- **Firma:** `{metadata.Signature}`\n- **Modifica:** {metadata.Modifies}\n- **Banderas:** {metadata.FlagsAffected ?? "Ninguna"}";
+        }
+
+        return new Hover(MarkupContent.Markdown(markdown));
+    }
+
+    private static Hover? GetSymbolHover(DocumentSnapshot snapshot, string name)
+    {
+        if (snapshot.SemanticResult is not { } semantic)
+        {
+            return null;
+        }
+
+        if (semantic.Symbols.TryGetData(name, out var data))
+        {
+            string markdown = $"**{data.Name}**\n\n---\n- **Categoría:** Datos\n- **Capacidad:** {data.ByteSize} bytes ({data.BitSize} bits)";
+            return new Hover(MarkupContent.Markdown(markdown));
+        }
+
+        if (semantic.Symbols.TryGetRoutine(name, out var routine))
+        {
+            string markdown = $"**{routine.DisplayName}**\n\n---\n- **Categoría:** Rutina\n- **Parámetros:** {routine.Parameters.Count}";
+            return new Hover(MarkupContent.Markdown(markdown));
+        }
+
+        foreach (var scope in semantic.Symbols.Routines)
+        {
+            if (semantic.Symbols.LabelsOf(scope).TryGetValue(name, out var label))
+            {
+                string markdown = $"**{label.Name}**\n\n---\n- **Categoría:** Etiqueta local\n- **Rutina:** {scope.DisplayName}";
+                return new Hover(MarkupContent.Markdown(markdown));
+            }
+        }
+
+        return null;
+    }
+
+    private static LspCompletionItem CreateRoutineItem(LocalRoutine routine, bool callContext)
+    {
+        string detail = callContext
+            ? $"Rutina de usuario: {routine.Name}"
+            : $"Rutina: {routine.Name}";
+
+        string documentation = callContext
+            ? $"Invocación a la rutina definida `{routine.Name}`."
+            : $"Rutina definida en el código actual: `{routine.Name}`.";
+
+        string inputs = routine.ParameterCount switch
+        {
+            0 => "Ninguno",
+            1 => "1 parámetro",
+            _ => $"{routine.ParameterCount} parámetros",
+        };
+
+        return new LspCompletionItem(
+            Label: routine.Name,
+            Kind: CompletionItemKind.Function,
+            Detail: detail,
+            Documentation: MarkupContent.Markdown(documentation),
+            InsertText: routine.Name,
+            SortText: $"00_{routine.Name}",
+            Metadata: new FluentItemMetadata(
+                Category: "Directivas",
+                Signature: $"routine {routine.Name}",
+                Description: "Subrutina de usuario declarada en el programa.",
+                Inputs: inputs,
+                Modifies: "Stack, Gpr0 (retorno)",
+                Returns: "Gpr0"));
+    }
+
+    private static LspCompletionItem CreateLabelItem(LocalLabel label) =>
+        new(
+            Label: label.Name,
+            Kind: CompletionItemKind.Reference,
+            Detail: $"Etiqueta local de salto: {label.Name}",
+            Documentation: MarkupContent.Markdown($"Etiqueta local `{label.Name}` definida en el código."),
+            InsertText: label.Name,
+            SortText: $"00_{label.Name}",
+            Metadata: new FluentItemMetadata(
+                Category: "Flujo",
+                Signature: $"{label.Name}:",
+                Description: "Punto de anclaje de flujo local.",
+                Inputs: "Ninguno",
+                Modifies: "Ipr",
+                Returns: "Destino de salto"));
+
+    private static DocumentSymbol CreateRoutineSymbol(
+        DocumentSnapshot snapshot,
+        string name,
+        TextSpan span,
+        TextSpan selectionSpan,
+        int parameterCount,
+        IReadOnlyList<DocumentSymbol> children) =>
+        new(
+            Name: name,
+            Kind: SymbolKind.Function,
+            Range: ToRange(snapshot.Lines, span),
+            SelectionRange: ToRange(snapshot.Lines, selectionSpan),
+            Detail: $"Rutina · {parameterCount} parámetros",
+            Children: children.Count == 0 ? null : children);
+
+    private static DocumentSymbol CreateLabelSymbol(DocumentSnapshot snapshot, string name, TextSpan span) =>
+        new(
+            Name: name,
+            Kind: SymbolKind.Field,
+            Range: ToRange(snapshot.Lines, span),
+            SelectionRange: ToRange(snapshot.Lines, span),
+            Detail: "Etiqueta local");
+
+    private static LspRange ToRange(DocumentLines lines, TextSpan span) =>
+        new(lines.ToPosition(span.Start), lines.ToPosition(span.End));
+
+    private sealed record LocalRoutine(string Name, int ParameterCount);
+
+    private sealed record LocalLabel(string Name);
 }
-
-

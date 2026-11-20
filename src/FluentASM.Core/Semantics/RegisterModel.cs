@@ -98,7 +98,7 @@ public static class RegisterModel
 {
     private static readonly int[] InputRegisters = [1, 2, 8, 9];
 
-    private static readonly Dictionary<string, string> LegacyNames = CreateLegacyNames();
+    public static readonly Dictionary<string, string> LegacyNames = CreateLegacyNames();
 
     /// <summary>Número máximo de parámetros de entrada admitidos en Fase 1.</summary>
     public static int MaxParameters => InputRegisters.Length;
