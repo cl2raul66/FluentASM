@@ -1,56 +1,59 @@
-name: Nueva funcionalidad o instrucción
-description: Proponer una instrucción, una directiva, un formato de salida o una herramienta
-labels:
-  - tipo/feature
+name: 🚀 Solicitud de funcionalidad
+description: Proponer una nueva característica o mejora para FluentASM.
+title: "[FEATURE] <título corto>"
+labels: ["enhancement"]
 body:
-  - type: markdown
+  - type: dropdown
+    id: area
     attributes:
-      value: |
-        Ten en cuenta el orden de las fases: propuestas de fases lejanas son bienvenidas, pero
-        se priorizan las que desbloquean la fase actual (ver Roadmap en CONTRIBUTING.md).
+      label: Área
+      description: ¿A qué parte del proyecto afecta esta solicitud?
+      options:
+        - "Compilador (Core, Compiler)"
+        - "Herramientas (CLI, IDE)"
+        - "Ecosistema (.fproj, .fworkspace, admin)"
+        - "Documentación y sintaxis"
+        - "CI/CD y release"
+        - "Otro"
+      default: 0
+  - type: input
+    id: descripcion
+    attributes:
+      label: Descripción
+      description: Descríbe la funcionalidad que se desea agregar.
+    validations:
+      required: true
   - type: textarea
-    id: problema
+    id: motivacion
     attributes:
-      label: Qué problema resuelve
-      description: Describe el caso de uso real, no la solución técnica.
+      label: Motivación / Caso de uso
+      description: ¿Qué problema resuelve esta característica y para qué escenario se usaría?
     validations:
       required: true
   - type: textarea
     id: propuesta
     attributes:
-      label: Cómo se escribiría
-      description: Un ejemplo en sintaxis fluida de cómo quedaría el código.
-      render: fasm
-    validations:
-      required: true
-  - type: textarea
-    id: bytes
-    attributes:
-      label: Qué bytes debería generar
-      description: |
-        Si es una instrucción, indica su codificación según el manual de Intel, o cómo lo genera NASM
-        (puedes comprobarlo con `nasm -f bin`).
+      label: Propuesta de implementación
+      description: Sugiere cómo podría implementarse (opcional).
     validations:
       required: false
-  - type: dropdown
-    id: area
-    attributes:
-      label: Área
-      options:
-        - Sintaxis y directivas
-        - Catálogo de instrucciones
-        - Codificador y layout
-        - Formatos de salida (.x64, PE, ELF)
-        - Proyectos y soluciones (.fproj, .fworkspace, fasm_admin)
-        - Herramientas (CLI, IDE)
-        - Documentación
-    validations:
-      required: true
   - type: checkboxes
-    id: aporto
+    id: afecta
     attributes:
-      label: ¿Te gustaría implementarlo?
+      label: ¿Afecta a?
+      description: Marca los componentes implicados.
       options:
-        - label: Puedo abrir un PR para esta funcionalidad
-        - label: Puedo ayudar con las pruebas
-        - label: Necesito orientación para empezar
+        - label: FluentASM.Core (lexer, parser, semántica, codificador)
+        - label: FluentASM.Compiler (CLI fluentasm)
+        - label: FluentASM.Lsp (servidor de lenguaje)
+        - label: FluentASM_IDE (editor, resaltado, undo)
+        - label: FluentASM.Sample (validación manual)
+        - label: Documentación (CONTRIBUTING, FLUENT_SYNTAX)
+  - type: checkboxes
+    id: fase
+    attributes:
+      label: Fase del roadmap
+      options:
+        - label: Fase 1 (actual)
+        - label: Fase 2 y posteriores
+        - label: No aplica / transversal
