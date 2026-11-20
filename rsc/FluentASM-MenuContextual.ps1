@@ -23,9 +23,10 @@
     habituales del paquete MSIX y en la salida de compilación local.
 
 .EJEMPLO
-    .\FluentASM-MenuContextual.ps1 -Instalar
-    .\FluentASM-MenuContextual.ps1 -Instalar -RutaExe "C:\Program Files\WindowsApps\...\fluentasm-ide.exe"
-    .\FluentASM-MenuContextual.ps1 -Desinstalar
+    .\FluentASM-MenuContextual.ps1 -i
+    .\FluentASM-MenuContextual.ps1 -i -path "C:\...\fluentasm-ide.exe"
+    .\FluentASM-MenuContextual.ps1 -u
+    .\FluentASM-MenuContextual.ps1          # muestra menú de opciones
 
 .NOTAS
     - Usa HKCU (Software\Classes\Directory\shell y Directory\Background\shell),
@@ -34,15 +35,18 @@
       "Mostrar más opciones" en Windows 11), no en el menú simplificado de
       primer nivel (ese requiere una DLL COM IExplorerCommand).
 #>
-[CmdletBinding(DefaultParameterSetName = "Instalar")]
+[CmdletBinding(DefaultParameterSetName = "Menu")]
 param(
     [Parameter(ParameterSetName = "Instalar", Mandatory = $false)]
+    [Alias('i')]
     [switch] $Instalar,
 
     [Parameter(ParameterSetName = "Desinstalar", Mandatory = $true)]
+    [Alias('u')]
     [switch] $Desinstalar,
 
     [Parameter(Mandatory = $false)]
+    [Alias('path')]
     [string] $RutaExe
 )
 
@@ -151,7 +155,40 @@ function Eliminar-EntradaMenu {
     }
 }
 
+function Mostrar-Menu {
+    Write-Host ""
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host "  FluentASM IDE - Menú Contextual para Carpetas" -ForegroundColor Cyan
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  i) Instalar  - Agrega 'Abrir con FluentASM IDE' al menú contextual"
+    Write-Host "  u) Desinstalar - Elimina la entrada del menú contextual"
+    Write-Host "  s) Salir"
+    Write-Host ""
+    Write-Host "  También puede usar parámetros:"
+    Write-Host "    -i  (o -Instalar)   Instalar entrada"
+    Write-Host "    -u  (o -Desinstalar) Desinstalar entrada"
+    Write-Host "    -path <ruta>        Ruta al .exe (opcional)"
+    Write-Host ""
+}
+
 # --- Ejecución principal ---
+
+# Si no se pasó ningún parámetro, mostrar menú interactivo
+if (-not $PSBoundParameters.ContainsKey('Instalar') -and -not $PSBoundParameters.ContainsKey('Desinstalar')) {
+    Mostrar-Menu
+    $opcion = Read-Host "Seleccione una opción (i/u/s)"
+
+    switch ($opcion) {
+        'i' { $Instalar = $true }
+        'u' { $Desinstalar = $true }
+        's' { exit 0 }
+        default {
+            Write-Host "Opción no válida." -ForegroundColor Red
+            exit 1
+        }
+    }
+}
 
 if ($Desinstalar) {
     Eliminar-EntradaMenu
@@ -166,7 +203,7 @@ if ($Instalar) {
     }
 
     if ([string]::IsNullOrWhiteSpace($exe) -or -not (Test-Path -Path $exe -PathType Leaf)) {
-        Write-Error "No se pudo determinar la ruta del ejecutable. Especifícala con -RutaExe."
+        Write-Error "No se pudo determinar la ruta del ejecutable. Especifíquela con -path <ruta>."
         exit 1
     }
 
@@ -174,8 +211,4 @@ if ($Instalar) {
     if (-not $ok) {
         exit 1
     }
-}
-else {
-    Write-Host "Especifica -Instalar o -Desinstalar." -ForegroundColor Yellow
-    exit 1
 }
