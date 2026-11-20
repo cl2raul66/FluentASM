@@ -25,6 +25,7 @@ public sealed class Lexer
     private readonly string filePath;
     private readonly DiagnosticBag diagnostics;
     private readonly List<Token> tokens = [];
+    private readonly List<CommentTrivia> comments = [];
     private int position;
     private int line = 1;
     private int column = 1;
@@ -50,7 +51,7 @@ public sealed class Lexer
         var bag = diagnostics ?? new DiagnosticBag();
         var lexer = new Lexer(text, filePath, bag);
         lexer.ScanAll();
-        return new LexResult(lexer.tokens, bag);
+        return new LexResult(lexer.tokens, bag, lexer.comments);
     }
 
     private bool IsAtEnd => position >= text.Length;
@@ -498,10 +499,14 @@ public sealed class Lexer
 
     private void SkipLineComment()
     {
+        var start = position;
+
         while (!IsAtEnd && Current != '\n' && Current != '\r')
         {
             Advance();
         }
+
+        comments.Add(new CommentTrivia(new TextSpan(start, position - start), IsBlock: false));
     }
 
     private void SkipBlockComment(int startLine, int startColumn)
@@ -516,11 +521,14 @@ public sealed class Lexer
             {
                 Advance();
                 Advance();
+                comments.Add(new CommentTrivia(new TextSpan(start, position - start), IsBlock: true));
                 return;
             }
 
             Advance();
         }
+
+        comments.Add(new CommentTrivia(new TextSpan(start, position - start), IsBlock: true));
 
         diagnostics.Error(
             DiagnosticIds.LexUnterminatedBlockComment,

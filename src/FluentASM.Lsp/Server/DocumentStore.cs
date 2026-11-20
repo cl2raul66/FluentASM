@@ -4,6 +4,8 @@ using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 using FluentASM.Lsp.Protocol;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using LspDiagnosticSeverity = FluentASM.Lsp.Protocol.DiagnosticSeverity;
 
 namespace FluentASM.Lsp.Server;
@@ -13,9 +15,32 @@ namespace FluentASM.Lsp.Server;
 /// el pipeline <c>Lexer → Parser → SemanticAnalyzer</c> una sola vez por versión,
 /// descartando cualquier análisis que quede obsoleto mientras se calcula.
 /// </summary>
+/// <remarks>
+/// El registro estructurado es opcional: si no se inyecta un
+/// <see cref="ILoggerFactory"/>, el almacén funciona con
+/// <see cref="NullLogger"/> y no escribe en ningún sumidero.
+/// </remarks>
 public sealed class DocumentStore
 {
     private readonly ConcurrentDictionary<string, DocumentState> documents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ILogger<DocumentStore> logger;
+
+    /// <summary>Crea un almacén sin registro estructurado.</summary>
+    public DocumentStore()
+        : this(null)
+    {
+    }
+
+    /// <summary>
+    /// Crea un almacén que registra los fallos internos del pipeline y los
+    /// análisis descartados por obsolescencia.
+    /// </summary>
+    /// <param name="loggerFactory">Fábrica de registro; puede ser <c>null</c>.</param>
+    public DocumentStore(ILoggerFactory? loggerFactory)
+    {
+        logger = loggerFactory?.CreateLogger<DocumentStore>()
+            ?? NullLogger<DocumentStore>.Instance;
+    }
 
     /// <summary>Abre o reemplaza un documento.</summary>
     public void Open(string uri, string text, int version = 1) => SetDocument(uri, text, version);
@@ -28,6 +53,7 @@ public sealed class DocumentStore
     {
         if (!documents.TryRemove(uri, out var state))
         {
+            logger.LogDebug("Cierre ignorado: {Uri} no estaba abierto.", uri);
             return false;
         }
 
@@ -37,6 +63,7 @@ public sealed class DocumentStore
             state.Snapshot = null;
         }
 
+        logger.LogDebug("Documento cerrado: {Uri}.", uri);
         return true;
     }
 
@@ -118,6 +145,12 @@ public sealed class DocumentStore
                         state.Snapshot = snapshot;
                         return snapshot;
                     }
+
+                    logger.LogDebug(
+                        "Snapshot descartado por obsolescencia en {Uri}: analizada v{Analizada}, vigente v{Vigente}.",
+                        uri,
+                        document.Version,
+                        state.Document.Version);
                 }
             }
         }
@@ -161,14 +194,26 @@ public sealed class DocumentStore
 
             state.Document = new TextDocumentItem(uri, "fluentasm", effectiveVersion, text);
             state.Snapshot = null;
+
+            logger.LogDebug(
+                "Documento sincronizado: {Uri} v{Version} ({Length} caracteres).",
+                uri,
+                effectiveVersion,
+                text.Length);
         }
     }
 
-    private static DocumentSnapshot Build(TextDocumentItem document, CancellationToken cancellationToken)
+    private DocumentSnapshot Build(TextDocumentItem document, CancellationToken cancellationToken)
     {
         var lines = new DocumentLines(document.Text);
         var bag = new DiagnosticBag();
         string? analysisError = null;
+
+        logger.LogDebug(
+            "Analizando {Uri} v{Version} ({Length} caracteres).",
+            document.Uri,
+            document.Version,
+            document.Text.Length);
 
         LexResult lexResult;
         try
@@ -179,6 +224,12 @@ public sealed class DocumentStore
         {
             analysisError = ex.Message;
             lexResult = new LexResult(Array.Empty<Token>(), bag);
+            logger.LogError(
+                ex,
+                "Fallo en la fase {Fase} para {Uri} v{Version}.",
+                "Lexer",
+                document.Uri,
+                document.Version);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -194,6 +245,12 @@ public sealed class DocumentStore
             parseResult = new ParseResult(
                 new CompilationUnitSyntax(null, null, null, null, new TextSpan(0, document.Text.Length)),
                 bag);
+            logger.LogError(
+                ex,
+                "Fallo en la fase {Fase} para {Uri} v{Version}.",
+                "Parser",
+                document.Uri,
+                document.Version);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -206,6 +263,12 @@ public sealed class DocumentStore
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             analysisError ??= ex.Message;
+            logger.LogError(
+                ex,
+                "Fallo en la fase {Fase} para {Uri} v{Version}.",
+                "SemanticAnalyzer",
+                document.Uri,
+                document.Version);
         }
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -224,6 +287,20 @@ public sealed class DocumentStore
             diagnostics = internalDiagnostics;
         }
 
+        var highlightTokens = TokenClassifier.Classify(
+            document.Text,
+            lexResult.Tokens,
+            lexResult.Comments,
+            lines,
+            semanticResult);
+
+        logger.LogDebug(
+            "Análisis completado para {Uri} v{Version}: {Diagnosticos} diagnóstico(s), {Tokens} token(s) resaltados.",
+            document.Uri,
+            document.Version,
+            diagnostics.Count,
+            highlightTokens.Count);
+
         return new DocumentSnapshot
         {
             Uri = document.Uri,
@@ -234,7 +311,7 @@ public sealed class DocumentStore
             ParseResult = parseResult,
             SemanticResult = semanticResult,
             Diagnostics = diagnostics,
-            HighlightTokens = TokenClassifier.Classify(lexResult.Tokens, lines),
+            HighlightTokens = highlightTokens,
             AnalysisError = analysisError,
         };
     }

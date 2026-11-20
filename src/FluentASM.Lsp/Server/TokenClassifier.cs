@@ -1,13 +1,16 @@
 using System.Collections.Immutable;
 using FluentASM.Core.Catalog;
+using FluentASM.Core.Diagnostics;
+using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 using FluentASM.Lsp.Protocol;
 
 namespace FluentASM.Lsp.Server;
 
 /// <summary>
-/// Clasifica los tokens del lexer contra el catálogo único de
-/// <c>FluentASM.Core</c> para que el editor solo tenga que pintar rangos.
+/// Clasifica los tokens del lexer y los comentarios contra el catálogo único de
+/// <c>FluentASM.Core</c>, enriqueciendo los identificadores con la tabla de
+/// símbolos cuando está disponible. El editor solo tiene que pintar los spans.
 /// </summary>
 internal static class TokenClassifier
 {
@@ -18,10 +21,37 @@ internal static class TokenClassifier
     private static readonly ImmutableHashSet<string> Directives = BuildDirectives();
     private static readonly ImmutableHashSet<string> FlowConstructors = BuildFlowConstructors();
 
-    /// <summary>Clasifica todos los tokens significativos de un documento.</summary>
-    public static IReadOnlyList<HighlightToken> Classify(IReadOnlyList<Token> tokens, DocumentLines lines)
+    /// <summary>
+    /// Clasifica todos los tokens y comentarios del documento, devolviendo spans
+    /// absolutos base 0 sobre el texto normalizado.
+    /// </summary>
+    public static IReadOnlyList<HighlightToken> Classify(
+        string text,
+        IReadOnlyList<Token> tokens,
+        IReadOnlyList<CommentTrivia> comments,
+        DocumentLines lines,
+        SemanticResult? semantic)
     {
-        var result = new List<HighlightToken>(tokens.Count);
+        var dataNames = new HashSet<string>(StringComparer.Ordinal);
+        var routineNames = new HashSet<string>(StringComparer.Ordinal);
+
+        if (semantic is not null)
+        {
+            foreach (var data in semantic.Symbols.DataSymbols)
+            {
+                dataNames.Add(data.Name);
+            }
+
+            foreach (var routine in semantic.Symbols.Routines)
+            {
+                if (routine.Name is { Length: > 0 } name)
+                {
+                    routineNames.Add(name);
+                }
+            }
+        }
+
+        var result = new List<HighlightToken>(tokens.Count + comments.Count);
 
         for (int index = 0; index < tokens.Count; index++)
         {
@@ -31,29 +61,60 @@ internal static class TokenClassifier
                 continue;
             }
 
-            var kind = ClassifyToken(tokens, index);
+            var kind = ClassifyToken(tokens, index, dataNames, routineNames);
             if (kind is null)
             {
                 continue;
             }
 
-            var range = new LspRange(
-                lines.ToPosition(token.Span.Start),
-                lines.ToPosition(token.Span.End));
-
-            result.Add(new HighlightToken(range, kind.Value, token.Text));
+            result.Add(CreateToken(token.Span, kind.Value, token.Text, lines));
         }
 
+        foreach (var comment in comments)
+        {
+            if (comment.Span.Length <= 0)
+            {
+                continue;
+            }
+
+            int start = Math.Clamp(comment.Span.Start, 0, text.Length);
+            int end = Math.Clamp(comment.Span.End, start, text.Length);
+            if (end == start)
+            {
+                continue;
+            }
+
+            result.Add(new HighlightToken(
+                start,
+                end - start,
+                HighlightTokenKind.Comment,
+                text[start..end],
+                new LspRange(lines.ToPosition(start), lines.ToPosition(end))));
+        }
+
+        result.Sort(static (left, right) => left.Start.CompareTo(right.Start));
         return result;
     }
 
-    private static HighlightTokenKind? ClassifyToken(IReadOnlyList<Token> tokens, int index)
+    private static HighlightToken CreateToken(TextSpan span, HighlightTokenKind kind, string text, DocumentLines lines) =>
+        new(
+            span.Start,
+            span.Length,
+            kind,
+            text,
+            new LspRange(lines.ToPosition(span.Start), lines.ToPosition(span.End)));
+
+    private static HighlightTokenKind? ClassifyToken(
+        IReadOnlyList<Token> tokens,
+        int index,
+        HashSet<string> dataNames,
+        HashSet<string> routineNames)
     {
         var token = tokens[index];
 
         return token.Kind switch
         {
-            TokenKind.Identifier => ClassifyIdentifier(tokens, index),
+            TokenKind.Identifier => ClassifyIdentifier(tokens, index, dataNames, routineNames),
             TokenKind.Label => HighlightTokenKind.Label,
             TokenKind.Integer => HighlightTokenKind.Number,
             TokenKind.String => HighlightTokenKind.String,
@@ -71,7 +132,11 @@ internal static class TokenClassifier
         };
     }
 
-    private static HighlightTokenKind ClassifyIdentifier(IReadOnlyList<Token> tokens, int index)
+    private static HighlightTokenKind ClassifyIdentifier(
+        IReadOnlyList<Token> tokens,
+        int index,
+        HashSet<string> dataNames,
+        HashSet<string> routineNames)
     {
         var token = tokens[index];
 
@@ -91,13 +156,16 @@ internal static class TokenClassifier
 
                 if (Registers.Contains(qualified))
                 {
-                    return HighlightTokenKind.Register;
+                    // Algunos miembros de unidad son verbos (Stack.push, Cpu.halt, Port.copy).
+                    return Verbs.Contains(token.Text)
+                        ? HighlightTokenKind.Verb
+                        : HighlightTokenKind.Register;
                 }
             }
 
             if (FlowConstructors.Contains(token.Text))
             {
-                return HighlightTokenKind.Keyword;
+                return HighlightTokenKind.FlowConstructor;
             }
 
             if (Directives.Contains(token.Text))
@@ -116,6 +184,16 @@ internal static class TokenClassifier
             }
 
             return HighlightTokenKind.Identifier;
+        }
+
+        if (dataNames.Contains(token.Text))
+        {
+            return HighlightTokenKind.Data;
+        }
+
+        if (routineNames.Contains(token.Text))
+        {
+            return HighlightTokenKind.Routine;
         }
 
         if (Registers.Contains(token.Text))
@@ -224,7 +302,7 @@ internal static class TokenClassifier
         var builder = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
         foreach (var constructor in LanguageCatalog.FlowConstructors)
         {
-            builder.Add(constructor.Name);
+            builder.Add(constructor.Name.TrimStart('.'));
         }
 
         return builder.ToImmutable();

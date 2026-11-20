@@ -41,6 +41,9 @@ public interface ILanguageService
     /// <summary>Devuelve el árbol de símbolos del documento.</summary>
     IReadOnlyList<DocumentSymbol> GetDocumentSymbols(string uri);
 
-    /// <summary>Devuelve los tokens clasificados para el resaltado sintáctico.</summary>
+    /// <summary>
+    /// Devuelve los tokens y comentarios clasificados para el resaltado, con
+    /// spans absolutos <c>(Start, Length)</c> sobre el texto normalizado.
+    /// </summary>
     IReadOnlyList<HighlightToken> GetHighlightTokens(string uri, CancellationToken cancellationToken = default);
 }

@@ -3,6 +3,7 @@ using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 using FluentASM.Lsp.Catalog;
 using FluentASM.Lsp.Protocol;
+using Microsoft.Extensions.Logging;
 
 namespace FluentASM.Lsp.Server;
 
@@ -18,7 +19,24 @@ namespace FluentASM.Lsp.Server;
 /// </remarks>
 public sealed class FluentLanguageServer : ILanguageService
 {
-    private readonly DocumentStore store = new();
+    private readonly DocumentStore store;
+
+    /// <summary>Crea el servidor sin registro estructurado.</summary>
+    public FluentLanguageServer()
+        : this(null)
+    {
+    }
+
+    /// <summary>
+    /// Crea el servidor con registro estructurado opcional. Los fallos internos
+    /// del pipeline y los snapshots descartados se escriben con
+    /// <see cref="ILoggerFactory"/>.
+    /// </summary>
+    /// <param name="loggerFactory">Fábrica de registro; puede ser <c>null</c>.</param>
+    public FluentLanguageServer(ILoggerFactory? loggerFactory)
+    {
+        store = new DocumentStore(loggerFactory);
+    }
 
     /// <inheritdoc />
     public void OpenDocument(string uri, string text, int version = 1) => store.Open(uri, text, version);

@@ -194,7 +194,8 @@ public static class X64LanguageCatalogProvider
     {
         return new[]
         {
-            new DirectiveDescriptor("define", "define", ".data", "dt.define<Byte:N>(d -> d.id(nombre).value(valor))", "Declara un simbolo de datos con capacidad Byte:N y valor inicial."),
+            new DirectiveDescriptor("define", "define", ".data -> define / .execute -> routines -> define", "dt.define<Byte:N>(d -> d.id(nombre).value(valor)) / rt.define(d -> { d.id(nombre).returns(...).run(...) })", "Declara un simbolo de datos o una rutina segun la seccion activa."),
+            new DirectiveDescriptor("routines", "routines", ".execute", "ex.routines(rt -> { rt.define(...) })", "Agrupa las definiciones de rutina de la seccion ejecutable."),
             new DirectiveDescriptor("id", "id", ".execute -> routines -> define", "d.id(nombreRutina)", "Identificador unico de la rutina."),
             new DirectiveDescriptor("returns", "returns", ".execute -> routines -> define", "d.returns(GprN)", "Declara el registro de retorno de la rutina (o se omite si no devuelve valor)."),
             new DirectiveDescriptor("run", "run", ".execute -> routines -> define", "d.run(() -> { ... }) o d.run((arg1<Byte:N>, ...) -> { ... })", "Bloque de instrucciones. Argumentos son alias directos sobre registros fisicos de entrada."),

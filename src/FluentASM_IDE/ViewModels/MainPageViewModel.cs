@@ -11,6 +11,7 @@ using FluentASM.Lsp.Server;
 using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
@@ -74,7 +75,10 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [ObservableProperty]
     public partial string CommandQuery { get; set; } = "/";
 
-    public ILanguageService LspServer { get; } = new FluentLanguageServer();
+    private static readonly ILoggerFactory LspLoggerFactory = LoggerFactory.Create(builder =>
+        builder.SetMinimumLevel(LogLevel.Debug).AddDebug());
+
+    public ILanguageService LspServer { get; } = new FluentLanguageServer(LspLoggerFactory);
 
     private int documentVersion = 1;
 
