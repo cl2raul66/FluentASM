@@ -4,7 +4,7 @@ namespace FluentASM.Lsp.Server;
 /// Índice de líneas de un documento LSP. Traduce entre offsets absolutos base 0
 /// y posiciones <c>(línea, carácter)</c> base 0 sin volver a recorrer el texto.
 /// </summary>
-internal sealed class DocumentLines
+public sealed class DocumentLines
 {
     private readonly string text;
     private readonly int[] lineStarts;
@@ -63,6 +63,14 @@ internal sealed class DocumentLines
         }
 
         return end;
+    }
+
+    /// <summary>Texto contenido en la línea indicada, sin el salto de línea.</summary>
+    public string GetLineText(int line)
+    {
+        int start = GetLineStart(line);
+        int end = GetLineEnd(line);
+        return end > start ? text[start..end] : string.Empty;
     }
 
     /// <summary>Convierte un offset absoluto en una posición LSP base 0.</summary>

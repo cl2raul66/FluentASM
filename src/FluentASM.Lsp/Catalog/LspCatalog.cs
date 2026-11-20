@@ -1,22 +1,54 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
+using FluentASM.Core.Catalog;
 using FluentASM.Lsp.Protocol;
 
 namespace FluentASM.Lsp.Catalog;
 
 /// <summary>
-/// Catálogo centralizado de metadatos, firmas y documentación técnica de FluentASM
-/// para autocompletado inteligente y tarjetas Stitch en el IDE.
+/// Catálogo LSP construido dinámicamente desde <see cref="LanguageCatalog"/> de FluentASM.Core.
+/// Elimina todos los ítems legacy hardcodeados y proyecta directamente desde la fuente única de verdad.
 /// </summary>
 public static class LspCatalog
 {
-    private static readonly List<LspCompletionItem> AllItems = [];
-    private static readonly Dictionary<string, LspCompletionItem> ItemsByLookup = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ImmutableArray<LspCompletionItem> AllItems;
+    private static readonly ImmutableDictionary<string, LspCompletionItem> ItemsByLookup;
 
     static LspCatalog()
     {
-        InitializeRegisters();
-        InitializeVerbs();
-        InitializeFlowDirectives();
-        InitializeDirectives();
+        var items = ImmutableArray.CreateBuilder<LspCompletionItem>();
+
+        foreach (var gpr in LanguageCatalog.Gprs) { AddRegister(items, gpr); }
+        foreach (var unit in LanguageCatalog.Units) { AddUnit(items, unit); }
+        foreach (var flag in LanguageCatalog.Flags) { AddFlagMember(items, flag); }
+        foreach (var alias in LanguageCatalog.FlagAliases) { AddFlagAlias(items, alias); }
+        foreach (var verb in LanguageCatalog.Verbs) { AddVerb(items, verb); }
+        foreach (var mag in LanguageCatalog.Magnitudes) { AddMagnitude(items, mag); }
+        foreach (var fc in LanguageCatalog.FlowConstructors) { AddFlowConstructor(items, fc); }
+        foreach (var dir in LanguageCatalog.Directives) { AddDirective(items, dir); }
+        foreach (var ck in LanguageCatalog.ContextualKeywords) { AddContextualKeyword(items, ck); }
+        foreach (var diag in LanguageCatalog.Diagnostics) { AddDiagnostic(items, diag); }
+        foreach (var legacy in LanguageCatalog.LegacyNames) { AddLegacyName(items, legacy.Key, legacy.Value); }
+
+        AllItems = items.ToImmutable();
+
+        var lookup = ImmutableDictionary.CreateBuilder<string, LspCompletionItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in AllItems)
+        {
+            lookup[item.Label] = item;
+            if (!string.IsNullOrEmpty(item.InsertText) && !lookup.ContainsKey(item.InsertText))
+            {
+                lookup[item.InsertText] = item;
+            }
+
+            if (!string.IsNullOrEmpty(item.FilterText) && !lookup.ContainsKey(item.FilterText))
+            {
+                lookup[item.FilterText] = item;
+            }
+        }
+        ItemsByLookup = lookup.ToImmutable();
     }
 
     public static IReadOnlyList<LspCompletionItem> GetAllItems() => AllItems;
@@ -24,363 +56,329 @@ public static class LspCatalog
     public static bool TryGetItem(string name, out LspCompletionItem item) =>
         ItemsByLookup.TryGetValue(name, out item!);
 
-    private static void AddItem(LspCompletionItem item)
+    private static string GetViewSortText(string suffix) => suffix switch
     {
-        AllItems.Add(item);
-        ItemsByLookup[item.Label] = item;
-        if (!string.IsNullOrEmpty(item.InsertText) && !ItemsByLookup.ContainsKey(item.InsertText))
-        {
-            ItemsByLookup[item.InsertText] = item;
-        }
-    }
+        ".low32" => "02",
+        ".low16" => "03",
+        ".low8" => "03",
+        ".high8" => "04",
+        _ => "05"
+    };
 
-    private static void InitializeRegisters()
+    private static void AddRegister(ImmutableArray<LspCompletionItem>.Builder items, GprDescriptor gpr)
     {
-        // Gpr0 - Gpr15
-        for (int i = 0; i <= 15; i++)
+        var name = gpr.Name;
+        var role = gpr.Role;
+
+        var detailBase = "Registro x64 de 64 bits [Gpr" + gpr.Index + "]";
+        var docBase = "### `" + gpr.Name + "` (Registro General x64)\n\n" + role + ".\n\n- **Tamaño:** 64 bits (QWord)\n- **Sub-vistas:** `" + string.Join("`, `", gpr.ViewNames) + "`";
+
+        var baseMeta = new FluentItemMetadata(
+            Category: "Registros",
+            Signature: gpr.Name + ": QWord",
+            Description: role,
+            Inputs: "Ninguno",
+            Modifies: gpr.Name + " (64 bits)",
+            Returns: "Celda de registro",
+            FlagsAffected: "Ninguna");
+
+        items.Add(new LspCompletionItem(
+            Label: gpr.Name,
+            Kind: CompletionItemKind.Variable,
+            Detail: "Registro x64 de 64 bits [Gpr" + gpr.Index + "]",
+            Documentation: MarkupContent.Markdown(docBase),
+            InsertText: gpr.Name,
+            FilterText: gpr.Name,
+            SortText: "01_" + gpr.Name,
+            Metadata: baseMeta));
+
+        foreach (var view in LanguageCatalog.Gprs.First(g => g.Name == gpr.Name).ValidViews)
         {
-            string name = $"Gpr{i}";
-            string role = i switch
+            if (view.Suffix != "")
             {
-                0 => "Acumulador principal (rax / retorno de 64 bits)",
-                1 => "Primer argumento / registro de propósito general (rcx)",
-                2 => "Segundo argumento / registro de datos (rdx)",
-                3 => "Registro base / propósito general (rbx)",
-                4 => "Puntero de pila (rsp - uso protegido)",
-                5 => "Puntero de marco base (rbp)",
-                6 => "Índice fuente (rsi)",
-                7 => "Índice destino (rdi)",
-                _ => $"Registro extendido de 64 bits r{i}"
-            };
+                var viewDetail = view.Name;
+                var viewSig = gpr.Name + view.Suffix + ": " + view.Bits + " bits";
 
-            AddItem(new LspCompletionItem(
-                Label: name,
-                Kind: CompletionItemKind.Variable,
-                Detail: $"Registro x64 de 64 bits [Gpr{i}]",
-                Documentation: MarkupContent.Markdown($"### `{name}` (Registro General x64)\n\n{role}.\n\n- **Tamaño:** 64 bits (QWord)\n- **Sub-vistas:** `{name}.low32`, `{name}.low16`, `{name}.low8`"),
-                InsertText: name,
-                FilterText: name,
-                SortText: $"01_{name}",
-                Metadata: new FluentItemMetadata(
-                    Category: "Registers",
-                    Signature: $"{name}: QWord",
-                    Description: role,
-                    Inputs: "Ninguno",
-                    Modifies: $"{name} (64 bits)",
-                    Returns: "Celda de registro",
-                    FlagsAffected: "Ninguna")));
+                var meta = new FluentItemMetadata(
+                    Category: "Registros",
+                    Signature: gpr.Name + view.Suffix + ": " + view.Bits + " bits",
+                    Description: view.Effect,
+                    Inputs: gpr.Name,
+                    Modifies: gpr.Name + " (" + view.Bits + " bits)",
+                    Returns: "Vista " + view.Bits + " bits",
+                    FlagsAffected: "Ninguna");
 
-            // Subviews for Gpr
-            AddItem(new LspCompletionItem(
-                Label: $"{name}.low32",
-                Kind: CompletionItemKind.Field,
-                Detail: $"Vista de 32 bits bajos de {name}",
-                Documentation: MarkupContent.Markdown($"Vista de 32 bits inferiores de `{name}` (equivale a `eax`, `ecx`, etc.).\n\nAl escribir en esta vista se pone a cero la mitad superior de 64 bits."),
-                InsertText: $"{name}.low32",
-                FilterText: $"{name}.low32",
-                SortText: $"02_{name}_low32",
-                Metadata: new FluentItemMetadata(
-                    Category: "Registers",
-                    Signature: $"{name}.low32: DWord",
-                    Description: $"Ventana de 32 bits bajos de {name}. La escritura limpia los bits 32-63.",
-                    Inputs: $"{name}",
-                    Modifies: $"{name} (32 bits bajos)",
-                    Returns: "Vista DWord",
-                    FlagsAffected: "Ninguna")));
-
-            AddItem(new LspCompletionItem(
-                Label: $"{name}.low8",
-                Kind: CompletionItemKind.Field,
-                Detail: $"Vista de 8 bits bajos de {name}",
-                Documentation: MarkupContent.Markdown($"Vista del byte inferior de `{name}` (equivale a `al`, `cl`, `dl`, `bl`, `r8b`, etc.)."),
-                InsertText: $"{name}.low8",
-                FilterText: $"{name}.low8",
-                SortText: $"03_{name}_low8",
-                Metadata: new FluentItemMetadata(
-                    Category: "Registers",
-                    Signature: $"{name}.low8: Byte",
-                    Description: $"Ventana de 8 bits inferiores (byte bajo) de {name}.",
-                    Inputs: $"{name}",
-                    Modifies: $"{name}[0..7]",
-                    Returns: "Vista Byte",
-                    FlagsAffected: "Ninguna")));
+                items.Add(new LspCompletionItem(
+                    Label: gpr.Name + view.Suffix,
+                    Kind: CompletionItemKind.Field,
+                    Detail: viewDetail,
+                    Documentation: MarkupContent.Markdown(view.Effect),
+                    InsertText: gpr.Name + view.Suffix,
+                    FilterText: gpr.Name + view.Suffix,
+                    SortText: GetViewSortText(view.Suffix) + "_" + gpr.Name,
+                    Metadata: meta));
+            }
         }
+    }
 
-        // Flags & Special
-        AddItem(new LspCompletionItem(
-            Label: "rFlags.zero",
-            Kind: CompletionItemKind.Field,
-            Detail: "Bandera Zero (ZF) en registro de banderas",
-            Documentation: MarkupContent.Markdown("Indica si el resultado de la última operación de ALU fue cero."),
-            InsertText: "rFlags.zero",
-            SortText: "04_rflags_zero",
-            Metadata: new FluentItemMetadata(
-                Category: "Registers",
-                Signature: "rFlags.zero: Bit",
-                Description: "Bandera Zero (ZF). Evaluada en saltos condicionales (`if rFlags.zero` / `if not rFlags.zero`).",
-                Inputs: "ALU status",
+    private static void AddUnit(ImmutableArray<LspCompletionItem>.Builder items, UnitDescriptor unit)
+    {
+        var kind = unit.IsGpr ? CompletionItemKind.Variable : CompletionItemKind.Field;
+        var detail = unit.Description;
+
+        var doc = unit.Description;
+        var meta = new FluentItemMetadata(
+            Category: "Registros",
+            Signature: unit.Name + ": " + detail,
+            Description: detail,
+            Inputs: string.Join(", ", unit.Members),
+            Modifies: unit.Name,
+            Returns: unit.Name,
+            FlagsAffected: "Ninguna");
+
+        var item = new LspCompletionItem(
+            Label: unit.Name,
+            Kind: kind,
+            Detail: detail,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: unit.Name,
+            FilterText: unit.Name,
+            SortText: "02_" + unit.Name,
+            Metadata: meta);
+
+        items.Add(item);
+
+        foreach (var member in unit.Members)
+        {
+            var memMeta = new FluentItemMetadata(
+                Category: "Registros",
+                Signature: unit.Name + "." + member,
+                Description: "Acceso al miembro `" + member + "` de `" + unit.Name + "`.",
+                Inputs: unit.Name,
                 Modifies: "Lectura",
-                Returns: "Bit (0 o 1)",
-                FlagsAffected: "Lectura")));
+                Returns: member,
+                FlagsAffected: "Ninguna");
 
-        AddItem(new LspCompletionItem(
-            Label: "rFlags.carry",
+            items.Add(new LspCompletionItem(
+                Label: unit.Name + "." + member,
+                Kind: CompletionItemKind.Field,
+                Detail: "Miembro " + member + " de " + unit.Name,
+                Documentation: MarkupContent.Markdown("Miembro `" + member + "` de la unidad `" + unit.Name + "`."),
+                InsertText: unit.Name + "." + member,
+                FilterText: unit.Name + "." + member,
+                SortText: "03_" + unit.Name + "_" + member,
+                Metadata: memMeta));
+        }
+    }
+
+    private static void AddFlagMember(ImmutableArray<LspCompletionItem>.Builder items, FlagDescriptor flag)
+    {
+        var doc = flag.PhysicalMeaning;
+        var meta = new FluentItemMetadata(
+            Category: "Registros",
+            Signature: "Frf." + flag.Name + ": Bit",
+            Description: flag.PhysicalMeaning,
+            Inputs: "ALU status",
+            Modifies: "Lectura",
+            Returns: "Bit (0 o 1)",
+            FlagsAffected: "Lectura");
+
+        items.Add(new LspCompletionItem(
+            Label: "Frf." + flag.Name,
             Kind: CompletionItemKind.Field,
-            Detail: "Bandera Carry (CF)",
-            Documentation: MarkupContent.Markdown("Indica acarreo sin signo en la última operación aritmética."),
-            InsertText: "rFlags.carry",
-            SortText: "04_rflags_carry",
-            Metadata: new FluentItemMetadata(
-                Category: "Registers",
-                Signature: "rFlags.carry: Bit",
-                Description: "Bandera Carry (CF). Acarreo en operaciones aritméticas sin signo.",
-                Inputs: "ALU status",
-                Modifies: "Lectura",
-                Returns: "Bit (0 o 1)",
-                FlagsAffected: "Lectura")));
+            Detail: flag.PhysicalMeaning,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: "Frf." + flag.Name,
+            FilterText: "Frf." + flag.Name,
+            SortText: "04_Frf." + flag.Name,
+            Metadata: meta));
     }
 
-    private static void InitializeVerbs()
+    private static void AddFlagAlias(ImmutableArray<LspCompletionItem>.Builder items, FlagAliasDescriptor alias)
     {
-        AddItem(new LspCompletionItem(
-            Label: "imult<2,0>(op)",
-            Kind: CompletionItemKind.Method,
-            Detail: "Multiplicación entera con receptor ampliado (imul)",
-            Documentation: MarkupContent.Markdown("Multiplica el registro destino por el operando, ampliando el resultado en el par de registros especificado (ej. `Gpr2:Gpr0`)."),
-            InsertText: "imult<2,0>($0)",
-            FilterText: "imult",
-            SortText: "10_imult",
-            Metadata: new FluentItemMetadata(
-                Category: "Verbs",
-                Signature: "Gpr0.imult<2,0>(Gpr1)",
-                Description: "Multiplica el valor del registro destino por el operando, calculando producto firmado completo.",
-                Inputs: "Gpr0 (acumulador), Gpr1 (multiplicando)",
-                Modifies: "Gpr0 (resultado bajo), Gpr2 (resultado alto truncado)",
-                Returns: "void",
-                FlagsAffected: "Frf.Carry, Frf.Overflow")));
+        var doc = "Alias legible: `" + alias.CanonicalForm + "`\n\nBits evaluados: " + alias.BitsEvaluated;
+        var meta = new FluentItemMetadata(
+            Category: "Registros",
+            Signature: "Frf." + alias.Alias + " (" + alias.CanonicalForm + ")",
+            Description: "Alias legible para `" + alias.CanonicalForm + "`." + "\n\nBits evaluados: " + alias.BitsEvaluated,
+            Inputs: "ALU status",
+            Modifies: "Lectura",
+            Returns: "Bit (0 o 1)",
+            FlagsAffected: "Lectura");
 
-        AddItem(new LspCompletionItem(
-            Label: "copy(src)",
-            Kind: CompletionItemKind.Method,
-            Detail: "Transferencia de datos / carga de valor (mov)",
-            Documentation: MarkupContent.Markdown("Copia el valor del operando fuente en la ubicación receptora sin alterar banderas."),
-            InsertText: "copy($0)",
-            FilterText: "copy",
-            SortText: "10_copy",
-            Metadata: new FluentItemMetadata(
-                Category: "Verbs",
-                Signature: "target.copy(source)",
-                Description: "Transfiere datos de la fuente al destino sin modificar banderas del procesador.",
-                Inputs: "source (inmediato, registro o memoria)",
-                Modifies: "target",
-                Returns: "void",
-                FlagsAffected: "Ninguna")));
-
-        AddItem(new LspCompletionItem(
-            Label: "sub(src)",
-            Kind: CompletionItemKind.Method,
-            Detail: "Resta aritmética (sub)",
-            Documentation: MarkupContent.Markdown("Resta el operando de la fuente del receptor y actualiza las banderas de estado (ZF, SF, CF, OF)."),
-            InsertText: "sub($0)",
-            FilterText: "sub",
-            SortText: "10_sub",
-            Metadata: new FluentItemMetadata(
-                Category: "Verbs",
-                Signature: "target.sub(value)",
-                Description: "Resta aritmética de enteros. Actualiza banderas según el resultado.",
-                Inputs: "value (inmediato o registro)",
-                Modifies: "target = target - value",
-                Returns: "void",
-                FlagsAffected: "Frf.Zero, Frf.Sign, Frf.Carry, Frf.Overflow")));
-
-        AddItem(new LspCompletionItem(
-            Label: "add(src)",
-            Kind: CompletionItemKind.Method,
-            Detail: "Suma aritmética (add)",
-            Documentation: MarkupContent.Markdown("Suma el operando de la fuente al receptor y actualiza las banderas de la ALU."),
-            InsertText: "add($0)",
-            FilterText: "add",
-            SortText: "10_add",
-            Metadata: new FluentItemMetadata(
-                Category: "Verbs",
-                Signature: "target.add(value)",
-                Description: "Suma aritmética de enteros.",
-                Inputs: "value (inmediato o registro)",
-                Modifies: "target = target + value",
-                Returns: "void",
-                FlagsAffected: "Frf.Zero, Frf.Sign, Frf.Carry, Frf.Overflow")));
-
-        AddItem(new LspCompletionItem(
-            Label: "cmp(src)",
-            Kind: CompletionItemKind.Method,
-            Detail: "Comparación aritmética (cmp)",
-            Documentation: MarkupContent.Markdown("Resta conceptualmente el operando del receptor para actualizar las banderas sin modificar el valor de los registros."),
-            InsertText: "cmp($0)",
-            FilterText: "cmp",
-            SortText: "10_cmp",
-            Metadata: new FluentItemMetadata(
-                Category: "Verbs",
-                Signature: "target.cmp(value)",
-                Description: "Compara el valor de target con value afectando banderas para saltos condicionales posteriores.",
-                Inputs: "target, value",
-                Modifies: "Solo banderas",
-                Returns: "void",
-                FlagsAffected: "Frf.Zero, Frf.Sign, Frf.Carry, Frf.Overflow")));
-
-        AddItem(new LspCompletionItem(
-            Label: "xor(src)",
-            Kind: CompletionItemKind.Method,
-            Detail: "Operación lógica XOR bit a bit (xor)",
-            Documentation: MarkupContent.Markdown("Realiza una operación OR exclusiva entre receptor y operando. Frecuentemente usado para poner un registro en cero de forma eficiente."),
-            InsertText: "xor($0)",
-            FilterText: "xor",
-            SortText: "10_xor",
-            Metadata: new FluentItemMetadata(
-                Category: "Verbs",
-                Signature: "target.xor(value)",
-                Description: "Operación XOR a nivel de bits. Pone a cero Carry y Overflow.",
-                Inputs: "target, value",
-                Modifies: "target = target ^ value",
-                Returns: "void",
-                FlagsAffected: "Frf.Zero, Frf.Sign, Frf.Parity (CF=0, OF=0)")));
+        items.Add(new LspCompletionItem(
+            Label: "Frf." + alias.Alias,
+            Kind: CompletionItemKind.Field,
+            Detail: "Alias legible para " + alias.CanonicalForm,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: "Frf." + alias.Alias,
+            FilterText: "Frf." + alias.Alias,
+            SortText: "05_" + alias.Alias,
+            Metadata: meta));
     }
 
-    private static void InitializeFlowDirectives()
+    private static void AddVerb(ImmutableArray<LspCompletionItem>.Builder items, VerbDescriptor verb)
     {
-        AddItem(new LspCompletionItem(
-            Label: ".flowJump(@target)",
-            Kind: CompletionItemKind.Function,
-            Detail: "Salto de flujo (jmp / jcc)",
-            Documentation: MarkupContent.Markdown("Bifurca la ejecución del flujo a la etiqueta especificada, opcionalmente condicionado por el estado de una bandera."),
-            InsertText: ".flowJump($0)",
-            FilterText: ".flowJump",
-            SortText: "20_flowJump",
-            Metadata: new FluentItemMetadata(
-                Category: "Flow",
-                Signature: ".flowJump(@etiqueta [if [not] rFlags.cond])",
-                Description: "Salto local a una etiqueta del flujo dentro de la rutina actual.",
-                Inputs: "Etiqueta destino, condición opcional",
-                Modifies: "Ipr (Puntero de instrucción)",
-                Returns: "void",
-                FlagsAffected: "Ninguna")));
+        var receivers = string.Join(", ", verb.Receivers);
+        var flagsAffected = verb.FlagsAffected == "Ninguna" ? "Ninguna" : verb.FlagsAffected;
 
-        AddItem(new LspCompletionItem(
-            Label: ".flowCall(Routine)",
-            Kind: CompletionItemKind.Function,
-            Detail: "Llamada a rutina externa o interna (call)",
-            Documentation: MarkupContent.Markdown("Invoca la subrutina indicada empujando la dirección de retorno a la pila de ejecución según la ABI."),
-            InsertText: ".flowCall($0)",
-            FilterText: ".flowCall",
-            SortText: "20_flowCall",
-            Metadata: new FluentItemMetadata(
-                Category: "Flow",
-                Signature: ".flowCall(NombreRutina)",
-                Description: "Llamada a subrutina siguiendo las convenciones de llamada del compilador.",
-                Inputs: "Nombre de rutina declarada",
-                Modifies: "Stack (dirección de retorno), Ipr",
-                Returns: "Valor en Gpr0 según firma",
-                FlagsAffected: "Indefinidas tras retorno")));
+        var doc = verb.SemanticDescription + "\n\n**Firma:** `" + verb.Signature + "`\n\n**Receptores:** " + receivers + "\n\n**Argumentos:** " + verb.MinArguments + ".." + verb.MaxArguments + "\n\n**Banderas afectadas:** " + flagsAffected;
 
-        AddItem(new LspCompletionItem(
-            Label: ".flowStackJump()",
-            Kind: CompletionItemKind.Function,
-            Detail: "Retorno de rutina (ret)",
-            Documentation: MarkupContent.Markdown("Extrae la dirección de retorno guardada en la pila y transfiere el control de vuelta al llamador."),
-            InsertText: ".flowStackJump()",
-            FilterText: ".flowStackJump",
-            SortText: "20_flowStackJump",
-            Metadata: new FluentItemMetadata(
-                Category: "Flow",
-                Signature: ".flowStackJump()",
-                Description: "Finaliza la rutina actual y salta a la dirección de retorno de la pila.",
-                Inputs: "Pila de llamada",
-                Modifies: "Stack, Ipr",
-                Returns: "Control al llamador",
-                FlagsAffected: "Preservadas")));
+        var meta = new FluentItemMetadata(
+            Category: "Verbos",
+            Signature: verb.Signature,
+            Description: verb.SemanticDescription,
+            Inputs: string.Join(", ", verb.Inputs),
+            Modifies: string.Join(", ", verb.Modifies),
+            Returns: verb.Returns,
+            FlagsAffected: flagsAffected);
+
+        items.Add(new LspCompletionItem(
+            Label: verb.Name + "($0)",
+            Kind: CompletionItemKind.Method,
+            Detail: verb.Description,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: verb.Name + "($0)",
+            FilterText: verb.Name,
+            SortText: "10_" + verb.Name,
+            Metadata: meta));
     }
 
-    private static void InitializeDirectives()
+    private static void AddMagnitude(ImmutableArray<LspCompletionItem>.Builder items, MagnitudeDescriptor mag)
     {
-        AddItem(new LspCompletionItem(
-            Label: "program",
-            Kind: CompletionItemKind.Keyword,
-            Detail: "Declaración de programa FluentASM",
-            Documentation: MarkupContent.Markdown("Define el contenedor principal de la unidad de compilación."),
-            InsertText: "program $0\nend",
-            SortText: "30_program",
-            Metadata: new FluentItemMetadata(
-                Category: "Directives",
-                Signature: "program Identificador ... end",
-                Description: "Bloque raíz del programa de ensamblado fluido.",
-                Inputs: "Identificador del programa",
-                Modifies: "Estructura de unidad",
-                Returns: "Contenedor de programa",
-                FlagsAffected: "Ninguna")));
+        var doc = mag.Description + "\n\nSintaxis: `" + mag.Syntax + "`\n\nContexto: " + mag.UsageContext;
+        var meta = new FluentItemMetadata(
+            Category: "Magnitudes",
+            Signature: mag.Syntax,
+            Description: mag.Description,
+            Inputs: "Valor numérico N",
+            Modifies: "Tipo de operando",
+            Returns: "Literal tipado",
+            FlagsAffected: "Ninguna");
 
-        AddItem(new LspCompletionItem(
-            Label: "section .execute",
+        items.Add(new LspCompletionItem(
+            Label: mag.Name,
             Kind: CompletionItemKind.Keyword,
-            Detail: "Sección de código (.text)",
-            Documentation: MarkupContent.Markdown("Apertura del segmento de instrucciones ejecutables del programa."),
-            InsertText: "section .execute",
-            SortText: "30_section_execute",
-            Metadata: new FluentItemMetadata(
-                Category: "Directives",
-                Signature: "section .execute",
-                Description: "Segmento de código con permisos de lectura y ejecución (RX).",
-                Inputs: "Ninguno",
-                Modifies: "Segmentación",
-                Returns: "Bloque de código",
-                FlagsAffected: "Ninguna")));
+            Detail: mag.Description,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: mag.Name + ":N",
+            FilterText: mag.Name,
+            SortText: "30_" + mag.Name,
+            Metadata: meta));
+    }
 
-        AddItem(new LspCompletionItem(
-            Label: "routine",
-            Kind: CompletionItemKind.Keyword,
-            Detail: "Declaración de subrutina",
-            Documentation: MarkupContent.Markdown("Define una función o rutina autónoma de bajo nivel."),
-            InsertText: "routine $0\n    .flowStackJump()\nend",
-            SortText: "30_routine",
-            Metadata: new FluentItemMetadata(
-                Category: "Directives",
-                Signature: "routine Nombre\n    ...\nend",
-                Description: "Declaración de subrutina con alcance de etiquetas locales y parámetros.",
-                Inputs: "Nombre de rutina",
-                Modifies: "Tabla de símbolos",
-                Returns: "Símbolo de rutina",
-                FlagsAffected: "Ninguna")));
+    private static void AddFlowConstructor(ImmutableArray<LspCompletionItem>.Builder items, FlowConstructorDescriptor fc)
+    {
+        var doc = fc.Description + "\n\nSintaxis: `" + fc.Syntax + "`\n\n" + fc.SemanticDescription;
+        var meta = new FluentItemMetadata(
+            Category: "Flujo",
+            Signature: fc.Syntax,
+            Description: fc.SemanticDescription,
+            Inputs: "Constructor fluido",
+            Modifies: "Estructura del programa",
+            Returns: "Programa completo",
+            FlagsAffected: "Ninguna");
 
-        AddItem(new LspCompletionItem(
-            Label: "parameter",
+        items.Add(new LspCompletionItem(
+            Label: fc.Name,
             Kind: CompletionItemKind.Keyword,
-            Detail: "Parámetro formal de rutina",
-            Documentation: MarkupContent.Markdown("Asigna un nombre formal al siguiente registro libre de paso de argumentos según la convención de llamadas."),
-            InsertText: "parameter $0",
-            SortText: "30_parameter",
-            Metadata: new FluentItemMetadata(
-                Category: "Directives",
-                Signature: "parameter nombre",
-                Description: "Mapea un nombre local a un registro de argumentos (ej. `parameter n` -> Gpr1).",
-                Inputs: "Identificador del parámetro",
-                Modifies: "Variables locales",
-                Returns: "Alias de registro",
-                FlagsAffected: "Ninguna")));
+            Detail: fc.Description,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: fc.Name,
+            FilterText: fc.Name,
+            SortText: "40_" + fc.Name,
+            Metadata: meta));
+    }
 
-        AddItem(new LspCompletionItem(
-            Label: "Bit",
+    private static void AddDirective(ImmutableArray<LspCompletionItem>.Builder items, DirectiveDescriptor dir)
+    {
+        var doc = dir.Description + "\n\nContexto: " + dir.Context + "\n\nSintaxis: `" + dir.Syntax + "`";
+        var meta = new FluentItemMetadata(
+            Category: "Directivas",
+            Signature: dir.Context + " -> " + dir.CanonicalName,
+            Description: dir.Description,
+            Inputs: "Según sintaxis",
+            Modifies: "Estructura del programa",
+            Returns: "Símbolo configurado",
+            FlagsAffected: "Ninguna");
+
+        items.Add(new LspCompletionItem(
+            Label: dir.Name,
             Kind: CompletionItemKind.Keyword,
-            Detail: "Especificador de literal o tipo Bit",
-            Documentation: MarkupContent.Markdown("Crea un valor de tipo Bit (1 bit de amplitud) o califica un inmediato."),
-            InsertText: "Bit $0",
-            SortText: "30_bit",
-            Metadata: new FluentItemMetadata(
-                Category: "Directives",
-                Signature: "Bit <valor>",
-                Description: "Calificador de amplitud inmediata de 1 bit.",
-                Inputs: "Valor numérico",
-                Modifies: "Tipo de operando",
-                Returns: "Literal tipado",
-                FlagsAffected: "Ninguna")));
+            Detail: dir.Description,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: dir.Name,
+            FilterText: dir.Name,
+            SortText: "45_" + dir.Name,
+            Metadata: meta));
+    }
+
+    private static void AddContextualKeyword(ImmutableArray<LspCompletionItem>.Builder items, ContextualKeywordDescriptor ck)
+    {
+        var doc = ck.Description + "\n\nSintaxis: `" + ck.Syntax + "`\n\n" + ck.Usage;
+        var meta = new FluentItemMetadata(
+            Category: "Contexto",
+            Signature: ck.Syntax,
+            Description: ck.Description,
+            Inputs: "Según contexto",
+            Modifies: "Según uso",
+            Returns: "Según uso",
+            FlagsAffected: "Ninguna");
+
+        items.Add(new LspCompletionItem(
+            Label: ck.Name,
+            Kind: CompletionItemKind.Keyword,
+            Detail: ck.Description,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: ck.Name,
+            FilterText: ck.Name,
+            SortText: "50_" + ck.Name,
+            Metadata: meta));
+    }
+
+    private static void AddDiagnostic(ImmutableArray<LspCompletionItem>.Builder items, DiagnosticDescriptor diag)
+    {
+        var doc = "**Código:** `" + diag.Code + "`\n\n**Mensaje:** " + diag.Message + "\n\n**Severidad:** " + diag.Severity + "\n\n**Categoría:** " + diag.Category;
+        var meta = new FluentItemMetadata(
+            Category: "Diagnósticos",
+            Signature: diag.Code + ": " + diag.Message,
+            Description: diag.Message,
+            Inputs: "N/A",
+            Modifies: "N/A",
+            Returns: "Código de diagnóstico",
+            FlagsAffected: "Ninguna");
+
+        items.Add(new LspCompletionItem(
+            Label: diag.Code,
+            Kind: CompletionItemKind.Keyword,
+            Detail: diag.Message,
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: diag.Code,
+            FilterText: diag.Code,
+            SortText: "60_" + diag.Code,
+            Metadata: meta));
+    }
+
+    private static void AddLegacyName(ImmutableArray<LspCompletionItem>.Builder items, string legacy, string canonical)
+    {
+        var doc = "`" + legacy + "` es un nombre legacy **prohibido** (FASM3012).\n\nUse el nombre canónico: `" + canonical + "`.";
+        var meta = new FluentItemMetadata(
+            Category: "Legacy (prohibido)",
+            Signature: legacy + " -> " + canonical,
+            Description: "Nombre legacy prohibido. Use `" + canonical + "`.",
+            Inputs: "N/A",
+            Modifies: "N/A",
+            Returns: "Sugerencia de corrección",
+            FlagsAffected: "Ninguna");
+
+        items.Add(new LspCompletionItem(
+            Label: legacy,
+            Kind: CompletionItemKind.Keyword,
+            Detail: "Nombre legacy -> use `" + canonical + "`",
+            Documentation: MarkupContent.Markdown(doc),
+            InsertText: canonical,
+            FilterText: legacy,
+            SortText: "99_" + legacy,
+            Metadata: meta));
     }
 }
-
-

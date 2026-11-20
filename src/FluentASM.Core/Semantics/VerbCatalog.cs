@@ -4,7 +4,7 @@ namespace FluentASM.Core.Semantics;
 
 /// <summary>Forma física que puede ocupar el receptor de un verbo.</summary>
 [Flags]
-internal enum ReceiverShape
+public enum ReceiverShape
 {
     None = 0,
     Register = 1 << 0,
@@ -19,7 +19,7 @@ internal enum ReceiverShape
 
 /// <summary>Conjunto de banderas de <c>Frf</c>.</summary>
 [Flags]
-internal enum FlagSet
+public enum FlagSet
 {
     None = 0,
     Carry = 1 << 0,
@@ -41,7 +41,7 @@ internal enum FlagSet
 /// <summary>Efecto de una instrucción sobre el registro de banderas.</summary>
 /// <param name="Defined">Banderas que quedan definidas con un valor determinista.</param>
 /// <param name="Undefined">Banderas que quedan indefinidas.</param>
-internal readonly record struct FlagEffect(FlagSet Defined, FlagSet Undefined)
+public readonly record struct FlagEffect(FlagSet Defined, FlagSet Undefined)
 {
     /// <summary>La instrucción no modifica ninguna bandera.</summary>
     public static FlagEffect Preserve => default;
@@ -56,7 +56,7 @@ internal readonly record struct FlagEffect(FlagSet Defined, FlagSet Undefined)
 /// <param name="MinArguments">Número mínimo de argumentos.</param>
 /// <param name="MaxArguments">Número máximo de argumentos.</param>
 /// <param name="Flags">Efecto sobre <c>Frf</c>.</param>
-internal sealed record VerbDefinition(
+public sealed record VerbDefinition(
     string Name,
     ReceiverShape Receivers,
     int MinArguments,
@@ -67,9 +67,9 @@ internal sealed record VerbDefinition(
 /// Catálogo Mínimo Viable de verbos x64 de Fase 1
 /// (<c>FLUENT_SYNTAX_X64.md</c> §5), con su efecto sobre <c>Frf</c>.
 /// </summary>
-internal static class VerbCatalog
+public static class VerbCatalog
 {
-    private static readonly Dictionary<string, VerbDefinition> Definitions = CreateDefinitions();
+    public static readonly Dictionary<string, VerbDefinition> Definitions = CreateDefinitions();
 
     /// <summary>Busca la definición de un verbo.</summary>
     public static bool TryGet(string verb, out VerbDefinition definition) =>

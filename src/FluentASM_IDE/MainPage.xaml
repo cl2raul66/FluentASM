@@ -87,6 +87,7 @@
                         KeyDown="OnEditorKeyDown"
                         PointerExited="OnEditorPointerExited"
                         PointerMoved="OnEditorPointerMoved"
+                        PreviewKeyDown="OnEditorPreviewKeyDown"
                         SelectionChanged="OnEditorSelectionChanged"
                         TextChanged="OnEditorTextChanged" />
 

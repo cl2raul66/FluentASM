@@ -164,6 +164,49 @@ public static class DocumentText
     }
 
     /// <summary>
+    /// Construye el mapa de offset normalizado a offset del editor. La entrada
+    /// <c>i</c> contiene la posición del carácter normalizado <c>i</c> en el
+    /// texto nativo del <c>RichEditBox</c>; la última entrada apunta al final.
+    /// </summary>
+    public static int[] BuildNormalizedToEditorMap(string? editorText)
+    {
+        string normalized = Normalize(editorText);
+        var map = new int[normalized.Length + 1];
+        if (normalized.Length == 0)
+        {
+            return map;
+        }
+
+        int editor = 0;
+        int editorLength = editorText?.Length ?? 0;
+
+        for (int index = 0; index < normalized.Length; index++)
+        {
+            map[index] = editor;
+
+            if (normalized[index] == '\n')
+            {
+                if (editor < editorLength && editorText![editor] == '\r')
+                {
+                    editor++;
+                }
+
+                if (editor < editorLength && editorText![editor] == '\n')
+                {
+                    editor++;
+                }
+            }
+            else
+            {
+                editor++;
+            }
+        }
+
+        map[normalized.Length] = Math.Min(editor, editorLength);
+        return map;
+    }
+
+    /// <summary>
     /// Convierte un offset del texto del editor en coordenadas base 0.
     /// </summary>
     public static (int Line, int Character) ToLineCharacter(string? editorText, int offset)
