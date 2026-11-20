@@ -53,12 +53,11 @@ param(
 $ErrorActionPreference = "Stop"
 
 # Rutas de registro (usuario actual, sin necesidad de administrador)
-$regRoot   = "HKCU:\Software\Classes"
-$dirShell  = "$regRoot\Directory\shell\FluentASM"
-$dirBgShell = "$regRoot\Directory\Background\shell\FluentASM"
-
-$menuText  = "Abrir con FluentASM IDE"
-$iconValue = "%1"
+$script:regRoot   = "HKCU:\Software\Classes"
+$script:dirShell  = "$script:regRoot\Directory\shell\FluentASM"
+$script:dirBgShell = "$script:regRoot\Directory\Background\shell\FluentASM"
+$script:menuText  = "Abrir con FluentASM IDE"
+$script:iconValue = "%1"
 
 function Obtener-RutaExePredeterminada {
     # Candidatos típicos del ejecutable empaquetado MSIX y de salida local.
@@ -74,7 +73,6 @@ function Obtener-RutaExePredeterminada {
     )
 
     foreach ($c in $candidatos) {
-        # Expandir comodines de WindowsApps
         if ($c -like '*\*') {
             $matches = Get-Item -Path $c -ErrorAction SilentlyContinue
             if ($matches) {
@@ -97,29 +95,28 @@ function Crear-EntradaMenu {
         return $false
     }
 
-    # Valor por defecto: la ruta del ejecutable con "%1" como parámetro (carpeta)
     $command = "`"$exePath`" `"%1`""
 
     try {
         # Directory\shell\FluentASM
-        if (-not (Test-Path -Path $dirShell)) {
-            New-Item -Path $dirShell -Force | Out-Null
+        if (-not (Test-Path -Path $script:dirShell)) {
+            New-Item -Path $script:dirShell -Force | Out-Null
         }
-        Set-ItemProperty -Path $dirShell -Name "" -Value $menuText -Force
-        Set-ItemProperty -Path $dirShell -Name "Icon" -Value $iconValue -Force
+        Set-ItemProperty -Path $script:dirShell -Name '' -Value $script:menuText -Force
+        Set-ItemProperty -Path $script:dirShell -Name 'Icon' -Value $script:iconValue -Force
 
-        New-Item -Path "$dirShell\command" -Force | Out-Null
-        Set-ItemProperty -Path "$dirShell\command" -Name "" -Value $command -Force
+        New-Item -Path "$script:dirShell\command" -Force | Out-Null
+        Set-ItemProperty -Path "$script:dirShell\command" -Name '' -Value $command -Force
 
         # Directory\Background\shell\FluentASM (clic en fondo de carpeta)
-        if (-not (Test-Path -Path $dirBgShell)) {
-            New-Item -Path $dirBgShell -Force | Out-Null
+        if (-not (Test-Path -Path $script:dirBgShell)) {
+            New-Item -Path $script:dirBgShell -Force | Out-Null
         }
-        Set-ItemProperty -Path $dirBgShell -Name "" -Value $menuText -Force
-        Set-ItemProperty -Path $dirBgShell -Name "Icon" -Value $iconValue -Force
+        Set-ItemProperty -Path $script:dirBgShell -Name '' -Value $script:menuText -Force
+        Set-ItemProperty -Path $script:dirBgShell -Name 'Icon' -Value $script:iconValue -Force
 
-        New-Item -Path "$dirBgShell\command" -Force | Out-Null
-        Set-ItemProperty -Path "$dirBgShell\command" -Name "" -Value $command -Force
+        New-Item -Path "$script:dirBgShell\command" -Force | Out-Null
+        Set-ItemProperty -Path "$script:dirBgShell\command" -Name '' -Value $command -Force
 
         Write-Host "Entrada de menú contextual instalada para: $exePath" -ForegroundColor Green
         return $true
@@ -134,12 +131,12 @@ function Eliminar-EntradaMenu {
     $eliminado = $false
 
     try {
-        if (Test-Path -Path $dirShell) {
-            Remove-Item -Path $dirShell -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -Path $script:dirShell) {
+            Remove-Item -Path $script:dirShell -Recurse -Force -ErrorAction SilentlyContinue
             $eliminado = $true
         }
-        if (Test-Path -Path $dirBgShell) {
-            Remove-Item -Path $dirBgShell -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -Path $script:dirBgShell) {
+            Remove-Item -Path $script:dirBgShell -Recurse -Force -ErrorAction SilentlyContinue
             $eliminado = $true
         }
 
