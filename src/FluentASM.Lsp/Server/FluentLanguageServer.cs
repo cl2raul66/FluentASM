@@ -1,4 +1,5 @@
 using FluentASM.Core.Diagnostics;
+using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 using FluentASM.Lsp.Catalog;
@@ -284,6 +285,75 @@ public sealed class FluentLanguageServer : ILanguageService
         });
 
         return symbols;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<LspCodeAction> GetCodeActions(
+        string uri,
+        CancellationToken cancellationToken = default)
+    {
+        var snapshot = store.GetSnapshot(uri, cancellationToken);
+        if (snapshot is null)
+        {
+            return Array.Empty<LspCodeAction>();
+        }
+
+        var actions = new List<LspCodeAction>();
+        foreach (var diagnostic in snapshot.Diagnostics)
+        {
+            if (!string.Equals(
+                diagnostic.Code,
+                DiagnosticIds.LegacyName,
+                StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            int diagnosticStart = snapshot.Lines.ToOffset(diagnostic.Range.Start);
+            int diagnosticEnd = snapshot.Lines.ToOffset(diagnostic.Range.End);
+            Token? token = FindTokenForRange(snapshot, diagnosticStart, diagnosticEnd);
+            if (token is null
+                || !RegisterModel.TryGetLegacySuggestion(token.Text, out string suggestion))
+            {
+                continue;
+            }
+
+            var edit = new LspTextEdit(
+                ToRange(snapshot.Lines, token.Span),
+                suggestion);
+            actions.Add(new LspCodeAction(
+                $"Reemplazar '{token.Text}' por '{suggestion}'",
+                new[] { edit },
+                diagnostic.Code));
+        }
+
+        return actions;
+    }
+
+    private static Token? FindTokenForRange(
+        DocumentSnapshot snapshot,
+        int rangeStart,
+        int rangeEnd)
+    {
+        Token? containingToken = null;
+        foreach (var token in snapshot.LexResult.Tokens)
+        {
+            if (token.Span.Start <= rangeStart && token.Span.End >= rangeEnd)
+            {
+                if (token.Span.Start == rangeStart && token.Span.End == rangeEnd)
+                {
+                    return token;
+                }
+
+                containingToken ??= token;
+            }
+            else if (token.Span.Start <= rangeStart && rangeStart < token.Span.End)
+            {
+                containingToken ??= token;
+            }
+        }
+
+        return containingToken;
     }
 
     private static List<LocalRoutine> CollectRoutines(DocumentSnapshot snapshot)

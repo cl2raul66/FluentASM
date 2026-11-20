@@ -51,3 +51,55 @@ Resultado tokens: OK
   DocumentStore version correcta: True
   DocumentStore no-op: True
   IncidentRecorder: NO DISPONIBLE
+
+=== F1B Comprobación de apertura, acciones rápidas e integración Windows ===
+Fecha: 2026-11-20T22:32:33Z
+Directorio de trabajo: D:\TodosProyectos\ASM\FluentASM
+
+--- 1. Compilación Release de la solución ---
+  Comando: dotnet build src/FluentASM.slnx -c Release
+  Resultado: OK
+  Errores: 0
+  Advertencias: 0
+
+--- 2. Apertura canónica de miCalculadoraCli (sin lanzar la UI) ---
+  FprojReader.Read: OK
+  Proyecto: miCalculadoraCli
+  Fuente: src/miCalculadoraCli/sourcesCode.fasm
+  Diagnósticos LSP: 0
+  Tokens de resaltado: 216
+  Resultado: el texto canónico está disponible para EditorBox, con título esperado y sin marca de cambios.
+
+--- 3. Acción rápida FASM3012 desde ILanguageService ---
+  Diagnóstico: FASM3012
+  Acciones devueltas por ILanguageService.GetCodeActions: 1
+  Acción: Reemplazar 'Rax' por 'Gpr0'
+  Rango: línea 6, carácter 20
+  Resultado: OK
+
+--- 4. Manifiesto MSIX ---
+  Category de archivos: windows.fileTypeAssociation
+  Name: fluentasm
+  Tipos: .fproj, .fasm
+  Alias: fluentasm-ide.exe
+  Resultado: OK por compilación; el registro/despliegue del paquete requiere comprobación manual.
+
+--- 5. Menú contextual de Windows ---
+  Parser de PowerShell: OK
+  Alias detectado: C:\Users\cl2ra\AppData\Local\Microsoft\WindowsApps\fluentasm-ide.exe
+  HKCU Directory\shell\FluentASM: valor predeterminado y command presentes
+  HKCU Directory\Background\shell\FluentASM: valor predeterminado y command presentes
+  Resultado: OK
+
+--- 6. Comprobación visual del IDE ---
+  No se lanzó la IDE. Queda pendiente la comprobación manual por el usuario del menú,
+  Ctrl+O, colores, caret inicial y persistencia del quick-fix en el editor.
+
+=== RESUMEN F1B ===
+  Compilación Release: OK (0 errores, 0 advertencias)
+  Apertura y fuente canónica: OK
+  Diagnósticos de miCalculadoraCli: 0
+  Acción rápida desde ILanguageService: OK
+  Manifiesto: OK
+  Script y registro del menú: OK
+  Comprobación visual: PENDIENTE (manual)

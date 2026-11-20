@@ -29,9 +29,13 @@ Siempre usamos la versión más reciente estable de cada herramienta; no se pinc
 1. Clona tu fork: `git clone https://github.com/<tu-usuario>/FluentASM.git`
 2. Entra al directorio: `cd FluentASM`
 3. Verifica que compila: `dotnet build src/FluentASM.slnx`
-4. Crea o abre un proyecto de prueba en `src/<nombreProyecto>/` con su archivo `<nombreProyecto>.fproj` (texto legible en Fase 1) y su fuente `sourcesCode.fasm`
-5. Ensámblalo con el compilador (`fluentasm`) y pruébalo con el lanzador de pruebas o QEMU
-6. Trabaja en una rama propia creada desde `develop`, nunca directamente en `main` ni en `develop`
+4. Para probar el IDE, despliega o instala su paquete MSIX y abre una carpeta de proyecto con `fluentasm-ide.exe "C:\ruta\miProyecto"`
+5. Opcionalmente, instala la entrada de Windows Explorer para carpetas con `.\rsc\FluentASM-MenuContextual.ps1 -i`; usa `-u` para desinstalarla
+6. Crea o abre un proyecto de prueba en `src/<nombreProyecto>/` con su archivo `<nombreProyecto>.fproj` (texto legible en Fase 1) y su fuente `sourcesCode.fasm`
+7. Ensámblalo con el compilador (`fluentasm`) y pruébalo con el lanzador de pruebas o QEMU
+8. Trabaja en una rama propia creada desde `develop`, nunca directamente en `main` ni en `develop`
+
+El IDE y el LSP se validan mediante uso diario, revisión de sus diagnósticos, hover, símbolos y acciones rápidas, y el registro estructurado de sucesos. No crees proyectos `*Tests.csproj` para esta fase.
 
 El repositorio utiliza únicamente dos ramas principales:
 
@@ -124,17 +128,28 @@ El proyecto sigue convenciones consistentes tanto en el código C# del compilado
 ## Estructura del código fuente (`src/`)
 
 **No existen proyectos de pruebas formales (`*Tests.csproj`) ni generación de tests automáticos.**
-La validación se realiza compilando y ejecutando directamente ejemplos reales en `FluentASM.Sample` (y/o en QEMU *bare metal*). `FluentASM.Sample` varía libremente con cada función: no entra en el versionado ni se publica como release, pero sus cambios se suben al origen sin modificar las versiones.
+La validación del compilador se realiza compilando y ejecutando directamente ejemplos reales en `FluentASM.Sample` (y/o en QEMU *bare metal*). `FluentASM.Sample` varía libremente con cada función: no entra en el versionado ni se publica como release, pero sus cambios se suben al origen sin modificar las versiones.
 
 ```
 src/
-  FluentASM.Core/           → Lexer, parser, validador Tipo 1 / ATM, codificador x64 y emisor de imagen plana
+  FluentASM.Core/           → Lexer, parser, validador Tipo 1 / ATM, codificador x64, emisor de imagen plana y LanguageCatalog de solo lectura
   FluentASM.Compiler/       → CLI (fluentasm): lee .fproj y sourcesCode.fasm y genera la salida .x64
+  FluentASM.Lsp/            → Servicio de lenguaje en proceso (ILanguageService): diagnósticos, resaltado, completado, hover, símbolos y acciones rápidas; no depende de WinUI
+  FluentASM_IDE.Common/     → Utilidades compartidas de la capa IDE (normalización de texto)
+  FluentASM_IDE/            → Banco de trabajo WinUI 3: abre y edita la fuente de un proyecto y ofrece asistencia del lenguaje
   FluentASM.Sample/         → Validación manual (no se versiona ni se publica; sí se sube al origen)
   miCalculadoraCli/         → Programa de ejemplo de Fase 1 (.fproj + sourcesCode.fasm)
-  FluentASM.Admin/          → Administrador binario futuro (fasm_admin) — diferido a fases posteriores
-  FluentASM.IDE/            → Entorno de desarrollo integrado — diferido a fases posteriores
 ```
+
+La arquitectura sigue la dirección `FluentASM.Core` → `FluentASM.Lsp` → `FluentASM_IDE`: la UI consume `ILanguageService` y no mantiene catálogos del lenguaje ni expresiones regulares propias. `FluentASM.Lsp` y `FluentASM_IDE` están activos como banco de trabajo local, pero todavía no producen ZIP de release automático ni participan en los flujos de publicación de releases.
+
+```
+rsc/
+  FluentASM-MenuContextual.ps1          → Instalador temporal del menú de Windows Explorer para carpetas (HKCU)
+  stitch_fluentasm_minimalist_ide/      → Referencias visuales del IDE (maquetas HTML y capturas)
+```
+
+El script se usa con `-i` para instalar y con `-u` para desinstalar; `-path` permite indicar explícitamente otro ejecutable. Escribe únicamente en `HKCU\Software\Classes`, por lo que no requiere permisos de administrador. Es un puente temporal hasta evaluar una extensión COM `IExplorerCommand` en C# NativeAOT.
 
 La solución .NET de Fase 1 es `src/FluentASM.slnx`. Las compilaciones locales toman la versión de `VERSION` (raíz) mediante `src/Directory.Build.props`; las releases usan la versión declarada en el PR (ver «Versionado»).
 
@@ -235,18 +250,18 @@ Una vez que el compilador de Fase 1 genere y ejecute binarios reales, se incorpo
 - Formatos binarios indexados para `.fproj` y `.fworkspace` junto con el CLI `fasm_admin`.
 - Contenedores `.bin` ("Partes") para reutilización binaria y comunicación entre proyectos.
 - Catálogo multilingüe `fasm.fdoc` para documentación de símbolos.
-- Entorno de desarrollo integrado (`FluentASM.IDE`).
+- Integración del entorno `FluentASM_IDE`, ya activo como banco de trabajo, con formatos binarios, espacios de trabajo y herramientas del ecosistema.
 
 
 ## Roadmap
 
 | Fase | Objetivo |
 |---|---|
-| **1 (Actual)** | Compilador en .NET (`.fproj` simple, léxico, parser, validador Tipo 1, codificador x64 mínimo viable) + imagen plana `.x64` ejecutada en lanzador de pruebas / QEMU *bare metal* |
+| **1 (Actual)** | Compilador en .NET (`.fproj` simple, léxico, parser, validador Tipo 1, codificador x64 mínimo viable) + imagen plana `.x64` ejecutada en lanzador de pruebas / QEMU *bare metal*, con banco de trabajo local LSP/IDE |
 | **2** | Ampliación de x64 (memoria avanzada, bloques, utilidades de arranque en QEMU) y comunicación entre binarios / Partes (`.bin`) |
 | **3** | Segunda arquitectura real (ARM64 / RISC-V en QEMU) y extracción del estándar común multi-CPU basado en implementaciones reales |
 | **4** | Formatos binarios del ecosistema (`.fproj`, `.fworkspace`, `fasm_admin`, `fasm.fdoc`) y extensiones x64 avanzadas (SIMD, x87, sistema/paginación) |
-| **5** | Ejecutables de sistemas operativos (PE/ELF) si se requieren y entorno de desarrollo (`FluentASM.IDE`) |
+| **5** | Ejecutables de sistemas operativos (PE/ELF) si se requieren; el IDE `FluentASM_IDE`, activo desde Fase 1 como banco de trabajo, se completa según su propia hoja de ruta |
 | **6** | Auto-albergue (*self-hosting*) y operación independiente sin OS previo |
 
 
@@ -317,6 +332,22 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 - **Ganancia:** Cualquier extensión de sintaxis en `Core` se refleja automáticamente en resaltado, diagnósticos y completado del IDE; se elimina la duplicación de tablas.
 - **Pérdida:** Aumenta ligeramente la superficie pública de solo lectura de `FluentASM.Core`.
 - **Mitigación:** `LanguageCatalog` es estrictamente de solo lectura y no altera el pipeline público existente (`Lexer`, `Parser`, `SemanticAnalyzer`, `X64ImageBuilder`).
+
+
+### Decisión 0010 — Modelo de proyecto único e integración Windows del IDE de Fase 1 (2026-11-20)
+
+**Contexto:** La validación del IDE necesita abrir proyectos reales sin anticipar todavía los formatos binarios del ecosistema ni introducir una extensión COM que complique el despliegue. También requiere que la aplicación empaquetada abra archivos y carpetas mediante mecanismos nativos de Windows.
+
+**Decisión:**
+1. **Arquitectura en capas:** `FluentASM.Core` conserva la verdad del lenguaje y expone `LanguageCatalog` en modo de solo lectura; `FluentASM.Lsp` implementa `ILanguageService` *in-process*, sin WinUI ni `Windows.Storage`; `FluentASM_IDE` consume ese servicio y `FluentASM_IDE.Common` aporta utilidades compartidas sin semántica del lenguaje. La UI no replica catálogos ni expresiones regulares: completado, hover, símbolos y acciones rápidas proceden de `ILanguageService`.
+2. **Modelo de proyecto único:** en Fase 1, cada carpeta representa un proyecto. El `.fproj` se abre en modo de solo lectura y `sourcesCode.fasm` es la fuente editable. Se difieren la edición de `.fproj`, la gestión de `.fworkspace` y cualquier integración con Git.
+3. **Asociación y ejecución de archivos:** el manifiesto usa `<uap:Extension Category="windows.fileTypeAssociation">` con `<uap:FileTypeAssociation>` para `.fproj` y `.fasm`, y `<uap5:Extension Category="windows.appExecutionAlias">` para exponer `fluentasm-ide.exe`. El alias queda disponible después de desplegar o instalar el MSIX.
+4. **Integración temporal con Explorer:** `rsc/FluentASM-MenuContextual.ps1` registra `Directory\shell\FluentASM` y `Directory\Background\shell\FluentASM` en `HKCU`, sin permisos de administrador; usa el alias por defecto y conserva `-path` como sustitución explícita. No se introduce una DLL COM: la extensión `IExplorerCommand` en C# NativeAOT se evaluará en una fase posterior.
+
+**Consecuencias:**
+- **Ganancia:** La aplicación empaquetada abre proyectos y fuentes con integración de Windows, mientras la IDE puede validarse de inmediato sobre un único directorio de proyecto.
+- **Pérdida:** El menú de Explorer es una entrada clásica de Windows 11 y el alias requiere una instalación o despliegue previo; no hay todavía un modelo de espacios de trabajo ni integración con Git.
+- **Mitigación:** El registro temporal es reversible con `-u` y no modifica el sistema más allá de `HKCU`; las capacidades ampliadas se incorporarán mediante decisiones posteriores.
 
 
 ## CI-CD (Integración y Despliegue Continuos)

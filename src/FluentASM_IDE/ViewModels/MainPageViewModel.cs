@@ -50,7 +50,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public partial string Encoding { get; set; } = "UTF-8";
 
     [ObservableProperty]
-    public partial string LineEnding { get; set; } = "CRLF";
+    public partial string LineEnding { get; set; } = "LF";
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
@@ -130,6 +130,9 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             }
         }
     }
+
+    /// <summary>Texto fuente cargado del proyecto abierto (normalizado, <c>\n</c>).</summary>
+    public string CurrentSourceText { get; private set; } = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DiagnosticErrorSummary))]
@@ -214,9 +217,19 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public event Action<DiagnosticItem>? DiagnosticNavigationRequested;
 
     /// <summary>
-    /// Se dispara cuando se abre un proyecto o archivo fuente nuevo.
+    /// Se dispara cuando se abre un proyecto o archivo fuente nuevo, con el
+    /// texto fuente ya cargado para que la vista lo muestre en el editor.
     /// </summary>
-    public event Action? ProjectOpened;
+    /// <param name="sourceText">Texto fuente normalizado.</param>
+    public event Action<string>? ProjectOpened;
+
+    /// <summary>
+    /// Se dispara cuando el ViewModel reemplaza el texto completo del documento
+    /// (por ejemplo, al aplicar un quick-fix). La vista debe sincronizar el editor.
+    /// </summary>
+    /// <param name="sourceText">Texto completo normalizado.</param>
+    /// <param name="caretOffset">Posición del caret en el texto normalizado.</param>
+    public event Action<string, int>? DocumentTextReplaced;
 
     /// <summary>
     /// Se dispara cuando cambia el estado de cambios sin guardar.
@@ -873,35 +886,36 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     {
         QuickFixActions.Clear();
 
-        // Buscar el primer diagnóstico con acciones rápidas disponibles.
-        foreach (var diagnostic in Diagnostics)
+        // Las correcciones se calculan en el servicio de lenguaje. La IDE solo
+        // adapta sus rangos y textos al modelo que consume el editor.
+        IReadOnlyList<LspCodeAction> languageActions = LspServer.GetCodeActions(DocumentUri);
+        IReadOnlyList<QuickFixAction> actions = _quickFixService.GetActions(languageActions);
+        foreach (var action in actions)
         {
-            var actions = _quickFixService.GetActionsFor(diagnostic, documentText);
-            if (actions.Count > 0)
-            {
-                foreach (var action in actions)
-                {
-                    QuickFixActions.Add(action);
-                }
-                QuickFixAvailable?.Invoke();
-                return;
-            }
+            QuickFixActions.Add(action);
+        }
+
+        if (QuickFixActions.Count > 0)
+        {
+            QuickFixAvailable?.Invoke();
         }
     }
 
     /// <summary>
-    /// Aplica una acción rápida (code action) sobre el documento, reemplazando
-    /// el nombre legacy por el nombre canónico sugerido.
+    /// Aplica una acción rápida (code action) sobre el documento usando el
+    /// rango y el texto de reemplazo propuestos por el servicio de lenguaje.
     /// </summary>
     public void ApplyQuickFix(QuickFixAction action)
     {
         ArgumentNullException.ThrowIfNull(action);
 
-        // Leer el texto actual del editor para hacer el reemplazo.
-        // documentText está normalizado (\n). Para el reemplazo necesitamos
-        // trabajar sobre el texto del editor, pero como solo cambiamos un
-        // identificador ASCII, el mapeo \n/\r es 1:1 y podemos usar documentText.
-        string text = documentText;
+        // El documento del servicio está normalizado con saltos \n; sus
+        // posiciones se usan directamente sobre el texto canónico.
+        string text;
+        lock (documentGate)
+        {
+            text = documentText;
+        }
 
         // Calcular el offset absoluto base 0 a partir de línea/columna base 1.
         int startOffset = GetOffsetFromLineColumn(text, action.StartLine, action.StartColumn);
@@ -915,7 +929,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
         string before = text[..startOffset];
         string after = text[endOffset..];
-        string newText = before + action.CanonicalName + after;
+        string newText = before + action.ReplacementText + after;
 
         // Actualizar el documento en el LSP y marcar cambios no guardados.
         string normalized = DocumentText.Normalize(newText);
@@ -923,13 +937,21 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         {
             documentText = normalized;
             documentVersion++;
-            DocumentUri = DocumentUri; // mismo URI
             LspServer.UpdateDocument(DocumentUri, normalized, documentVersion);
         }
 
         HasUnsavedChanges = true;
-        StatusText = $"Aplicado: '{action.LegacyName}' → '{action.CanonicalName}'";
+        StatusText = $"Acción rápida aplicada: {action.Title}";
         QuickFixActions.Clear();
+
+        // Notificar a la vista con el nuevo texto y la posición del caret
+        // (el final del texto reemplazado) para que sincronice el editor.
+        CurrentSourceText = normalized;
+        int caretOffset = Math.Clamp(
+            startOffset + action.ReplacementText.Length,
+            0,
+            normalized.Length);
+        DocumentTextReplaced?.Invoke(normalized, caretOffset);
 
         // Reprogramar el análisis para actualizar diagnósticos y resaltado.
         AnalysisRequested?.Invoke();
@@ -1030,7 +1052,10 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
         HasUnsavedChanges = false;
         RequestLspCompletions(sourceText, openPopup: false);
-        ProjectOpened?.Invoke();
+
+        // Notificar a la vista con el texto cargado para que lo muestre en el editor.
+        CurrentSourceText = normalized;
+        ProjectOpened?.Invoke(normalized);
     }
 
     /// <summary>

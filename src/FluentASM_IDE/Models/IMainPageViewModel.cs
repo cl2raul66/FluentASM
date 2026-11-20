@@ -58,7 +58,22 @@ public interface IMainPageViewModel
     string SourceFilePath { get; }
     bool IsProjectOpen { get; }
     bool HasUnsavedChanges { get; }
-    event Action? ProjectOpened;
+
+    /// <summary>Texto fuente cargado del proyecto abierto (normalizado).</summary>
+    string CurrentSourceText { get; }
+
+    /// <summary>Se dispara al abrir un proyecto con el texto fuente ya cargado.</summary>
+    /// <param name="sourceText">Texto fuente normalizado.</param>
+    event Action<string>? ProjectOpened;
+
+    /// <summary>
+    /// Se dispara cuando el ViewModel reemplaza el texto del documento
+    /// (por ejemplo, al aplicar un quick-fix). La vista debe sincronizar el editor.
+    /// </summary>
+    /// <param name="sourceText">Texto completo normalizado.</param>
+    /// <param name="caretOffset">Posición del caret en el texto normalizado.</param>
+    event Action<string, int>? DocumentTextReplaced;
+
     event Action? UnsavedChangesChanged;
     event Action? OpenProjectRequested;
     event Action? SaveRequested;

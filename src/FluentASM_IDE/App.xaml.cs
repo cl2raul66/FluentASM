@@ -51,6 +51,9 @@ public partial class App : Application
     /// </summary>
     public static string? ActivatedFilePath { get; private set; }
 
+    private static string CleanLaunchArgument(string? argument) =>
+        (argument ?? string.Empty).Trim().Trim('"');
+
     /// <summary>
     /// Initializes the singleton application object.
     /// </summary>
@@ -68,30 +71,57 @@ public partial class App : Application
         Window = new MainWindow();
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
-        // Recopilar argumentos de línea de comandos.
+        // Recopilar argumentos de línea de comandos. El índice 0 es el propio
+        // ejecutable y no debe interpretarse como una ruta de proyecto.
         var argsList = new List<string>();
         try
         {
-            argsList.AddRange(Environment.GetCommandLineArgs());
+            string[] commandLineArgs = Environment.GetCommandLineArgs();
+            for (int index = 1; index < commandLineArgs.Length; index++)
+            {
+                string cleaned = CleanLaunchArgument(commandLineArgs[index]);
+                if (cleaned.Length > 0 && !argsList.Contains(cleaned, StringComparer.OrdinalIgnoreCase))
+                {
+                    argsList.Add(cleaned);
+                }
+            }
         }
         catch { }
 
-        // Si hay activación por archivo (clic derecho → Abrir con FluentASM),
-        // extraer la ruta del primer archivo desde IFileActivatedEventArgs.
-        if (args is object activatedArgs && activatedArgs is Windows.ApplicationModel.Activation.IFileActivatedEventArgs fileArgs)
+        // La activación por archivo de Windows App SDK se expone mediante
+        // AppInstance, no mediante LaunchActivatedEventArgs.
+        try
         {
-            var file = fileArgs.Files.FirstOrDefault();
-            if (file is not null)
+            var activatedArgs = Microsoft.Windows.AppLifecycle.AppInstance
+                .GetCurrent()
+                .GetActivatedEventArgs();
+
+            if (activatedArgs.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.File
+                && activatedArgs.Data is Windows.ApplicationModel.Activation.IFileActivatedEventArgs fileArgs)
             {
-                var path = file.Path;
-                argsList.Add(path);
-                ActivatedFilePath = path;
+                var file = fileArgs.Files.FirstOrDefault();
+                string path = CleanLaunchArgument(file?.Path);
+                if (path.Length > 0)
+                {
+                    ActivatedFilePath = path;
+                    if (!argsList.Contains(path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        argsList.Add(path);
+                    }
+                }
             }
         }
-        else if (!string.IsNullOrEmpty(args.Arguments))
+        catch (Exception exception)
         {
-            argsList.Add(args.Arguments);
-            ActivatedFilePath = args.Arguments;
+            System.Diagnostics.Debug.WriteLine($"No se pudo leer la activación enriquecida: {exception}");
+        }
+
+        // LaunchActivatedEventArgs.Arguments también puede contener la ruta
+        // recibida por el alias de ejecución; normalizar comillas y espacios.
+        string launchArgument = CleanLaunchArgument(args.Arguments);
+        if (launchArgument.Length > 0 && !argsList.Contains(launchArgument, StringComparer.OrdinalIgnoreCase))
+        {
+            argsList.Add(launchArgument);
         }
 
         LaunchArguments = argsList;

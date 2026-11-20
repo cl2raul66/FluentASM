@@ -160,7 +160,7 @@ public sealed class ProjectService
 
     /// <summary>
     /// Guarda el texto actual en el archivo fuente abierto (<c>.fasm</c>).
-    /// Escribe en UTF-8 con saltos de línea del editor (<c>\r</c>).
+    /// Normaliza el formato del editor a UTF-8 sin BOM y saltos de línea LF.
     /// </summary>
     public bool SaveSource(string editorText)
     {
@@ -172,9 +172,14 @@ public sealed class ProjectService
 
         try
         {
-            // El texto del editor usa \r como separador de párrafo; lo escribimos tal cual
-            // para preservar el formato nativo de RichEditBox.
-            File.WriteAllText(SourceFilePath, editorText, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            // RichEditBox usa \r como separador de párrafo. Se canonicaliza a LF
+            // y se conserva un salto final único, conforme al repositorio.
+            string normalized = DocumentText.Normalize(editorText);
+            string content = normalized.Length == 0 ? string.Empty : normalized + "\n";
+            File.WriteAllText(
+                SourceFilePath,
+                content,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             _logger?.LogInformation("Archivo guardado: {Path}", SourceFilePath);
             return true;
         }

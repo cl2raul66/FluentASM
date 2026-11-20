@@ -48,36 +48,25 @@
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
-        <!-- Asociación de archivos: .fproj y .fasm para clic derecho → Abrir con FluentASM -->
-        <uap:Extension Category="windows.fileAssociation">
-          <uap3:FileAssociation Name="fluentasm.fproj" xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
-            <uap3:SupportedFileExtensions>
-              <uap3:FileExtension>.fproj</uap3:FileExtension>
-            </uap3:SupportedFileExtensions>
-            <uap3:DisplayName>Proyecto FluentASM (.fproj)</uap3:DisplayName>
-            <uap3:EditFlags>
-              <uap3:EditFlags>AlwaysShowExt</uap3:EditFlags>
-            </uap3:EditFlags>
-          </uap3:FileAssociation>
-        </uap:Extension>
-        <uap:Extension Category="windows.fileAssociation">
-          <uap3:FileAssociation Name="fluentasm.fasm" xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3">
-            <uap3:SupportedFileExtensions>
-              <uap3:FileExtension>.fasm</uap3:FileExtension>
-            </uap3:SupportedFileExtensions>
-            <uap3:DisplayName>Código fuente FluentASM (.fasm)</uap3:DisplayName>
-            <uap3:EditFlags>
-              <uap3:EditFlags>AlwaysShowExt</uap3:EditFlags>
-            </uap3:EditFlags>
-          </uap3:FileAssociation>
-        </uap:Extension>
       </uap:VisualElements>
-      <!-- Alias de ejecución: permite lanzar 'fluentasm-ide <ruta>' desde consola -->
-      <uap:Extension Category="windows.appExecutionAlias">
-        <uap5:AppExecutionAlias>
-          <uap5:ExecutionAlias Alias="fluentasm-ide.exe" />
-        </uap5:AppExecutionAlias>
-      </uap:Extension>
+      <Extensions>
+        <!-- Asociación de archivos: .fproj y .fasm para clic derecho → Abrir con FluentASM -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="fluentasm">
+            <uap:DisplayName>FluentASM</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.fproj</uap:FileType>
+              <uap:FileType>.fasm</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <!-- Alias de ejecución: permite lanzar 'fluentasm-ide <ruta>' desde consola -->
+        <uap5:Extension Category="windows.appExecutionAlias">
+          <uap5:AppExecutionAlias>
+            <uap5:ExecutionAlias Alias="fluentasm-ide.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
     </Application>
   </Applications>
 

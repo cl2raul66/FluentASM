@@ -94,6 +94,8 @@ public sealed partial class MainPage : Page
         ViewModel.RevalidationRequested += OnRevalidationRequested;
         ViewModel.AnalysisRequested += ScheduleAnalysis;
         ViewModel.DiagnosticNavigationRequested += NavigateToDiagnostic;
+        ViewModel.ProjectOpened += OnProjectOpened;
+        ViewModel.DocumentTextReplaced += OnDocumentTextReplaced;
     }
 
     private void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -105,24 +107,28 @@ public sealed partial class MainPage : Page
         // El historial de undo propio evita que el resaltado contamine Ctrl+Z.
         EditorBox.Document.UndoLimit = 0;
 
+        bool isDark = ActualTheme != ElementTheme.Light;
+        AsmHighlighter.IsCurrentDark = isDark;
+        ViewModel.UpdateTheme(isDark);
+
         // Procesar argumentos de lanzamiento y activación por archivo.
         ProcessLaunchArguments();
 
         if (!ViewModel.IsProjectOpen)
         {
             LoadInitialSample();
+            CaptureEditorState();
+            UpdateLineCountFromDocument();
+            PositionCaretAtInitialLine();
         }
 
-        CaptureEditorState();
-        UpdateLineCountFromDocument();
         SetupScrollSync();
-        PositionCaretAtInitialLine();
 
-        bool isDark = ActualTheme != ElementTheme.Light;
-        AsmHighlighter.IsCurrentDark = isDark;
-        ViewModel.UpdateTheme(isDark);
-
-        RunAnalysisAsync();
+        // Un proyecto real ya fue sincronizado por OnProjectOpened.
+        if (!ViewModel.IsProjectOpen)
+        {
+            RunAnalysisAsync();
+        }
     }
 
     private void ProcessLaunchArguments()
@@ -130,35 +136,38 @@ public sealed partial class MainPage : Page
         // Activación por archivo (clic derecho → Abrir con FluentASM).
         if (App.ActivatedFilePath is { } activatedPath)
         {
-            OpenProjectOrFolder(activatedPath);
+            if (TryGetExistingPath(activatedPath, out string activatedFullPath))
+            {
+                OpenProjectOrFolder(activatedFullPath);
+            }
+            else
+            {
+                ViewModel.StatusText = $"No se encontró la ruta activada: {activatedPath}";
+            }
+
             return;
         }
 
-        // Argumentos de línea de comandos.
+        // Argumentos de línea de comandos. Los flags del sistema y los argumentos
+        // que no correspondan a una ruta existente se ignoran sin interrumpir el arranque.
         foreach (var arg in App.LaunchArguments)
         {
-            if (string.IsNullOrWhiteSpace(arg)) continue;
-            var fullPath = Path.GetFullPath(arg);
+            if (!TryGetExistingPath(arg, out string fullPath))
+            {
+                continue;
+            }
+
             if (Directory.Exists(fullPath))
             {
                 OpenProjectOrFolder(fullPath);
                 return;
             }
 
-            if (File.Exists(fullPath))
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (extension == ".fproj" || extension == ".fasm")
             {
-                var extension = Path.GetExtension(fullPath).ToLowerInvariant();
-                if (extension == ".fproj")
-                {
-                    OpenProjectOrFolder(fullPath);
-                    return;
-                }
-
-                if (extension == ".fasm")
-                {
-                    OpenProjectOrFolder(fullPath);
-                    return;
-                }
+                OpenProjectOrFolder(fullPath);
+                return;
             }
         }
     }
@@ -174,7 +183,12 @@ public sealed partial class MainPage : Page
             }
         }
 
-        var fullPath = Path.GetFullPath(path);
+        if (!TryGetFullPath(path, out string fullPath))
+        {
+            ViewModel.StatusText = $"Ruta no válida: {path}";
+            return;
+        }
+
         if (Directory.Exists(fullPath))
         {
             var result = _projectService.OpenFolder(fullPath);
@@ -193,6 +207,14 @@ public sealed partial class MainPage : Page
                 var result = _projectService.OpenSourceFile(fullPath);
                 ApplyProjectOpenResult(result);
             }
+            else
+            {
+                ViewModel.StatusText = $"Tipo de archivo no compatible: {extension}";
+            }
+        }
+        else
+        {
+            ViewModel.StatusText = $"No se encontró la ruta: {fullPath}";
         }
     }
 
@@ -205,6 +227,63 @@ public sealed partial class MainPage : Page
         }
 
         ViewModel.OpenProject(result.SourcePath!, result.Project?.ProjectFilePath);
+    }
+
+    private void OnProjectOpened(string sourceText)
+    {
+        // La carga del documento no es una edición del usuario: evita marcarlo
+        // como modificado y contaminar el historial de deshacer.
+        _applyingUndo = true;
+        try
+        {
+            EditorBox.Document.SetText(
+                TextSetOptions.None,
+                DocumentText.ToEditorText(sourceText));
+            EditorBox.Document.Selection.SetRange(0, 0);
+        }
+        finally
+        {
+            _applyingUndo = false;
+        }
+
+        ConfigureEditorParagraphFormat();
+        CaptureEditorState();
+        UpdateLineCountFromDocument();
+        UpdateCursorCoordinates();
+        ViewModel.MarkUnsavedChanges(false);
+        RunAnalysisAsync();
+    }
+
+    private void OnDocumentTextReplaced(string sourceText, int caretOffset)
+    {
+        string normalized = DocumentText.Normalize(sourceText);
+        int normalizedCaret = Math.Clamp(caretOffset, 0, normalized.Length);
+
+        _applyingUndo = true;
+        try
+        {
+            EditorBox.Document.SetText(
+                TextSetOptions.None,
+                DocumentText.ToEditorText(normalized));
+
+            EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+            int[] offsetMap = DocumentText.BuildNormalizedToEditorMap(editorText);
+            int editorCaret = offsetMap[normalizedCaret];
+            EditorBox.Document.Selection.SetRange(editorCaret, editorCaret);
+        }
+        finally
+        {
+            _applyingUndo = false;
+        }
+
+        // Registra el quick-fix como un paso de deshacer y actualiza el texto
+        // base contra el que se comparará la siguiente pulsación de tecla.
+        RecordUndoStep();
+
+        UpdateLineCountFromDocument();
+        UpdateCursorCoordinates();
+        ViewModel.MarkUnsavedChanges(true);
+        ScheduleAnalysis();
     }
 
     private async Task<bool> ConfirmDiscardChangesAsync()
@@ -787,6 +866,42 @@ public sealed partial class MainPage : Page
     #endregion
 
     #region Helpers
+
+    private static bool TryGetExistingPath(string? argument, out string fullPath)
+    {
+        if (!TryGetFullPath(argument, out fullPath))
+        {
+            return false;
+        }
+
+        return Directory.Exists(fullPath) || File.Exists(fullPath);
+    }
+
+    private static bool TryGetFullPath(string? argument, out string fullPath)
+    {
+        fullPath = string.Empty;
+        string candidate = (argument ?? string.Empty).Trim().Trim('"');
+        if (candidate.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            fullPath = Path.GetFullPath(candidate);
+            return true;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+            or NotSupportedException
+            or IOException
+            or UnauthorizedAccessException
+            or System.Security.SecurityException)
+        {
+            fullPath = string.Empty;
+            return false;
+        }
+    }
 
     private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
     {
