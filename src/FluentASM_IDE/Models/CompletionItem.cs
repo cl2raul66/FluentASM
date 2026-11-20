@@ -7,11 +7,14 @@ using Windows.UI;
 
 namespace FluentASM_IDE.Models;
 
-public partial class CompletionItem : ObservableObject
+public partial class CompletionItem : ObservableObject, ICompletionItem
 {
     private static readonly Dictionary<string, SolidColorBrush> BrushCache = new(StringComparer.OrdinalIgnoreCase);
-    private static readonly SolidColorBrush SelectedBrush = new(Color.FromArgb(50, 0, 157, 216));
+    private static readonly SolidColorBrush SelectedBrushDark = new(Color.FromArgb(50, 0, 157, 216));
+    private static readonly SolidColorBrush SelectedBrushLight = new(Color.FromArgb(50, 0, 103, 192));
     private static readonly SolidColorBrush TransparentBrush = new(Color.FromArgb(0, 0, 0, 0));
+
+    public static bool IsDarkTheme { get; set; } = true;
 
     public string Label { get; set; } = string.Empty;
     public string Kind { get; set; } = "method";
@@ -85,8 +88,13 @@ public partial class CompletionItem : ObservableObject
 
     public Thickness SelectedBorderThickness => IsSelected ? new Thickness(3, 0, 0, 0) : new Thickness(0);
 
-    public SolidColorBrush ItemBackground => IsSelected ? SelectedBrush : TransparentBrush;
+    public SolidColorBrush ItemBackground => IsSelected ? (IsDarkTheme ? SelectedBrushDark : SelectedBrushLight) : TransparentBrush;
     public Visibility DocCardVisibility => (IsSelected && HasDocumentation) ? Visibility.Visible : Visibility.Collapsed;
+
+    public void RefreshTheme()
+    {
+        OnPropertyChanged(nameof(ItemBackground));
+    }
 
     public SolidColorBrush IconBrush
     {
@@ -115,3 +123,17 @@ public partial class CompletionItem : ObservableObject
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+

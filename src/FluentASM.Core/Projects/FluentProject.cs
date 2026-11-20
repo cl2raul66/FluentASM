@@ -30,3 +30,5 @@ public sealed record FluentProject
     /// <summary>Ruta absoluta de la imagen que generará el compilador.</summary>
     public string OutputPath => Path.Combine(ProjectDirectory, OutputFileName);
 }
+
+

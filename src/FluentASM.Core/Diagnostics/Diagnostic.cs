@@ -24,3 +24,5 @@ public sealed record Diagnostic(
             : $"{Location}: {severity} {Id}: {Message}";
     }
 }
+
+

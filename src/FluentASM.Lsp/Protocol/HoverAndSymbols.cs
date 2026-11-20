@@ -78,3 +78,5 @@ public sealed record TextDocumentIdentifier(string Uri);
 public sealed record TextDocumentPositionParams(
     TextDocumentIdentifier TextDocument,
     Position Position);
+
+

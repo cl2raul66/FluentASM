@@ -11,3 +11,5 @@ public enum DiagnosticSeverity
     /// <summary>Error: la compilación no puede continuar.</summary>
     Error,
 }
+
+

@@ -13,3 +13,5 @@ public sealed record SourceFile(string RelativePath, string FullPath, SourceLoca
     /// <summary>Indica si el archivo fuente existe en disco.</summary>
     public bool Exists => File.Exists(FullPath);
 }
+
+

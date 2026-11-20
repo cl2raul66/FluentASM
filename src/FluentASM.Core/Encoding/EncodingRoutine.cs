@@ -90,3 +90,5 @@ internal sealed class EncodingRoutine
 
 /// <summary>Símbolo de <c>.data(...)</c> con su definición sintáctica original.</summary>
 internal sealed record EncodingDataSymbol(string Name, MagnitudeInfo Capacity, DataDefinitionSyntax Definition);
+
+

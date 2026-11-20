@@ -21,3 +21,5 @@ public sealed record BinaryConditionSyntax(
     Token Operator,
     ConditionSyntax Right,
     TextSpan Span) : ConditionSyntax(Span);
+
+

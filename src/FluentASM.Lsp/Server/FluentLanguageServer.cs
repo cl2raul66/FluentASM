@@ -51,6 +51,8 @@ public sealed class FluentLanguageServer
 
         var diagnostics = new List<LspDiagnostic>();
         var bag = new DiagnosticBag();
+        var lines = new DocumentLines(doc.Text);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
 
         try
         {
@@ -71,11 +73,15 @@ public sealed class FluentLanguageServer
 
             foreach (var diag in bag)
             {
-                int line = Math.Max(0, (diag.Location?.Line ?? 1) - 1);
-                int col = Math.Max(0, (diag.Location?.Column ?? 1) - 1);
-                int length = diag.Span?.Length ?? 1;
+                var range = ResolveRange(diag, lines, doc.Text.Length);
+                // Varias fases pueden informar la misma incidencia sobre el mismo rango.
+                string key = $"{diag.Id}|{range.Start.Line}:{range.Start.Character}|{range.End.Line}:{range.End.Character}";
 
-                var range = new LspRange(new Position(line, col), new Position(line, col + length));
+                if (!seen.Add(key))
+                {
+                    continue;
+                }
+
                 var severity = diag.Severity switch
                 {
                     Core.Diagnostics.DiagnosticSeverity.Error => Protocol.DiagnosticSeverity.Error,
@@ -94,7 +100,52 @@ public sealed class FluentLanguageServer
                 $"Error interno en análisis LSP: {ex.Message}"));
         }
 
+        diagnostics.Sort(static (left, right) =>
+        {
+            int byLine = left.Range.Start.Line.CompareTo(right.Range.Start.Line);
+            return byLine != 0
+                ? byLine
+                : left.Range.Start.Character.CompareTo(right.Range.Start.Character);
+        });
+
         return diagnostics;
+    }
+
+    /// <summary>
+    /// Traduce un diagnóstico de <c>Core</c> a un rango LSP usando el offset absoluto
+    /// de <see cref="Diagnostic.Span"/>. Solo cae en <see cref="Diagnostic.Location"/>
+    /// cuando el span no está disponible.
+    /// </summary>
+    private static LspRange ResolveRange(Diagnostic diagnostic, DocumentLines lines, int textLength)
+    {
+        int start;
+        int length;
+
+        if (diagnostic.Span is { } span && span.Start >= 0 && span.Start <= textLength)
+        {
+            start = span.Start;
+            length = span.Length;
+        }
+        else if (diagnostic.Location is { } location)
+        {
+            start = lines.ToOffset(new Position(
+                Math.Max(0, location.Line - 1),
+                Math.Max(0, location.Column - 1)));
+            length = 1;
+        }
+        else
+        {
+            start = 0;
+            length = 0;
+        }
+
+        int end = Math.Clamp(start + Math.Max(0, length), start, textLength);
+        if (end == start && start < textLength)
+        {
+            end++;
+        }
+
+        return new LspRange(lines.ToPosition(start), lines.ToPosition(end));
     }
 
     /// <summary>
@@ -361,3 +412,5 @@ public sealed class FluentLanguageServer
         return "";
     }
 }
+
+

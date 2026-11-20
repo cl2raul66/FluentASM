@@ -667,3 +667,5 @@ public static class BareMetalBootImageBuilder
 
     private sealed record Patch(int Offset, string Label, int Addend, PatchKind Kind);
 }
+
+

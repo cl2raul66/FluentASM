@@ -33,7 +33,8 @@ public readonly record struct LspRange(Position Start, Position End)
             return false;
         }
 
-        if (position.Line == End.Line && position.Character > End.Character)
+        // El final del rango es exclusivo, igual que en la especificación LSP.
+        if (position.Line == End.Line && position.Character >= End.Character)
         {
             return false;
         }
@@ -50,3 +51,5 @@ public readonly record struct LspRange(Position Start, Position End)
 /// <param name="Uri">URI del documento (ej. file:///...).</param>
 /// <param name="Range">Rango dentro del documento.</param>
 public readonly record struct Location(string Uri, LspRange Range);
+
+

@@ -20,3 +20,5 @@ public sealed record LspDiagnostic(
     string Message,
     string? Code = null,
     string? Source = "FluentASM");
+
+

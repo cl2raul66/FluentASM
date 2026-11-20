@@ -91,3 +91,5 @@ public readonly record struct MagnitudeInfo(MagnitudeKind Kind, long Size, long 
         _ => 0,
     };
 }
+
+

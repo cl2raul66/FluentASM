@@ -10,3 +10,5 @@ public readonly record struct TextSpan(int Start, int Length)
     /// <summary>Índice absoluto del primer carácter posterior al intervalo.</summary>
     public int End => Start + Length;
 }
+
+

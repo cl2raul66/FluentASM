@@ -617,3 +617,5 @@ public sealed class Lexer
     private static string Describe(char value) =>
         char.IsControl(value) ? $"'\\u{(int)value:X4}'" : $"'{value}'";
 }
+
+
