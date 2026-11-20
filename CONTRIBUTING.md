@@ -302,6 +302,23 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 - **Mitigación:** Si el formato crece, se escribirá una decisión nueva que reemplace esta.
 
 
+### Decisión 0009 — Activación temprana de `FluentASM.Lsp` / `FluentASM_IDE` y exposición de `LanguageCatalog` en `Core` (2026-11-20)
+
+*(Actualiza el diferimiento del IDE previsto en la Decisión 0007 sin alterar sus demás pilares).*
+
+**Contexto:** Para crear aplicaciones reales de prueba y extender la sintaxis de Fase 1 con agilidad, se requiere un entorno de edición conectado directamente a la verdad del compilador. Mantener catálogos duplicados en `FluentASM.Lsp` y `FluentASM_IDE` provocó desincronización con la sintaxis v1.
+
+**Decisión:**
+1. **Banco de trabajo temprano:** `FluentASM.Lsp` y `FluentASM_IDE` pasan a desarrollarse activamente desde Fase 1 como entorno de prueba y evolución del lenguaje (en modo proyecto único e integración *in-process*).
+2. **Fuente única en `Core`:** `FluentASM.Core` expone el catálogo público de solo lectura `LanguageCatalog`, proyectado desde `RegisterModel`, `VerbCatalog`, `FlagCatalog` y `DiagnosticIds`, consumido exclusivamente por `FluentASM.Lsp` (nunca duplicado en la UI).
+3. **Validación y publicaciones:** La validación del IDE/LSP se apoya en el uso diario + registro estructurado de sucesos de fallos (sin proyectos `*Tests.csproj`). La incorporación del LSP/IDE a los flujos automáticos de release se aborda al cerrar su hito inicial.
+
+**Consecuencias:**
+- **Ganancia:** Cualquier extensión de sintaxis en `Core` se refleja automáticamente en resaltado, diagnósticos y completado del IDE; se elimina la duplicación de tablas.
+- **Pérdida:** Aumenta ligeramente la superficie pública de solo lectura de `FluentASM.Core`.
+- **Mitigación:** `LanguageCatalog` es estrictamente de solo lectura y no altera el pipeline público existente (`Lexer`, `Parser`, `SemanticAnalyzer`, `X64ImageBuilder`).
+
+
 ## CI-CD (Integración y Despliegue Continuos)
 
 GitHub Actions **no se ejecuta en cada Pull Request**: así no se consumen minutos de ejecución por cambios que aún están en revisión. La validación es local y obligatoria antes de abrir el PR:

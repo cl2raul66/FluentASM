@@ -1,4 +1,8 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using FluentASM.Lsp.Protocol;
 using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Services;
@@ -21,12 +25,17 @@ public sealed partial class MainPage : Page
 
     public MainPageViewModel ViewModel { get; } = new();
 
-    private readonly DispatcherTimer _highlightDebounceTimer = new();
-    private readonly DispatcherTimer _lspDebounceTimer = new();
+    private readonly DispatcherTimer _analysisDebounceTimer = new();
     private readonly DiagnosticAdorner _diagnosticAdorner;
     private readonly EditorKeyboardHandler _keyboardHandler;
+    private readonly EditorUndoHistory _undoHistory = new();
     private ScrollViewer? _editorInternalScrollViewer;
+    private CancellationTokenSource? _analysisCts;
+    private IReadOnlyList<HighlightToken>? _highlightTokens;
+    private string _highlightedText = string.Empty;
+    private string _lastNormalizedText = string.Empty;
     private bool _isHighlighting;
+    private bool _applyingUndo;
 
     #endregion
 
@@ -48,25 +57,18 @@ public sealed partial class MainPage : Page
 
     private void InitializeTimers()
     {
-        _highlightDebounceTimer.Interval = TimeSpan.FromMilliseconds(120);
-        _highlightDebounceTimer.Tick += (_, _) =>
+        _analysisDebounceTimer.Interval = TimeSpan.FromMilliseconds(200);
+        _analysisDebounceTimer.Tick += (_, _) =>
         {
-            _highlightDebounceTimer.Stop();
-            RunSyntaxHighlighting();
-        };
-
-        _lspDebounceTimer.Interval = TimeSpan.FromMilliseconds(300);
-        _lspDebounceTimer.Tick += (_, _) =>
-        {
-            _lspDebounceTimer.Stop();
-            SyncCurrentDocument();
+            _analysisDebounceTimer.Stop();
+            RunAnalysisAsync();
         };
     }
 
     private void SubscribeViewModelEvents()
     {
         ViewModel.RevalidationRequested += OnRevalidationRequested;
-        ViewModel.DiagnosticsChanged += () => _diagnosticAdorner.ApplyFormatting();
+        ViewModel.AnalysisRequested += ScheduleAnalysis;
         ViewModel.DiagnosticNavigationRequested += NavigateToDiagnostic;
     }
 
@@ -75,8 +77,13 @@ public sealed partial class MainPage : Page
         _diagnosticAdorner.SetLoaded(true);
 
         ConfigureEditorParagraphFormat();
+
+        // El historial de undo propio evita que el resaltado contamine Ctrl+Z.
+        EditorBox.Document.UndoLimit = 0;
+
         LoadInitialSample();
-        SyncInitialDocument();
+        CaptureEditorState();
+        UpdateLineCountFromDocument();
         SetupScrollSync();
         PositionCaretAtInitialLine();
 
@@ -84,7 +91,7 @@ public sealed partial class MainPage : Page
         AsmHighlighter.IsCurrentDark = isDark;
         ViewModel.UpdateTheme(isDark);
 
-        RunSyntaxHighlighting();
+        RunAnalysisAsync();
     }
 
     private void ConfigureEditorParagraphFormat()
@@ -112,12 +119,6 @@ public sealed partial class MainPage : Page
             DocumentText.ToEditorText(MainPageViewModel.InitialSampleAsm));
     }
 
-    private void SyncInitialDocument()
-    {
-        UpdateLineCountFromDocument();
-        ViewModel.SyncDocumentWithLsp(MainPageViewModel.InitialSampleAsm);
-    }
-
     private void SetupScrollSync()
     {
         _editorInternalScrollViewer = FindVisualChild<ScrollViewer>(EditorBox);
@@ -140,20 +141,34 @@ public sealed partial class MainPage : Page
         bool isDark = sender.ActualTheme != ElementTheme.Light;
         AsmHighlighter.IsCurrentDark = isDark;
         ViewModel.UpdateTheme(isDark);
-        RunSyntaxHighlighting();
+
+        // Se reutiliza el último análisis: solo cambian los colores.
+        ApplyHighlightAndDiagnostics();
     }
 
-    private void RunSyntaxHighlighting()
+    private void ApplyHighlightAndDiagnostics()
     {
-        if (_isHighlighting) return;
+        if (_highlightTokens is null)
+        {
+            return;
+        }
+
         _isHighlighting = true;
         try
         {
-            AsmHighlighter.Highlight(EditorBox);
+            AsmHighlighter.Apply(EditorBox, _highlightTokens, _highlightedText);
+
+            // El subrayado de errores se aplica siempre después del resaltado.
             _diagnosticAdorner.ApplyFormatting();
         }
-        catch { }
-        finally { _isHighlighting = false; }
+        catch
+        {
+            // El editor aún no está listo; se reintentará en el próximo análisis.
+        }
+        finally
+        {
+            _isHighlighting = false;
+        }
     }
 
     #endregion
@@ -162,22 +177,25 @@ public sealed partial class MainPage : Page
 
     private void OnEditorTextChanged(object sender, RoutedEventArgs e)
     {
-        if (_isHighlighting) return;
+        if (_isHighlighting || _applyingUndo) return;
 
         _diagnosticAdorner.OnPointerExited(); // close any open flyout
-        UpdateLineCountFromDocument();
         UpdateCursorCoordinates();
 
-        // Validación LSP INMEDIATA para feedback instantáneo (errores/warnings al momento)
-        SyncCurrentDocument();
+        // Los cambios de solo formato (resaltado, subrayados) también pueden
+        // disparar TextChanged; solo se reanaliza cuando el texto cambió.
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        string normalized = DocumentText.Normalize(text);
+        if (string.Equals(normalized, _lastNormalizedText, StringComparison.Ordinal))
+        {
+            return;
+        }
 
-        // Debounce highlighter (solo resaltado sintaxis, no LSP)
-        _highlightDebounceTimer.Stop();
-        _highlightDebounceTimer.Start();
+        UpdateLineCountFromDocument();
+        RecordUndoStep();
 
-        // Debounce LSP adicional para evitar saturación en escritura rápida
-        _lspDebounceTimer.Stop();
-        _lspDebounceTimer.Start();
+        // Un único debounce para diagnósticos y resaltado.
+        ScheduleAnalysis();
     }
 
     private void OnEditorSelectionChanged(object sender, RoutedEventArgs e)
@@ -189,6 +207,13 @@ public sealed partial class MainPage : Page
     private void OnEditorPointerExited(object sender, PointerRoutedEventArgs e)
         => _diagnosticAdorner.OnPointerExited();
 
+    private void OnEditorPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        // Ctrl+Z / Ctrl+Y se atienden antes que el control para que el Undo
+        // nativo (desactivado con UndoLimit = 0) no interfiera.
+        TryHandleUndoRedo(e);
+    }
+
     private void OnEditorKeyDown(object sender, KeyRoutedEventArgs e)
         => _keyboardHandler.OnKeyDown(e);
 
@@ -196,19 +221,61 @@ public sealed partial class MainPage : Page
 
     #region LSP Synchronization
 
-    private void SyncCurrentDocument()
+    private void ScheduleAnalysis()
     {
-        EditorBox.Document.GetText(TextGetOptions.None, out string text);
-        ViewModel.SyncDocumentWithLsp(text ?? string.Empty);
+        _analysisDebounceTimer.Stop();
+        _analysisDebounceTimer.Start();
+    }
+
+    private async void RunAnalysisAsync()
+    {
+        _analysisCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _analysisCts = cts;
+
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+
+        DocumentAnalysisResult? result;
+        try
+        {
+            result = await ViewModel.AnalyzeDocumentAsync(editorText ?? string.Empty, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Fallo al analizar el documento: {ex}");
+            return;
+        }
+
+        if (result is null || cts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        // El texto pudo cambiar mientras se analizaba: nunca se aplican spans viejos.
+        EditorBox.Document.GetText(TextGetOptions.None, out string currentText);
+        if (!string.Equals(DocumentText.Normalize(currentText), result.Text, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _highlightTokens = result.HighlightTokens;
+        _highlightedText = result.Text;
+
+        // Primero se publican los diagnósticos de esta versión y después se
+        // resalta y se reaplica el subrayado sobre el texto ya validado.
+        ViewModel.ApplyAnalysis(result);
+        ApplyHighlightAndDiagnostics();
     }
 
     private void OnRevalidationRequested()
     {
-        SyncCurrentDocument();
         ViewModel.StatusText = "Documento revalidado";
-
-        _highlightDebounceTimer.Stop();
-        _highlightDebounceTimer.Start();
+        _analysisDebounceTimer.Stop();
+        RunAnalysisAsync();
     }
 
     #endregion
@@ -364,6 +431,149 @@ public sealed partial class MainPage : Page
                 EditorBox.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
             e.Handled = true;
         }
+    }
+
+    #endregion
+
+    #region Undo/Redo de texto
+
+    private void CaptureEditorState()
+    {
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        _lastNormalizedText = DocumentText.Normalize(text);
+        _undoHistory.Clear();
+    }
+
+    private void RecordUndoStep()
+    {
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        string normalized = DocumentText.Normalize(text);
+        if (string.Equals(normalized, _lastNormalizedText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        string previous = _lastNormalizedText;
+        var (prefix, removed, inserted) = DiffText(previous, normalized);
+
+        // La selección previa se deduce del propio cambio: es el tramo que el
+        // usuario reemplazó, así Ctrl+Z devuelve el cursor donde editó.
+        var before = new EditorUndoState(previous, prefix, prefix + removed);
+        _undoHistory.Record(before, inserted, DateTime.UtcNow);
+        _lastNormalizedText = normalized;
+    }
+
+    /// <summary>
+    /// Calcula el prefijo común, los caracteres eliminados y el texto insertado
+    /// entre dos versiones del documento.
+    /// </summary>
+    private static (int Prefix, int Removed, string Inserted) DiffText(string previous, string current)
+    {
+        int prefix = 0;
+        int maxPrefix = Math.Min(previous.Length, current.Length);
+        while (prefix < maxPrefix && previous[prefix] == current[prefix])
+        {
+            prefix++;
+        }
+
+        int suffix = 0;
+        int maxSuffix = Math.Min(previous.Length - prefix, current.Length - prefix);
+        while (suffix < maxSuffix
+               && previous[previous.Length - 1 - suffix] == current[current.Length - 1 - suffix])
+        {
+            suffix++;
+        }
+
+        int removed = previous.Length - prefix - suffix;
+        string inserted = current.Substring(prefix, current.Length - prefix - suffix);
+        return (prefix, removed, inserted);
+    }
+
+    private bool TryHandleUndoRedo(KeyRoutedEventArgs e)
+    {
+        bool isCtrl = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
+                       CoreVirtualKeyStates.Down) != 0;
+        if (!isCtrl)
+        {
+            return false;
+        }
+
+        bool isShift = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) &
+                        CoreVirtualKeyStates.Down) != 0;
+
+        if (e.Key == VirtualKey.Z)
+        {
+            e.Handled = true;
+            if (isShift)
+            {
+                RedoEditor();
+            }
+            else
+            {
+                UndoEditor();
+            }
+
+            return true;
+        }
+
+        if (e.Key == VirtualKey.Y)
+        {
+            e.Handled = true;
+            RedoEditor();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void UndoEditor()
+    {
+        var target = _undoHistory.Undo(CaptureUndoState());
+        if (target is not null)
+        {
+            ApplyUndoState(target);
+        }
+    }
+
+    private void RedoEditor()
+    {
+        var target = _undoHistory.Redo(CaptureUndoState());
+        if (target is not null)
+        {
+            ApplyUndoState(target);
+        }
+    }
+
+    private EditorUndoState CaptureUndoState()
+    {
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        var selection = EditorBox.Document.Selection;
+        string normalized = DocumentText.Normalize(text);
+        return new EditorUndoState(
+            normalized,
+            Math.Min(DocumentText.ToNormalizedOffset(text, selection.StartPosition), normalized.Length),
+            Math.Min(DocumentText.ToNormalizedOffset(text, selection.EndPosition), normalized.Length));
+    }
+
+    private void ApplyUndoState(EditorUndoState state)
+    {
+        _applyingUndo = true;
+        try
+        {
+            // Los offsets guardados son del texto normalizado; ToEditorText
+            // reemplaza \n por \r uno a uno, así que se conservan.
+            EditorBox.Document.SetText(TextSetOptions.None, DocumentText.ToEditorText(state.Text));
+            EditorBox.Document.Selection.SetRange(state.SelectionStart, state.SelectionEnd);
+            _lastNormalizedText = state.Text;
+        }
+        finally
+        {
+            _applyingUndo = false;
+        }
+
+        UpdateLineCountFromDocument();
+        UpdateCursorCoordinates();
+        ScheduleAnalysis();
     }
 
     #endregion

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
+using FluentASM.Lsp.Protocol;
+using FluentASM_IDE.Common.Services;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml.Controls;
 using Windows.UI;
@@ -9,7 +10,8 @@ namespace FluentASM_IDE.Services;
 
 /// <summary>
 /// Resaltador de sintaxis para FluentASM en <see cref="RichEditBox"/>.
-/// Aplica colores según el tema (claro/oscuro) usando <see cref="ITextCharacterFormat"/>.
+/// No conoce el lenguaje ni usa expresiones regulares: solo aplica los spans
+/// clasificados que entrega <c>ILanguageService.GetHighlightTokens</c>.
 /// </summary>
 public static class AsmHighlighter
 {
@@ -47,154 +49,113 @@ public static class AsmHighlighter
     public static Color ColorDefault => IsCurrentDark ? DarkColorDefault : LightColorDefault;
 
     /// <summary>
-    /// Aplica resaltado de sintaxis al documento completo del <see cref="RichEditBox"/>.
+    /// Aplica el resaltado de la versión analizada. Los offsets de los tokens
+    /// son absolutos sobre el texto normalizado; se traducen a offsets del
+    /// <c>RichEditBox</c> con un único recorrido.
     /// </summary>
-    public static void Highlight(RichEditBox editor)
+    /// <param name="editor">Editor destino.</param>
+    /// <param name="tokens">Tokens clasificados por el LSP.</param>
+    /// <param name="normalizedText">Texto normalizado al que pertenecen los tokens.</param>
+    public static void Apply(RichEditBox editor, IReadOnlyList<HighlightToken> tokens, string normalizedText)
     {
-        editor.Document.GetText(TextGetOptions.None, out string text);
-        if (string.IsNullOrEmpty(text))
+        ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(tokens);
+        ArgumentNullException.ThrowIfNull(normalizedText);
+
+        editor.Document.GetText(TextGetOptions.None, out string editorText);
+        if (string.IsNullOrEmpty(editorText))
         {
             return;
         }
 
-        var allRange = editor.Document.GetRange(0, text.Length);
-        allRange.CharacterFormat.ForegroundColor = ColorDefault;
-
-        var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
-
-        int offset = 0;
-        foreach (var line in lines)
+        // Los spans solo son válidos si el texto no cambió desde el análisis.
+        if (!string.Equals(DocumentText.Normalize(editorText), normalizedText, StringComparison.Ordinal))
         {
-            int lineStart = offset;
-            int lineEnd = offset + line.Length;
+            return;
+        }
 
-            // Saltar líneas vacías
-            if (string.IsNullOrWhiteSpace(line))
+        int[] map = DocumentText.BuildNormalizedToEditorMap(editorText);
+        int editorLength = editorText.Length;
+
+        var document = editor.Document;
+        int selectionStart = document.Selection.StartPosition;
+        int selectionEnd = document.Selection.EndPosition;
+
+        document.BatchDisplayUpdates();
+        try
+        {
+            var all = document.GetRange(0, editorLength).CharacterFormat;
+            all.ForegroundColor = ColorDefault;
+            all.Bold = FormatEffect.Off;
+            all.Italic = FormatEffect.Off;
+
+            foreach (var token in tokens)
             {
-                offset += line.Length + 1; // +1 por el salto de línea
-                continue;
+                int start = MapOffset(map, token.Start);
+                int end = MapOffset(map, token.Start + token.Length);
+                if (end <= start)
+                {
+                    continue;
+                }
+
+                var range = document.GetRange(start, Math.Min(end, editorLength));
+                var format = range.CharacterFormat;
+                format.ForegroundColor = GetColor(token.Kind);
+
+                if (token.Kind == HighlightTokenKind.Comment)
+                {
+                    format.Italic = FormatEffect.On;
+                }
+
+                if (token.Kind is HighlightTokenKind.Keyword
+                    or HighlightTokenKind.FlowConstructor
+                    or HighlightTokenKind.Label)
+                {
+                    format.Bold = FormatEffect.On;
+                }
             }
-
-            // Detectar secciones (terminan en ':')
-            if (line.TrimEnd().EndsWith(":"))
-            {
-                var range = editor.Document.GetRange(lineStart, lineEnd);
-                range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorSection : LightColorSection;
-                range.CharacterFormat.Bold = FormatEffect.On;
-            }
-
-            // Palabras clave y directivas
-            HighlightKeywords(editor, line, lineStart, lineEnd);
-
-            // Registros (GprN, Frf, Ipr, Stack, Cpu, Port, Bit, Byte)
-            HighlightRegisters(editor, line, lineStart, lineEnd);
-
-            // Números (hex, decimal, binario)
-            HighlightNumbers(editor, line, lineStart, lineEnd);
-
-            // Cadenas
-            HighlightStrings(editor, line, lineStart, lineEnd);
-
-            // Comentarios (// y /* */)
-            HighlightComments(editor, line, lineStart, lineEnd);
-
-            // Operadores y puntuación
-            HighlightOperators(editor, line, lineStart, lineEnd);
-
-            offset += line.Length + 1; // +1 por el salto de línea
+        }
+        finally
+        {
+            document.Selection.SetRange(selectionStart, selectionEnd);
+            document.ApplyDisplayUpdates();
         }
     }
 
-    private static void HighlightKeywords(RichEditBox editor, string line, int lineStart, int lineEnd)
+    /// <summary>Color del tema actual para una categoría de token.</summary>
+    public static Color GetColor(HighlightTokenKind kind)
     {
-        var keywords = new[]
+        bool dark = IsCurrentDark;
+
+        return kind switch
         {
-            "routine", "returns", "run", "data", "execute", "initialize",
-            "define", "copy", "add", "sub", "mul", "div", "and", "or", "xor", "not",
-            "cmp", "test", "jmp", "je", "jne", "jz", "jnz", "jg", "jl", "jge", "jle",
-            "call", "ret", "push", "pop", "mov", "lea", "inc", "dec", "neg",
-            "shl", "shr", "sal", "sar", "rol", "ror", "rcl", "rcr",
-            "if", "else", "endif", "while", "endwhile", "for", "endfor",
-            "break", "continue", "return", "goto", "label",
-            "struct", "union", "enum", "typedef", "sizeof", "align",
-            "extern", "public", "private", "static", "const", "volatile",
-            "true", "false", "null", "this", "base", "new", "delete"
+            HighlightTokenKind.Keyword => dark ? DarkColorKeyword : LightColorKeyword,
+            HighlightTokenKind.Verb => dark ? DarkColorKeyword : LightColorKeyword,
+            HighlightTokenKind.Routine => dark ? DarkColorType : LightColorType,
+            HighlightTokenKind.FlowConstructor => dark ? DarkColorSection : LightColorSection,
+            HighlightTokenKind.Directive => dark ? DarkColorDirective : LightColorDirective,
+            HighlightTokenKind.Register => dark ? DarkColorRegister : LightColorRegister,
+            HighlightTokenKind.Flag => dark ? DarkColorRegister : LightColorRegister,
+            HighlightTokenKind.Magnitude => dark ? DarkColorType : LightColorType,
+            HighlightTokenKind.Data => dark ? DarkColorType : LightColorType,
+            HighlightTokenKind.Number => dark ? DarkColorNumber : LightColorNumber,
+            HighlightTokenKind.String => dark ? DarkColorString : LightColorString,
+            HighlightTokenKind.Comment => dark ? DarkColorComment : LightColorComment,
+            HighlightTokenKind.Label => dark ? DarkColorSection : LightColorSection,
+            HighlightTokenKind.Operator => dark ? DarkColorOperator : LightColorOperator,
+            HighlightTokenKind.Punctuation => dark ? DarkColorOperator : LightColorOperator,
+            _ => ColorDefault,
         };
-
-        var pattern = @"\b(" + string.Join("|", keywords.Select(Regex.Escape)) + @")\b";
-        var matches = Regex.Matches(line, pattern, RegexOptions.IgnoreCase);
-
-        foreach (Match match in matches)
-        {
-            var range = editor.Document.GetRange(lineStart + match.Index, lineStart + match.Index + match.Length);
-            range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorKeyword : LightColorKeyword;
-            range.CharacterFormat.Bold = FormatEffect.On;
-        }
     }
 
-    private static void HighlightRegisters(RichEditBox editor, string line, int lineStart, int lineEnd)
+    private static int MapOffset(int[] map, int normalizedOffset)
     {
-        // Gpr0-Gpr15, Frf, Ipr, Stack, Cpu, Port, Bit, Byte, Bit:N, Byte:N
-        var pattern = @"\b(Gpr(?:[0-9]|1[0-5])(?:\.low(?:8|16|32)|\.high8)?|Frf(?:\.(?:carry|zero|sign|overflow|parity|adjust|interrupt|direction))?|Ipr(?:\.(?:flowJump|flowCall|flowStackJump|current))?|Stack(?:\.(?:push|pop|reserve|release))?|Cpu(?:\.(?:noOperation|pause|halt))?|Port(?:\[[^\]]+\])?|Bit(?::[0-9]+)?|Byte(?::[0-9]+)?)\b";
-        var matches = Regex.Matches(line, pattern, RegexOptions.IgnoreCase);
-
-        foreach (Match match in matches)
+        if (map.Length == 0)
         {
-            var range = editor.Document.GetRange(lineStart + match.Index, lineStart + match.Index + match.Length);
-            range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorRegister : LightColorRegister;
+            return 0;
         }
-    }
 
-    private static void HighlightNumbers(RichEditBox editor, string line, int lineStart, int lineEnd)
-    {
-        // Hex: 0x..., decimal: \d+, binary: 0b...
-        var pattern = @"\b(0x[0-9A-Fa-f]+|0b[01]+|\d+)\b";
-        var matches = Regex.Matches(line, pattern);
-
-        foreach (Match match in matches)
-        {
-            var range = editor.Document.GetRange(lineStart + match.Index, lineStart + match.Index + match.Length);
-            range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorNumber : LightColorNumber;
-        }
-    }
-
-    private static void HighlightStrings(RichEditBox editor, string line, int lineStart, int lineEnd)
-    {
-        // "..." y '...'
-        var pattern = @"(""[^""]*""|'[^']*')";
-        var matches = Regex.Matches(line, pattern);
-
-        foreach (Match match in matches)
-        {
-            var range = editor.Document.GetRange(lineStart + match.Index, lineStart + match.Index + match.Length);
-            range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorString : LightColorString;
-        }
-    }
-
-    private static void HighlightComments(RichEditBox editor, string line, int lineStart, int lineEnd)
-    {
-        // Comentarios de línea //
-        int commentIdx = line.IndexOf("//");
-        if (commentIdx >= 0)
-        {
-            var range = editor.Document.GetRange(lineStart + commentIdx, lineEnd);
-            range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorComment : LightColorComment;
-            range.CharacterFormat.Italic = FormatEffect.On;
-        }
-    }
-
-    private static void HighlightOperators(RichEditBox editor, string line, int lineStart, int lineEnd)
-    {
-        var operators = new[] { "->", "=>", "==", "!=", "<=", ">=", "<", ">", "+", "-", "*", "/", "%", "&", "|", "^", "~", "!", "=", ",", ";", ":", ".", "(", ")", "[", "]", "{", "}" };
-        foreach (var op in operators)
-        {
-            int idx = 0;
-            while ((idx = line.IndexOf(op, idx, StringComparison.Ordinal)) >= 0)
-            {
-                var range = editor.Document.GetRange(lineStart + idx, lineStart + idx + op.Length);
-                range.CharacterFormat.ForegroundColor = IsCurrentDark ? DarkColorOperator : LightColorOperator;
-                idx += op.Length;
-            }
-        }
+        int index = Math.Clamp(normalizedOffset, 0, map.Length - 1);
+        return map[index];
     }
 }

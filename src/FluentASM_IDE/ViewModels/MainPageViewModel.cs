@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FluentASM.Lsp;
@@ -78,9 +80,13 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     private static readonly ILoggerFactory LspLoggerFactory = LoggerFactory.Create(builder =>
         builder.SetMinimumLevel(LogLevel.Debug).AddDebug());
 
-    public ILanguageService LspServer { get; } = new FluentLanguageServer(LspLoggerFactory);
+    /// <summary>Servicio de lenguaje compartido por diagnósticos, resaltado, hover y símbolos.</summary>
+    public ILanguageService LspServer { get; }
 
-    private int documentVersion = 1;
+    private readonly object documentGate = new();
+    private int documentVersion;
+    private string documentText = string.Empty;
+    private CancellationTokenSource? analysisCts;
 
     public const string DocumentUri = "file:///" + DocumentFileName;
 
@@ -150,6 +156,12 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public event Action? RevalidationRequested;
 
     /// <summary>
+    /// Se dispara cuando otra operación (por ejemplo, IntelliSense) cambió la
+    /// versión del documento y conviene reprogramar el análisis.
+    /// </summary>
+    public event Action? AnalysisRequested;
+
+    /// <summary>
     /// Se dispara cuando cambian los diagnósticos para que la vista actualice
     /// los subrayados del editor.
     /// </summary>
@@ -196,8 +208,21 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             .initialize()
         """;
 
+    /// <summary>Crea el ViewModel con el servidor de lenguaje por defecto.</summary>
     public MainPageViewModel()
+        : this(new FluentLanguageServer(LspLoggerFactory))
     {
+    }
+
+    /// <summary>
+    /// Crea el ViewModel con un <see cref="ILanguageService"/> concreto, lo que
+    /// permite sustituirlo en pruebas sin acoplarse a la implementación LSP.
+    /// </summary>
+    public MainPageViewModel(ILanguageService languageService)
+    {
+        ArgumentNullException.ThrowIfNull(languageService);
+        LspServer = languageService;
+
         UpdateLineCount(DocumentText.CountLines(DocumentText.Normalize(InitialSampleAsm)));
         InitializeCommands();
         InitializeIntelliSense();
@@ -547,16 +572,111 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     private void InitializeIntelliSense()
     {
-        LspServer.OpenDocument(DocumentUri, DocumentText.Normalize(InitialSampleAsm), 1);
+        string normalized = DocumentText.Normalize(InitialSampleAsm);
+        lock (documentGate)
+        {
+            documentText = normalized;
+            documentVersion = 1;
+            LspServer.OpenDocument(DocumentUri, normalized, documentVersion);
+        }
+
         RequestLspCompletions(InitialSampleAsm, openPopup: false);
     }
 
-    public void SyncDocumentWithLsp(string sourceCode)
+    /// <summary>
+    /// Sincroniza el documento con una versión incremental y espera el análisis
+    /// vigente. Si llega una versión más reciente, cancela esta y devuelve
+    /// <c>null</c> para que la vista no aplique resultados obsoletos.
+    /// </summary>
+    public async Task<DocumentAnalysisResult?> AnalyzeDocumentAsync(
+        string sourceCode,
+        CancellationToken cancellationToken = default)
     {
         string normalized = DocumentText.Normalize(sourceCode);
-        documentVersion++;
-        LspServer.UpdateDocument(DocumentUri, normalized, documentVersion);
-        ApplyDiagnostics(LspServer.ValidateDocument(DocumentUri));
+        int version = UpdateDocument(normalized);
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        CancellationTokenSource? previous;
+        lock (documentGate)
+        {
+            previous = analysisCts;
+            analysisCts = cts;
+        }
+
+        // La versión anterior puede haberse completado y liberado su CTS; la
+        // cancelación es best-effort y nunca debe romper el análisis vigente.
+        try
+        {
+            previous?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        CancellationToken token = cts.Token;
+
+        try
+        {
+            var snapshot = await Task.Run(
+                () => LspServer.GetSnapshot(DocumentUri, token),
+                token).ConfigureAwait(true);
+
+            if (snapshot is null
+                || token.IsCancellationRequested
+                || version != Volatile.Read(ref documentVersion))
+            {
+                return null;
+            }
+
+            return new DocumentAnalysisResult(version, normalized, snapshot.Diagnostics, snapshot.HighlightTokens);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+        finally
+        {
+            lock (documentGate)
+            {
+                if (ReferenceEquals(analysisCts, cts))
+                {
+                    analysisCts = null;
+                }
+            }
+
+            cts.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Aplica los diagnósticos de un análisis que la vista ya validó contra el
+    /// texto vigente del editor. Así nunca se muestran subrayados de una
+    /// versión anterior.
+    /// </summary>
+    public void ApplyAnalysis(DocumentAnalysisResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ApplyDiagnostics(result.Diagnostics);
+    }
+
+    /// <summary>
+    /// Actualiza el documento solo si el texto cambió y devuelve la versión
+    /// vigente. Evita reanálisis por sincronizaciones redundantes.
+    /// </summary>
+    private int UpdateDocument(string normalized)
+    {
+        lock (documentGate)
+        {
+            if (string.Equals(normalized, documentText, StringComparison.Ordinal))
+            {
+                return documentVersion;
+            }
+
+            documentText = normalized;
+            documentVersion++;
+            LspServer.UpdateDocument(DocumentUri, normalized, documentVersion);
+            return documentVersion;
+        }
     }
 
     private void ApplyDiagnostics(IReadOnlyList<LspDiagnostic> diagnostics)
@@ -607,8 +727,8 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     public void RequestLspCompletions(string sourceCode, bool openPopup = true)
     {
-        documentVersion++;
-        LspServer.UpdateDocument(DocumentUri, DocumentText.Normalize(sourceCode), documentVersion);
+        int previousVersion = Volatile.Read(ref documentVersion);
+        UpdateDocument(DocumentText.Normalize(sourceCode));
         var lspCompletions = LspServer.GetCompletions(DocumentUri, new Position(CurrentLine - 1, CurrentCol - 1));
 
         CompletionItems.Clear();
@@ -624,6 +744,13 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             {
                 IsIntelliSenseOpen = true;
             }
+        }
+
+        // Si IntelliSense adelantó una versión nueva, la vista reprograma el
+        // análisis para no quedarse con un resaltado obsoleto.
+        if (Volatile.Read(ref documentVersion) != previousVersion)
+        {
+            AnalysisRequested?.Invoke();
         }
     }
 }

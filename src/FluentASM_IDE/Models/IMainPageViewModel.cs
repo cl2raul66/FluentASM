@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Xaml;
@@ -51,7 +53,13 @@ public interface IMainPageViewModel
 
     // LSP Sync
     event Action? RevalidationRequested;
-    void SyncDocumentWithLsp(string sourceCode);
+    event Action? AnalysisRequested;
+
+    /// <summary>
+    /// Sincroniza el documento con una versión incremental y devuelve el
+    /// análisis vigente, o <c>null</c> si una versión más reciente lo descartó.
+    /// </summary>
+    Task<DocumentAnalysisResult?> AnalyzeDocumentAsync(string sourceCode, CancellationToken cancellationToken = default);
 }
 
 
