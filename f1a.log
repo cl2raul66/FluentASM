@@ -1,0 +1,53 @@
+=== F1A Comprobación Fase 1B - Punto 3 ===
+Fecha: 2026-11-20T15:27:17Z
+Directorio: C:\Users\cl2ra\AppData\Local\Temp\opencode\f1acheck
+
+--- 1. Cobertura LspCatalog vs Core ---
+Esperados en LspCatalog: 180
+Faltantes: 0
+Resultado cobertura: OK
+
+--- 2. Nombres legacy (rFlags, imult, program, 'section .execute', cmp) ---
+  rFlags: found=True categoria=Legacy (prohibido) (solo legacy prohibido)
+  imult: found=False categoria=NO ENCONTRADO 
+  program: found=False categoria=NO ENCONTRADO 
+  section .execute: found=False categoria=NO ENCONTRADO 
+  cmp: found=False categoria=NO ENCONTRADO 
+Resultado legacy: OK
+
+--- 3. GetHighlightTokens sobre miCalculadoraCli ---
+  Tokens totales: 214
+  Diagnosticos: 0
+  Ipr: found=True kinds=[Register,Register,Register]
+  Gpr0: found=True kinds=[Register,Register,Register,Register,Register]
+  Gpr1: found=True kinds=[Register,Register]
+  Gpr2: found=True kinds=[Register,Register]
+  Byte: found=True kinds=[Magnitude,Magnitude,Magnitude,Magnitude]
+  copy: found=True kinds=[Verb,Verb,Verb]
+  add: found=True kinds=[Verb]
+  flowCall: found=True kinds=[Verb]
+  flowStackJump: found=True kinds=[Verb,Verb]
+  data: found=True kinds=[FlowConstructor]
+  execute: found=True kinds=[FlowConstructor]
+  initialize: found=True kinds=[FlowConstructor]
+Resultado tokens: OK
+
+--- 4. DocumentStore descarta versiones obsoletas ---
+  Open v1='version1', luego Update v2='version2'
+  GetSnapshot -> texto='version2', version=2
+  Resultado version correcta (v2): True
+  Update mismo texto con v3 -> texto='version2', version=2
+  Resultado no-op (se ignora v3, se conserva v2): True
+
+--- 5. IncidentRecorder ---
+  BUSQUEDA en repositorio: no se encontro 'IncidentRecorder' (grep sin resultados en *.cs).
+  No es posible verificar registro en memoria ni archivo .jsonl.
+  Resultado: NO DISPONIBLE (clase no existe en el codigo actual).
+
+=== RESUMEN ===
+  Cobertura LspCatalog: OK
+  Nombres legacy como validos: OK
+  GetHighlightTokens (12/12): OK
+  DocumentStore version correcta: True
+  DocumentStore no-op: True
+  IncidentRecorder: NO DISPONIBLE
