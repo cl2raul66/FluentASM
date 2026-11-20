@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using FluentASM_IDE.Services;
 using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -50,6 +51,24 @@ public interface IMainPageViewModel
     // Editor coordinates
     void UpdateCursorPosition(int line, int col);
     void UpdateLineCount(int count);
+
+    // Proyecto
+    string DocumentUri { get; }
+    string ProjectName { get; }
+    string SourceFilePath { get; }
+    bool IsProjectOpen { get; }
+    bool HasUnsavedChanges { get; }
+    event Action? ProjectOpened;
+    event Action? UnsavedChangesChanged;
+    event Action? OpenProjectRequested;
+    event Action? SaveRequested;
+    event Action? OutlineRequested;
+    event Action? QuickFixAvailable;
+    ObservableCollection<QuickFixAction> QuickFixActions { get; }
+    void OpenProject(string sourcePath, string? projectFilePath = null);
+    bool SaveSource(string editorText);
+    void MarkUnsavedChanges(bool hasChanges);
+    void ApplyQuickFix(QuickFixAction action);
 
     // LSP Sync
     event Action? RevalidationRequested;

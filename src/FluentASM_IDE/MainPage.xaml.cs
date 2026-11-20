@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentASM.Lsp.Protocol;
@@ -7,6 +8,7 @@ using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Services;
 using FluentASM_IDE.ViewModels;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -14,8 +16,11 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
+using WinRT.Interop;
 
 namespace FluentASM_IDE;
 
@@ -29,6 +34,9 @@ public sealed partial class MainPage : Page
     private readonly DiagnosticAdorner _diagnosticAdorner;
     private readonly EditorKeyboardHandler _keyboardHandler;
     private readonly EditorUndoHistory _undoHistory = new();
+    private readonly ProjectService _projectService;
+    private readonly HoverService _hoverService;
+    private readonly OutlineService _outlineService;
     private ScrollViewer? _editorInternalScrollViewer;
     private CancellationTokenSource? _analysisCts;
     private IReadOnlyList<HighlightToken>? _highlightTokens;
@@ -47,12 +55,28 @@ public sealed partial class MainPage : Page
 
         _diagnosticAdorner = new DiagnosticAdorner(EditorBox, ViewModel);
         _keyboardHandler = new EditorKeyboardHandler(EditorBox, ViewModel, IntelliSenseControl);
+        _projectService = ViewModel.ProjectService;
+        _hoverService = new HoverService(EditorBox, ViewModel);
+        _outlineService = new OutlineService(ViewModel, EditorBox);
 
         InitializeTimers();
         SubscribeViewModelEvents();
+        SubscribeProjectEvents();
 
         ActualThemeChanged += OnActualThemeChanged;
         Loaded += MainPage_Loaded;
+    }
+
+    private void SubscribeProjectEvents()
+    {
+        ViewModel.OpenProjectRequested += OnOpenProjectRequested;
+        ViewModel.SaveRequested += OnSaveRequested;
+        ViewModel.OutlineRequested += OnOutlineRequested;
+    }
+
+    private void OnOutlineRequested()
+    {
+        _outlineService.Show();
     }
 
     private void InitializeTimers()
@@ -81,7 +105,14 @@ public sealed partial class MainPage : Page
         // El historial de undo propio evita que el resaltado contamine Ctrl+Z.
         EditorBox.Document.UndoLimit = 0;
 
-        LoadInitialSample();
+        // Procesar argumentos de lanzamiento y activación por archivo.
+        ProcessLaunchArguments();
+
+        if (!ViewModel.IsProjectOpen)
+        {
+            LoadInitialSample();
+        }
+
         CaptureEditorState();
         UpdateLineCountFromDocument();
         SetupScrollSync();
@@ -92,6 +123,109 @@ public sealed partial class MainPage : Page
         ViewModel.UpdateTheme(isDark);
 
         RunAnalysisAsync();
+    }
+
+    private void ProcessLaunchArguments()
+    {
+        // Activación por archivo (clic derecho → Abrir con FluentASM).
+        if (App.ActivatedFilePath is { } activatedPath)
+        {
+            OpenProjectOrFolder(activatedPath);
+            return;
+        }
+
+        // Argumentos de línea de comandos.
+        foreach (var arg in App.LaunchArguments)
+        {
+            if (string.IsNullOrWhiteSpace(arg)) continue;
+            var fullPath = Path.GetFullPath(arg);
+            if (Directory.Exists(fullPath))
+            {
+                OpenProjectOrFolder(fullPath);
+                return;
+            }
+
+            if (File.Exists(fullPath))
+            {
+                var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+                if (extension == ".fproj")
+                {
+                    OpenProjectOrFolder(fullPath);
+                    return;
+                }
+
+                if (extension == ".fasm")
+                {
+                    OpenProjectOrFolder(fullPath);
+                    return;
+                }
+            }
+        }
+    }
+
+    private async void OpenProjectOrFolder(string path)
+    {
+        // Si hay cambios no guardados, pedir confirmación antes de abrir otro proyecto.
+        if (ViewModel.HasUnsavedChanges)
+        {
+            if (!await ConfirmDiscardChangesAsync())
+            {
+                return;
+            }
+        }
+
+        var fullPath = Path.GetFullPath(path);
+        if (Directory.Exists(fullPath))
+        {
+            var result = _projectService.OpenFolder(fullPath);
+            ApplyProjectOpenResult(result);
+        }
+        else if (File.Exists(fullPath))
+        {
+            var extension = Path.GetExtension(fullPath).ToLowerInvariant();
+            if (extension == ".fproj")
+            {
+                var result = _projectService.OpenFproj(fullPath);
+                ApplyProjectOpenResult(result);
+            }
+            else if (extension == ".fasm")
+            {
+                var result = _projectService.OpenSourceFile(fullPath);
+                ApplyProjectOpenResult(result);
+            }
+        }
+    }
+
+    private void ApplyProjectOpenResult(ProjectOpenResult result)
+    {
+        if (!result.Success)
+        {
+            ViewModel.StatusText = $"Error al abrir: {result.Error}";
+            return;
+        }
+
+        ViewModel.OpenProject(result.SourcePath!, result.Project?.ProjectFilePath);
+    }
+
+    private async Task<bool> ConfirmDiscardChangesAsync()
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "Cambios sin guardar",
+            Content = "Hay cambios sin guardar en el archivo fuente. ¿Descartarlos y abrir otro proyecto?",
+            PrimaryButtonText = "Descartar",
+            CloseButtonText = "Cancelar",
+            DefaultButton = ContentDialogButton.Close
+        };
+
+        // XAML Root para mostrar el ContentDialog.
+        if (App.Window.Content is FrameworkElement root)
+        {
+            dialog.XamlRoot = root.XamlRoot;
+        }
+
+        var result = await dialog.ShowAsync();
+        return result == ContentDialogResult.Primary;
     }
 
     private void ConfigureEditorParagraphFormat()
@@ -194,6 +328,12 @@ public sealed partial class MainPage : Page
         UpdateLineCountFromDocument();
         RecordUndoStep();
 
+        // Marcar cambios no guardados solo si hay un proyecto/archivo real abierto.
+        if (ViewModel.IsProjectOpen)
+        {
+            ViewModel.MarkUnsavedChanges(true);
+        }
+
         // Un único debounce para diagnósticos y resaltado.
         ScheduleAnalysis();
     }
@@ -202,16 +342,42 @@ public sealed partial class MainPage : Page
         => UpdateCursorCoordinates();
 
     private void OnEditorPointerMoved(object sender, PointerRoutedEventArgs e)
-        => _diagnosticAdorner.OnPointerMoved(e);
+    {
+        _diagnosticAdorner.OnPointerMoved(e);
+        _hoverService.OnPointerMoved(e.GetCurrentPoint(EditorBox).Position);
+    }
 
     private void OnEditorPointerExited(object sender, PointerRoutedEventArgs e)
-        => _diagnosticAdorner.OnPointerExited();
+    {
+        _diagnosticAdorner.OnPointerExited();
+        _hoverService.OnPointerExited();
+    }
 
     private void OnEditorPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         // Ctrl+Z / Ctrl+Y se atienden antes que el control para que el Undo
         // nativo (desactivado con UndoLimit = 0) no interfiera.
-        TryHandleUndoRedo(e);
+        if (TryHandleUndoRedo(e))
+        {
+            return;
+        }
+
+        bool isCtrl = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
+                       CoreVirtualKeyStates.Down) != 0;
+
+        if (isCtrl && e.Key == VirtualKey.O)
+        {
+            e.Handled = true;
+            OpenFolderPickerAsync();
+            return;
+        }
+
+        if (isCtrl && e.Key == VirtualKey.S)
+        {
+            e.Handled = true;
+            SaveCurrentFile();
+            return;
+        }
     }
 
     private void OnEditorKeyDown(object sender, KeyRoutedEventArgs e)
@@ -276,6 +442,48 @@ public sealed partial class MainPage : Page
         ViewModel.StatusText = "Documento revalidado";
         _analysisDebounceTimer.Stop();
         RunAnalysisAsync();
+    }
+
+    private void OnOpenProjectRequested()
+    {
+        OpenFolderPickerAsync();
+    }
+
+    private void OnSaveRequested()
+    {
+        SaveCurrentFile();
+    }
+
+    private async void OpenFolderPickerAsync()
+    {
+        if (ViewModel.HasUnsavedChanges)
+        {
+            if (!await ConfirmDiscardChangesAsync())
+            {
+                return;
+            }
+        }
+
+        var picker = new FolderPicker
+        {
+            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
+        };
+        picker.FileTypeFilter.Add("*");
+
+        // Inicializar el picker con el handle de la ventana (requerido en WinUI 3).
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, App.WindowHandle);
+
+        var folder = await picker.PickSingleFolderAsync();
+        if (folder is not null)
+        {
+            OpenProjectOrFolder(folder.Path);
+        }
+    }
+
+    private void SaveCurrentFile()
+    {
+        EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        ViewModel.SaveSource(text ?? string.Empty);
     }
 
     #endregion

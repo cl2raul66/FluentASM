@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -28,9 +29,13 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     private static readonly SolidColorBrush WarningCountBrushLight = new(Color.FromArgb(255, 168, 83, 0));
 
     private bool _isDarkTheme = true;
+    private bool _hasUnsavedChanges;
 
     public const string DocumentFileName = "miCalculadoraCli.fasm";
     public const string WindowTitle = "FluentASM IDE - " + DocumentFileName;
+
+    private readonly ProjectService _projectService;
+    private readonly QuickFixService _quickFixService;
 
     [ObservableProperty]
     public partial string DocumentTitle { get; set; } = DocumentFileName;
@@ -83,12 +88,48 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// <summary>Servicio de lenguaje compartido por diagnósticos, resaltado, hover y símbolos.</summary>
     public ILanguageService LspServer { get; }
 
+    /// <summary>Servicio de apertura y guardado de proyectos (.fproj + .fasm).</summary>
+    public ProjectService ProjectService => _projectService;
+
+    /// <summary>Servicio de acciones rápidas (code actions) para diagnósticos.</summary>
+    public QuickFixService QuickFixService => _quickFixService;
+
+    /// <summary>Acciones rápidas disponibles para el diagnóstico actualmente seleccionado.</summary>
+    public ObservableCollection<QuickFixAction> QuickFixActions { get; } = new();
+
     private readonly object documentGate = new();
     private int documentVersion;
     private string documentText = string.Empty;
     private CancellationTokenSource? analysisCts;
 
-    public const string DocumentUri = "file:///" + DocumentFileName;
+    /// <summary>URI del documento vigente en el LSP (<c>file:///...</c>).</summary>
+    public string DocumentUri { get; private set; } = "file:///" + DocumentFileName;
+
+    /// <summary>Nombre del proyecto abierto (campo <c>name</c> del <c>.fproj</c>).</summary>
+    public string ProjectName { get; private set; } = string.Empty;
+
+    /// <summary>Ruta del archivo fuente <c>.fasm</c> abierto.</summary>
+    public string SourceFilePath { get; private set; } = string.Empty;
+
+    /// <summary>Indica si hay un proyecto real abierto (no el ejemplo en memoria).</summary>
+    public bool IsProjectOpen { get; private set; }
+
+    /// <summary>Indica si hay cambios sin guardar en el archivo fuente abierto.</summary>
+    public bool HasUnsavedChanges
+    {
+        get => _hasUnsavedChanges;
+        private set
+        {
+            if (_hasUnsavedChanges != value)
+            {
+                _hasUnsavedChanges = value;
+                OnPropertyChanged();
+                // Actualizar el título para mostrar el indicador de cambios pendientes (*).
+                UpdateDocumentTitle();
+                UnsavedChangesChanged?.Invoke();
+            }
+        }
+    }
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DiagnosticErrorSummary))]
@@ -172,6 +213,36 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// </summary>
     public event Action<DiagnosticItem>? DiagnosticNavigationRequested;
 
+    /// <summary>
+    /// Se dispara cuando se abre un proyecto o archivo fuente nuevo.
+    /// </summary>
+    public event Action? ProjectOpened;
+
+    /// <summary>
+    /// Se dispara cuando cambia el estado de cambios sin guardar.
+    /// </summary>
+    public event Action? UnsavedChangesChanged;
+
+    /// <summary>
+    /// Se dispara cuando el usuario pide abrir un proyecto (desde la paleta o teclado).
+    /// </summary>
+    public event Action? OpenProjectRequested;
+
+    /// <summary>
+    /// Se dispara cuando el usuario pide guardar el archivo fuente (desde la paleta o teclado).
+    /// </summary>
+    public event Action? SaveRequested;
+
+    /// <summary>
+    /// Se dispara cuando el usuario pide mostrar el outline de símbolos (desde la paleta).
+    /// </summary>
+    public event Action? OutlineRequested;
+
+    /// <summary>
+    /// Se dispara cuando hay acciones rápidas disponibles para un diagnóstico.
+    /// </summary>
+    public event Action? QuickFixAvailable;
+
     public const string InitialSampleAsm =
         """
         miCalculadoraCli
@@ -210,7 +281,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     /// <summary>Crea el ViewModel con el servidor de lenguaje por defecto.</summary>
     public MainPageViewModel()
-        : this(new FluentLanguageServer(LspLoggerFactory))
+        : this(new FluentLanguageServer(LspLoggerFactory), new ProjectService(), new QuickFixService())
     {
     }
 
@@ -219,9 +290,30 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// permite sustituirlo en pruebas sin acoplarse a la implementación LSP.
     /// </summary>
     public MainPageViewModel(ILanguageService languageService)
+        : this(languageService, new ProjectService(), new QuickFixService())
+    {
+    }
+
+    /// <summary>
+    /// Crea el ViewModel con un <see cref="ILanguageService"/> y un
+    /// <see cref="ProjectService"/> concretos.
+    /// </summary>
+    public MainPageViewModel(ILanguageService languageService, ProjectService projectService)
+        : this(languageService, projectService, new QuickFixService())
+    {
+    }
+
+    /// <summary>
+    /// Crea el ViewModel con dependencias inyectadas.
+    /// </summary>
+    public MainPageViewModel(ILanguageService languageService, ProjectService projectService, QuickFixService quickFixService)
     {
         ArgumentNullException.ThrowIfNull(languageService);
+        ArgumentNullException.ThrowIfNull(projectService);
+        ArgumentNullException.ThrowIfNull(quickFixService);
         LspServer = languageService;
+        _projectService = projectService;
+        _quickFixService = quickFixService;
 
         UpdateLineCount(DocumentText.CountLines(DocumentText.Normalize(InitialSampleAsm)));
         InitializeCommands();
@@ -396,6 +488,18 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 RevalidationRequested?.Invoke();
                 break;
 
+            case "/abrir":
+                OpenProjectRequested?.Invoke();
+                break;
+
+            case "/guardar":
+                SaveRequested?.Invoke();
+                break;
+
+            case "/esquema":
+                OutlineRequested?.Invoke();
+                break;
+
             case "/build":
                 StatusText = "La compilación real estará disponible en Fase 2.";
                 break;
@@ -477,6 +581,42 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             Shortcut = "",
             Category = "Comandos (/)",
             IconGlyph = "\uE72C",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/abrir",
+            Description = "Abrir carpeta de proyecto o archivo .fproj / .fasm",
+            Shortcut = "Ctrl+O",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE823",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/guardar",
+            Description = "Guardar el archivo fuente actual (.fasm)",
+            Shortcut = "Ctrl+S",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE74E",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/esquema",
+            Description = "Mostrar outline de símbolos del documento",
+            Shortcut = "",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE8A6",
             IconColorHex = "#60CDFF",
             IsActive = false,
             IsCommand = true
@@ -577,6 +717,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         {
             documentText = normalized;
             documentVersion = 1;
+            DocumentUri = "file:///" + DocumentFileName;
             LspServer.OpenDocument(DocumentUri, normalized, documentVersion);
         }
 
@@ -723,6 +864,210 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         DiagnosticErrorCount = errors;
         DiagnosticWarningCount = warnings;
         DiagnosticsChanged?.Invoke();
+
+        // Calcular acciones rápidas para el primer diagnóstico que las tenga.
+        UpdateQuickFixActions();
+    }
+
+    private void UpdateQuickFixActions()
+    {
+        QuickFixActions.Clear();
+
+        // Buscar el primer diagnóstico con acciones rápidas disponibles.
+        foreach (var diagnostic in Diagnostics)
+        {
+            var actions = _quickFixService.GetActionsFor(diagnostic, documentText);
+            if (actions.Count > 0)
+            {
+                foreach (var action in actions)
+                {
+                    QuickFixActions.Add(action);
+                }
+                QuickFixAvailable?.Invoke();
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Aplica una acción rápida (code action) sobre el documento, reemplazando
+    /// el nombre legacy por el nombre canónico sugerido.
+    /// </summary>
+    public void ApplyQuickFix(QuickFixAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+
+        // Leer el texto actual del editor para hacer el reemplazo.
+        // documentText está normalizado (\n). Para el reemplazo necesitamos
+        // trabajar sobre el texto del editor, pero como solo cambiamos un
+        // identificador ASCII, el mapeo \n/\r es 1:1 y podemos usar documentText.
+        string text = documentText;
+
+        // Calcular el offset absoluto base 0 a partir de línea/columna base 1.
+        int startOffset = GetOffsetFromLineColumn(text, action.StartLine, action.StartColumn);
+        int endOffset = GetOffsetFromLineColumn(text, action.EndLine, action.EndColumn);
+
+        if (startOffset < 0 || endOffset <= startOffset || endOffset > text.Length)
+        {
+            StatusText = "No se pudo aplicar la acción rápida: posición inválida.";
+            return;
+        }
+
+        string before = text[..startOffset];
+        string after = text[endOffset..];
+        string newText = before + action.CanonicalName + after;
+
+        // Actualizar el documento en el LSP y marcar cambios no guardados.
+        string normalized = DocumentText.Normalize(newText);
+        lock (documentGate)
+        {
+            documentText = normalized;
+            documentVersion++;
+            DocumentUri = DocumentUri; // mismo URI
+            LspServer.UpdateDocument(DocumentUri, normalized, documentVersion);
+        }
+
+        HasUnsavedChanges = true;
+        StatusText = $"Aplicado: '{action.LegacyName}' → '{action.CanonicalName}'";
+        QuickFixActions.Clear();
+
+        // Reprogramar el análisis para actualizar diagnósticos y resaltado.
+        AnalysisRequested?.Invoke();
+    }
+
+    private static int GetOffsetFromLineColumn(string text, int line1Based, int column1Based)
+    {
+        int line = Math.Clamp(line1Based - 1, 0, int.MaxValue);
+        int column = Math.Clamp(column1Based - 1, 0, int.MaxValue);
+
+        int offset = 0;
+        int currentLine = 0;
+
+        while (offset < text.Length && currentLine < line)
+        {
+            if (text[offset] == '\n')
+            {
+                currentLine++;
+            }
+            offset++;
+        }
+
+        // Avanzar 'column' caracteres dentro de la línea.
+        int charsInLine = 0;
+        while (offset < text.Length && charsInLine < column && text[offset] != '\n')
+        {
+            offset++;
+            charsInLine++;
+        }
+
+        return Math.Clamp(offset, 0, text.Length);
+    }
+
+    /// <summary>
+    /// Abre un proyecto o archivo fuente y lo sincroniza con el LSP.
+    /// </summary>
+    public void OpenProject(string sourcePath, string? projectFilePath = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+
+        var fullSourcePath = Path.GetFullPath(sourcePath);
+        if (!File.Exists(fullSourcePath))
+        {
+            throw new FileNotFoundException($"No se encontró el archivo fuente '{fullSourcePath}'.");
+        }
+
+        // Si se proporciona un .fproj, abrir el proyecto completo.
+        if (projectFilePath is not null)
+        {
+            var openResult = _projectService.OpenFproj(projectFilePath);
+            if (!openResult.Success)
+            {
+                StatusText = $"Error al abrir proyecto: {openResult.Error}";
+                return;
+            }
+        }
+        else
+        {
+            // Intentar asociar con un .fproj de la misma carpeta, o abrir suelto.
+            var openResult = _projectService.OpenSourceFile(fullSourcePath);
+            if (!openResult.Success)
+            {
+                StatusText = $"Error al abrir archivo: {openResult.Error}";
+                return;
+            }
+        }
+
+        // Leer el contenido del archivo fuente.
+        string sourceText;
+        try
+        {
+            sourceText = File.ReadAllText(_projectService.SourceFilePath!);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"No se pudo leer el archivo fuente: {ex.Message}";
+            return;
+        }
+
+        // Configurar el URI del documento en el LSP.
+        DocumentUri = new Uri(fullSourcePath).AbsoluteUri;
+        IsProjectOpen = _projectService.HasProject;
+        ProjectName = _projectService.ProjectName ?? string.Empty;
+        SourceFilePath = _projectService.SourceFilePath ?? string.Empty;
+
+        // Actualizar título y estado.
+        UpdateDocumentTitle();
+        StatusText = $"Proyecto abierto: {ProjectName} ({SourceFilePath})";
+
+        // Abrir el documento en el LSP con el texto del archivo.
+        string normalized = DocumentText.Normalize(sourceText);
+        lock (documentGate)
+        {
+            documentText = normalized;
+            documentVersion = 1;
+            LspServer.OpenDocument(DocumentUri, normalized, documentVersion);
+        }
+
+        HasUnsavedChanges = false;
+        RequestLspCompletions(sourceText, openPopup: false);
+        ProjectOpened?.Invoke();
+    }
+
+    /// <summary>
+    /// Guarda el texto actual en el archivo fuente abierto (<c>.fasm</c>).
+    /// </summary>
+    public bool SaveSource(string editorText)
+    {
+        if (!_projectService.SaveSource(editorText))
+        {
+            StatusText = "No se pudo guardar el archivo.";
+            return false;
+        }
+
+        HasUnsavedChanges = false;
+        StatusText = $"Guardado: {SourceFilePath}";
+        return true;
+    }
+
+    /// <summary>
+    /// Marca o desmarca el estado de cambios sin guardar.
+    /// </summary>
+    public void MarkUnsavedChanges(bool hasChanges)
+    {
+        HasUnsavedChanges = hasChanges;
+    }
+
+    private void UpdateDocumentTitle()
+    {
+        var suffix = HasUnsavedChanges ? " *" : string.Empty;
+        if (IsProjectOpen && !string.IsNullOrEmpty(ProjectName))
+        {
+            DocumentTitle = $"{ProjectName}.fasm{suffix}";
+        }
+        else
+        {
+            DocumentTitle = DocumentFileName + suffix;
+        }
     }
 
     public void RequestLspCompletions(string sourceCode, bool openPopup = true)
