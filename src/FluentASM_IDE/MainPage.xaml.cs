@@ -65,6 +65,17 @@ public sealed partial class MainPage : Page
         _hoverService = new HoverService(EditorBox, ViewModel);
         _outlineService = new OutlineService(ViewModel, EditorBox);
 
+        // El RichEditBox interno marca PointerMoved/PointerExited como handled,
+        // así que hay que suscribirse con handledEventsToo para recibirlos.
+        EditorBox.AddHandler(
+            UIElement.PointerMovedEvent,
+            new PointerEventHandler(OnEditorPointerMoved),
+            handledEventsToo: true);
+        EditorBox.AddHandler(
+            UIElement.PointerExitedEvent,
+            new PointerEventHandler(OnEditorPointerExited),
+            handledEventsToo: true);
+
         InitializeTimers();
         SubscribeViewModelEvents();
         SubscribeProjectEvents();
@@ -142,6 +153,10 @@ public sealed partial class MainPage : Page
         {
             RunAnalysisAsync();
         }
+
+        // Asegurar foco para atajos de teclado de página (Ctrl+O, Ctrl+P, etc.).
+        this.Focus(FocusState.Programmatic);
+        this.GotFocus += (_, _) => EditorBox.Focus(FocusState.Programmatic);
     }
 
     private void ProcessLaunchArguments()
@@ -356,7 +371,7 @@ public sealed partial class MainPage : Page
     private void SetupScrollSync()
     {
         _editorInternalScrollViewer = FindVisualChild<ScrollViewer>(EditorBox);
-        if (_editorInternalScrollViewer != null)
+        if (_editorInternalScrollViewer is not null)
         {
             _editorInternalScrollViewer.ViewChanged += (_, _) =>
             {
@@ -503,6 +518,9 @@ public sealed partial class MainPage : Page
             ViewModel.CloseIntelliSense();
         }
 
+        // Mostrar TeachingTip de diagnóstico si el caret está sobre un error (navegación por teclado).
+        _diagnosticAdorner.ShowAtCaret();
+
         PositionIntelliSenseOverlay();
     }
 
@@ -516,6 +534,23 @@ public sealed partial class MainPage : Page
     {
         _diagnosticAdorner.OnPointerExited();
         _hoverService.OnPointerExited();
+    }
+
+    private void OnEditorContextRequested(UIElement sender, ContextRequestedEventArgs args)
+    {
+        // Suprimir el menú contextual predeterminado del RichEditBox (negrita, cursiva, etc.)
+        args.Handled = true;
+    }
+
+    private void OnEditorGotFocus(object sender, RoutedEventArgs e)
+    {
+        // Re-aplicar resaltado y diagnósticos al recuperar el foco
+        ApplyHighlightAndDiagnostics();
+    }
+
+    private void OnEditorPointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _diagnosticAdorner.OnPointerEntered();
     }
 
     private void OnEditorPreviewKeyDown(object sender, KeyRoutedEventArgs e)
@@ -762,6 +797,7 @@ public sealed partial class MainPage : Page
         _analysisCts = cts;
 
         EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        System.Diagnostics.Debug.WriteLine($"[RunAnalysisAsync] editorText length: {editorText?.Length ?? 0}");
 
         DocumentAnalysisResult? result;
         try
@@ -770,16 +806,20 @@ public sealed partial class MainPage : Page
         }
         catch (OperationCanceledException)
         {
+            System.Diagnostics.Debug.WriteLine("[RunAnalysisAsync] Canceled");
             return;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Fallo al analizar el documento: {ex}");
+            System.Diagnostics.Debug.WriteLine($"[RunAnalysisAsync] Exception: {ex}");
             return;
         }
 
+        System.Diagnostics.Debug.WriteLine($"[RunAnalysisAsync] result: {(result is null ? "NULL" : $"OK, diagnostics={result.Diagnostics.Count}, highlights={result.HighlightTokens.Count}")}");
+
         if (result is null || cts.IsCancellationRequested)
         {
+            System.Diagnostics.Debug.WriteLine("[RunAnalysisAsync] Early return: null result or canceled");
             return;
         }
 
@@ -787,6 +827,7 @@ public sealed partial class MainPage : Page
         EditorBox.Document.GetText(TextGetOptions.None, out string currentText);
         if (!string.Equals(DocumentText.Normalize(currentText), result.Text, StringComparison.Ordinal))
         {
+            System.Diagnostics.Debug.WriteLine("[RunAnalysisAsync] Text changed during analysis, discarding");
             return;
         }
 
@@ -795,6 +836,7 @@ public sealed partial class MainPage : Page
 
         // Primero se publican los diagnósticos de esta versión y después se
         // resalta y se reaplica el subrayado sobre el texto ya validado.
+        System.Diagnostics.Debug.WriteLine("[RunAnalysisAsync] Calling ApplyAnalysis");
         ViewModel.ApplyAnalysis(result);
         ApplyHighlightAndDiagnostics();
     }
@@ -995,7 +1037,11 @@ public sealed partial class MainPage : Page
     }
 
     private void OnEditorHostSizeChanged(object sender, SizeChangedEventArgs e)
-        => PositionIntelliSenseOverlay();
+    {
+        PositionIntelliSenseOverlay();
+        // Reaplicar resaltado y diagnósticos por si el cambio de layout los afectó.
+        ApplyHighlightAndDiagnostics();
+    }
 
     private void OnIntelliSenseSizeChanged(object sender, SizeChangedEventArgs e)
         => PositionIntelliSenseOverlay();
@@ -1006,7 +1052,7 @@ public sealed partial class MainPage : Page
 
     private void OnIntelliSenseItemCommitted(object? sender, CompletionItem item)
     {
-        if (item == null) return;
+        if (item is null) return;
 
         EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
         editorText ??= string.Empty;
@@ -1276,6 +1322,24 @@ public sealed partial class MainPage : Page
                 EditorBox.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
             e.Handled = true;
         }
+        else if (isCtrl && (int)e.Key == 190) // 190 = OemPeriod (tecla punto normal)
+        {
+            // Ctrl+. (punto normal) - Quick fix
+            _keyboardHandler.ApplyQuickFixAtCaret();
+            e.Handled = true;
+        }
+        else if (isCtrl && e.Key == VirtualKey.S)
+        {
+            // Respaldo cuando el foco no está en el editor.
+            SaveCurrentFile();
+            e.Handled = true;
+        }
+        else if (isCtrl && e.Key == VirtualKey.O)
+        {
+            // Respaldo cuando el foco no está en el editor.
+            OpenFolderPickerAsync();
+            e.Handled = true;
+        }
     }
 
     #endregion
@@ -1495,7 +1559,7 @@ public sealed partial class MainPage : Page
             var child = VisualTreeHelper.GetChild(parent, i);
             if (child is T typed) return typed;
             var result = FindVisualChild<T>(child);
-            if (result != null) return result;
+            if (result is not null) return result;
         }
         return null;
     }

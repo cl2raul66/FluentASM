@@ -88,11 +88,12 @@
                         Foreground="{ThemeResource OnSurfaceBrush}"
                         IsSpellCheckEnabled="False"
                         KeyDown="OnEditorKeyDown"
-                        PointerExited="OnEditorPointerExited"
-                        PointerMoved="OnEditorPointerMoved"
                         PreviewKeyDown="OnEditorPreviewKeyDown"
                         SelectionChanged="OnEditorSelectionChanged"
-                        TextChanged="OnEditorTextChanged" />
+                        TextChanged="OnEditorTextChanged"
+                        ContextRequested="OnEditorContextRequested"
+                        GotFocus="OnEditorGotFocus"
+                        PointerEntered="OnEditorPointerEntered" />
 
                     <!--  ==============================================  -->
                     <!--  CUSTOMIZABLE INTELLISENSE OVERLAY (LSP READY)  -->

@@ -95,7 +95,7 @@ public partial class CompletionItem : ObservableObject, ICompletionItem
             IconColorHex = colorHex,
             Category = category,
             Documentation = lsp.Documentation?.Value ?? string.Empty,
-            HasDocumentation = lsp.Metadata != null || lsp.Documentation != null
+            HasDocumentation = lsp.Metadata is not null || lsp.Documentation is not null
         };
     }
 

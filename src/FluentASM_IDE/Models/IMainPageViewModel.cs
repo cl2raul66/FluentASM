@@ -52,6 +52,12 @@ public interface IMainPageViewModel
     void UpdateCursorPosition(int line, int col);
     void UpdateLineCount(int count);
 
+    /// <summary>
+    /// Desplazamiento vertical actual del editor, en píxeles. Necesario porque
+    /// <c>GetRangeFromPoint</c> resuelve contra el documento sin aplicar el scroll.
+    /// </summary>
+    double ScrollOffset { get; }
+
     // Proyecto
     string DocumentUri { get; }
     string ProjectName { get; }

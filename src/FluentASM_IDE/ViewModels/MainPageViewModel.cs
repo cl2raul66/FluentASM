@@ -421,7 +421,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public void GoToFirstDiagnostic()
     {
         DiagnosticItem? diagnostic = FirstErrorDiagnostic ?? FirstDiagnostic;
-        if (diagnostic != null)
+        if (diagnostic is not null)
         {
             DiagnosticNavigationRequested?.Invoke(diagnostic);
         }
@@ -431,7 +431,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public void GoToFirstErrorDiagnostic()
     {
         DiagnosticItem? diagnostic = FirstErrorDiagnostic;
-        if (diagnostic != null)
+        if (diagnostic is not null)
         {
             DiagnosticNavigationRequested?.Invoke(diagnostic);
         }
@@ -441,7 +441,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public void GoToFirstWarningDiagnostic()
     {
         DiagnosticItem? diagnostic = FirstWarningDiagnostic;
-        if (diagnostic != null)
+        if (diagnostic is not null)
         {
             DiagnosticNavigationRequested?.Invoke(diagnostic);
         }
@@ -456,7 +456,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [RelayCommand]
     public void SelectCompletion(CompletionItem? item)
     {
-        if (item == null) return;
+        if (item is null) return;
 
         foreach (var c in CompletionItems)
         {
@@ -503,7 +503,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public void ExecuteActivePaletteItem()
     {
         var active = FilteredCommands.FirstOrDefault(c => c.IsActive) ?? FilteredCommands.FirstOrDefault();
-        if (active != null)
+        if (active is not null)
         {
             ExecutePaletteItem(active);
         }
@@ -512,7 +512,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [RelayCommand]
     public void ExecutePaletteItem(CommandPaletteItem? item)
     {
-        if (item == null) return;
+        if (item is null) return;
         IsCommandPaletteOpen = false;
 
         switch (item.Command)
@@ -561,7 +561,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         CommandPaletteItem? item = AllCommands.FirstOrDefault(candidate =>
             string.Equals(candidate.Command, command, StringComparison.OrdinalIgnoreCase));
 
-        if (item != null)
+        if (item is not null)
         {
             ExecutePaletteItem(item);
         }
@@ -909,6 +909,11 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public void ApplyAnalysis(DocumentAnalysisResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
+        System.Diagnostics.Debug.WriteLine($"[ViewModel.ApplyAnalysis] Diagnostics count: {result.Diagnostics.Count}");
+        foreach (var d in result.Diagnostics)
+        {
+            System.Diagnostics.Debug.WriteLine($"  - {d.Code}: {d.Message} at {d.Range}");
+        }
         ApplyDiagnostics(result.Diagnostics);
     }
 

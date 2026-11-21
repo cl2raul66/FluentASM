@@ -27,12 +27,15 @@ namespace FluentASM_IDE.Services;
 /// </remarks>
 public sealed class HoverService
 {
+    private const double HoverMoveTolerance = 3.0;
+
     private readonly RichEditBox _editor;
     private readonly MainPageViewModel _vm;
     private readonly Flyout _flyout;
     private readonly TextBlock _flyoutContent;
     private readonly DispatcherTimer _hoverTimer;
     private Point _lastPointerPosition;
+    private bool _hasUserInteracted;
 
     public HoverService(RichEditBox editor, MainPageViewModel vm)
     {
@@ -65,12 +68,16 @@ public sealed class HoverService
             ShowMode = FlyoutShowMode.Transient
         };
 
-        _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
         _hoverTimer.Tick += (_, _) =>
         {
             _hoverTimer.Stop();
             ShowHoverAt(_lastPointerPosition);
         };
+
+        // Solo activar hover tras interacción real del usuario (foco o clic).
+        _editor.GotFocus += (_, _) => _hasUserInteracted = true;
+        _editor.PointerPressed += (_, _) => _hasUserInteracted = true;
     }
 
     /// <summary>
@@ -79,10 +86,26 @@ public sealed class HoverService
     /// </summary>
     public void OnPointerMoved(Point position)
     {
+        if (!_hasUserInteracted) return;
+
+        // Si el temporizador ya está contando y el puntero apenas se movió,
+        // no se reinicia: así el temblor del ratón no impide que aparezca.
+        if (_hoverTimer.IsEnabled && Distance(_lastPointerPosition, position) < HoverMoveTolerance)
+        {
+            return;
+        }
+
         _lastPointerPosition = position;
         _hoverTimer.Stop();
         HideFlyout();
         _hoverTimer.Start();
+    }
+
+    private static double Distance(Point a, Point b)
+    {
+        double dx = a.X - b.X;
+        double dy = a.Y - b.Y;
+        return Math.Sqrt(dx * dx + dy * dy);
     }
 
     /// <summary>
@@ -96,22 +119,18 @@ public sealed class HoverService
 
     private void ShowHoverAt(Point position)
     {
-        // Obtener el carácter bajo el cursor.
-        ITextRange pointRange;
-        try
-        {
-            pointRange = _editor.Document.GetRangeFromPoint(position, PointOptions.ClientCoordinates);
-        }
-        catch
+        if (!_hasUserInteracted) return;
+
+        _editor.Document.GetText(TextGetOptions.None, out string editorText);
+        if (string.IsNullOrEmpty(editorText))
         {
             HideFlyout();
             return;
         }
 
-        int offset = pointRange.StartPosition;
-        _editor.Document.GetText(TextGetOptions.None, out string editorText);
-        if (string.IsNullOrEmpty(editorText)) return;
+        string normalized = DocumentText.Normalize(editorText);
 
+        int offset = EditorHitTesting.GetOffset(_editor, position, _vm.ScrollOffset);
         if (offset < 0 || offset >= editorText.Length)
         {
             HideFlyout();
@@ -127,16 +146,16 @@ public sealed class HoverService
         }
 
         // Convertir a coordenadas LSP.
-        string normalized = DocumentText.Normalize(editorText);
-        int normalizedOffset = Math.Min(DocumentText.ToNormalizedOffset(editorText, offset), normalized.Length);
+        int normalizedOffset = Math.Min(
+            DocumentText.ToNormalizedOffset(editorText, offset),
+            normalized.Length);
         var (line, character) = DocumentText.ToLineCharacter(normalized, normalizedOffset);
-        var lspPosition = new Position(line, character);
 
         // Obtener el hover del LSP (método síncrono).
         Hover? hover;
         try
         {
-            hover = _vm.LspServer.GetHover(_vm.DocumentUri, lspPosition);
+            hover = _vm.LspServer.GetHover(_vm.DocumentUri, new Position(line, character));
         }
         catch
         {

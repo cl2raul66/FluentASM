@@ -53,6 +53,14 @@ public sealed class OutlineService
             Foreground = new SolidColorBrush(Color.FromArgb(255, 229, 226, 225))
         };
 
+        var scroll = new ScrollViewer
+        {
+            Content = _stack,
+            MaxHeight = 420,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+        };
+
         var border = new Border
         {
             Background = new SolidColorBrush(Color.FromArgb(245, 25, 28, 30)),
@@ -66,7 +74,7 @@ public sealed class OutlineService
                 Children =
                 {
                     title,
-                    _stack,
+                    scroll,
                     closeButton
                 }
             },
@@ -113,6 +121,8 @@ public sealed class OutlineService
         var indent = new string(' ', indentLevel * 2);
         var kindLabel = symbol.Kind switch
         {
+            SymbolKind.Module => "▤ ",
+            SymbolKind.Namespace => "§ ",
             SymbolKind.Function => "ƒ ",
             SymbolKind.Field => "• ",
             SymbolKind.Method => "▶ ",

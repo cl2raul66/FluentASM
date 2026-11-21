@@ -1,6 +1,6 @@
 // Proyecto: src/miCalculadoraCli/miCalculadoraCli.fproj
 // Código:   src/miCalculadoraCli/sourcesCode.fasm
-
+// Hola mundo Gpr1
 miCalculadoraCli
     .data(dt -> {
         dt.define<Byte:8>(d -> d.id(numA).value(10))
@@ -26,6 +26,16 @@ miCalculadoraCli
                 d.run((arg1<Byte:8>, arg2<Byte:8>) -> {
                     Gpr0.copy(arg1)
                     Gpr0.add(arg2)
+                    Ipr.flowStackJump()
+                })
+            })
+
+            rt.define(d->{
+                d.id(restar)
+                d.returns(Gpr0)
+                d.run((arg1<Bit:8>)->{
+                    Rax.
+                    Gpr0.copy(arg1)                                        
                     Ipr.flowStackJump()
                 })
             })

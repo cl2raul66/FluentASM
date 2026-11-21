@@ -111,7 +111,7 @@ public sealed class FluentLanguageServer : ILanguageService
 
         var token = tokens[index];
 
-        // 1. Member access: Gpr1.copy, Frf.zero, Ipr.current, Stack.push, etc.
+        // 1. Member access: caret en el miembro (ej. copy en Gpr1.copy)
         if (token.Kind == TokenKind.Identifier &&
             index >= 2 &&
             tokens[index - 1].Kind == TokenKind.Dot &&
@@ -120,6 +120,22 @@ public sealed class FluentLanguageServer : ILanguageService
             var receiverToken = tokens[index - 2];
             var memberToken = token;
             return GetMemberHover(snapshot, receiverToken, memberToken, offset);
+        }
+
+        // 1b. Member access: caret en el receptor (ej. Gpr1 en Gpr1.copy)
+        // Buscar hacia adelante: receptor . miembro
+        if (token.Kind == TokenKind.Identifier &&
+            index + 2 < tokens.Count &&
+            tokens[index + 1].Kind == TokenKind.Dot &&
+            tokens[index + 2].Kind == TokenKind.Identifier)
+        {
+            var receiverToken = token;
+            var memberToken = tokens[index + 2];
+            // Verificar que el offset está dentro del receptor
+            if (offset >= receiverToken.Span.Start && offset <= receiverToken.Span.End)
+            {
+                return GetMemberHover(snapshot, receiverToken, memberToken, offset);
+            }
         }
 
         // 2. Identifier o palabra contextual simple: Gpr0, Frf, Ipr, Stack, Cpu, Port, Bit, Byte, etc.
@@ -189,31 +205,87 @@ public sealed class FluentLanguageServer : ILanguageService
             // GprN
             if (receiverRef.Unit == RegisterUnit.Gpr)
             {
-                return GetGprViewHover(receiverRef, member, range);
+                // Primero intentar como vista del registro
+                var viewHover = GetGprViewHover(receiverRef, member, range);
+                if (viewHover != null)
+                {
+                    return viewHover;
+                }
+
+                // Luego intentar como verbo válido para GPR
+                var verbHover = GetVerbForReceiverHover("Gpr", receiverRef.Index, member, range);
+                if (verbHover != null)
+                {
+                    return verbHover;
+                }
             }
 
             // Frf
             if (receiverRef.Unit == RegisterUnit.Frf)
             {
-                return GetFlagMemberHover(member, range);
+                // Primero intentar como bandera/miembro de Frf
+                var flagHover = GetFlagMemberHover(member, range);
+                if (flagHover != null)
+                {
+                    return flagHover;
+                }
+
+                // Luego intentar como verbo de Frf
+                var verbHover = GetVerbForReceiverHover("Frf", -1, member, range);
+                if (verbHover != null)
+                {
+                    return verbHover;
+                }
             }
 
             // Ipr
             if (receiverRef.Unit == RegisterUnit.Ipr)
             {
-                return GetIprMemberHover(member, range);
+                // Miembros directos de Ipr
+                var iprHover = GetIprMemberHover(member, range);
+                if (iprHover != null)
+                {
+                    return iprHover;
+                }
+
+                // Verbos de Ipr
+                var verbHover = GetVerbForReceiverHover("Ipr", -1, member, range);
+                if (verbHover != null)
+                {
+                    return verbHover;
+                }
             }
 
             // Stack
             if (receiverRef.Unit == RegisterUnit.Stack)
             {
-                return GetStackMemberHover(member, range);
+                var stackHover = GetStackMemberHover(member, range);
+                if (stackHover != null)
+                {
+                    return stackHover;
+                }
+
+                var verbHover = GetVerbForReceiverHover("Stack", -1, member, range);
+                if (verbHover != null)
+                {
+                    return verbHover;
+                }
             }
 
             // Cpu
             if (receiverRef.Unit == RegisterUnit.Cpu)
             {
-                return GetCpuMemberHover(member, range);
+                var cpuHover = GetCpuMemberHover(member, range);
+                if (cpuHover != null)
+                {
+                    return cpuHover;
+                }
+
+                var verbHover = GetVerbForReceiverHover("Cpu", -1, member, range);
+                if (verbHover != null)
+                {
+                    return verbHover;
+                }
             }
         }
 
@@ -244,6 +316,8 @@ public sealed class FluentLanguageServer : ILanguageService
             return hover with { Range = range };
         }
 
+        // DEBUG: Si llegamos aquí, no se resolvió
+        System.Diagnostics.Debug.WriteLine($"GetMemberHover: no resuelto para {receiver}.{member}");
         return null;
     }
 
@@ -344,6 +418,45 @@ public sealed class FluentLanguageServer : ILanguageService
         }
 
         return null;
+    }
+
+    private static Hover? GetVerbForReceiverHover(string receiverType, int receiverIndex, string member, LspRange range)
+    {
+        // Buscar el verbo en el catálogo de verbos
+        if (!VerbCatalog.Definitions.TryGetValue(member, out var verbDef))
+        {
+            return null;
+        }
+
+        // Verificar si el verbo acepta este tipo de receptor
+        var receiverShape = receiverType switch
+        {
+            "Gpr" => ReceiverShape.Register,
+            "Frf" => ReceiverShape.Frf,
+            "Ipr" => ReceiverShape.Ipr,
+            "Stack" => ReceiverShape.Stack,
+            "Cpu" => ReceiverShape.Cpu,
+            _ => ReceiverShape.None
+        };
+
+        if ((verbDef.Receivers & receiverShape) == 0)
+        {
+            return null;
+        }
+
+        // Buscar descriptor enriquecido en LanguageCatalog
+        var verbDesc = LanguageCatalog.Verbs.FirstOrDefault(v => v.Name == member);
+
+        if (verbDesc == default)
+        {
+            // Fallback sin metadatos enriquecidos
+            string markdown = $"**{receiverType}.{member}**\n\n---\n- **Categoría:** Verbos\n- **Receptor:** {receiverType}\n- **Descripción:** {verbDef.MinArguments}..{verbDef.MaxArguments} argumentos";
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        string verbMarkdown = $"**{receiverType}.{verbDesc.Name}**\n\n---\n- **Categoría:** Verbos\n- **Descripción:** {verbDesc.Description}\n- **Receptores válidos:** {string.Join(", ", verbDesc.Receivers)}\n- **Argumentos:** {verbDef.MinArguments}..{verbDef.MaxArguments}\n- **Banderas afectadas:** {verbDesc.FlagsAffected}";
+
+        return new Hover(MarkupContent.Markdown(verbMarkdown), range);
     }
 
     private static Hover? GetDataSymbolMemberHover(DataSymbol data, string member, LspRange range)
@@ -530,7 +643,8 @@ public sealed class FluentLanguageServer : ILanguageService
             return Array.Empty<DocumentSymbol>();
         }
 
-        var symbols = new List<DocumentSymbol>();
+        var dataSymbols = new List<DocumentSymbol>();
+        var routineSymbols = new List<DocumentSymbol>();
         var dataNames = new HashSet<string>(StringComparer.Ordinal);
         var routineNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -543,7 +657,7 @@ public sealed class FluentLanguageServer : ILanguageService
                     continue;
                 }
 
-                symbols.Add(new DocumentSymbol(
+                dataSymbols.Add(new DocumentSymbol(
                     Name: data.Name,
                     Kind: SymbolKind.Field,
                     Range: ToRange(snapshot.Lines, data.Declaration.Span),
@@ -565,7 +679,7 @@ public sealed class FluentLanguageServer : ILanguageService
                     children.Add(CreateLabelSymbol(snapshot, label.Name, label.Declaration.Span));
                 }
 
-                symbols.Add(CreateRoutineSymbol(
+                routineSymbols.Add(CreateRoutineSymbol(
                     snapshot,
                     name,
                     routine.Definition.Span,
@@ -586,7 +700,7 @@ public sealed class FluentLanguageServer : ILanguageService
                     continue;
                 }
 
-                symbols.Add(new DocumentSymbol(
+                dataSymbols.Add(new DocumentSymbol(
                     Name: nameToken.Text,
                     Kind: SymbolKind.Field,
                     Range: ToRange(snapshot.Lines, definition.Span),
@@ -613,7 +727,7 @@ public sealed class FluentLanguageServer : ILanguageService
                     }
                 }
 
-                symbols.Add(CreateRoutineSymbol(
+                routineSymbols.Add(CreateRoutineSymbol(
                     snapshot,
                     nameToken.Text,
                     definition.Span,
@@ -623,15 +737,68 @@ public sealed class FluentLanguageServer : ILanguageService
             }
         }
 
-        symbols.Sort(static (left, right) =>
-        {
-            int byLine = left.Range.Start.Line.CompareTo(right.Range.Start.Line);
-            return byLine != 0
-                ? byLine
-                : left.Range.Start.Character.CompareTo(right.Range.Start.Character);
-        });
+        static void SortByPosition(List<DocumentSymbol> list) =>
+            list.Sort(static (left, right) =>
+            {
+                int byLine = left.Range.Start.Line.CompareTo(right.Range.Start.Line);
+                return byLine != 0
+                    ? byLine
+                    : left.Range.Start.Character.CompareTo(right.Range.Start.Character);
+            });
 
-        return symbols;
+        SortByPosition(dataSymbols);
+        SortByPosition(routineSymbols);
+
+        // Árbol pedido por la especificación de Fase 1B:
+        // Proyecto → .data/.execute → rutinas → @etiquetas.
+        var sections = new List<DocumentSymbol>(2);
+        if (dataSymbols.Count > 0)
+        {
+            sections.Add(CreateSectionSymbol(snapshot, ".data", dataSymbols));
+        }
+
+        if (routineSymbols.Count > 0)
+        {
+            sections.Add(CreateSectionSymbol(snapshot, ".execute", routineSymbols));
+        }
+
+        if (sections.Count == 0)
+        {
+            return Array.Empty<DocumentSymbol>();
+        }
+
+        var projectName = snapshot.ParseResult.Root.ProjectName;
+        var rootRange = new LspRange(
+            new Position(0, 0),
+            snapshot.Lines.ToPosition(snapshot.Text.Length));
+        var projectSymbol = new DocumentSymbol(
+            Name: projectName?.Text ?? "Proyecto",
+            Kind: SymbolKind.Module,
+            Range: rootRange,
+            SelectionRange: projectName is { } rootNameToken
+                ? ToRange(snapshot.Lines, rootNameToken.Span)
+                : rootRange,
+            Detail: "Proyecto",
+            Children: sections);
+
+        return new[] { projectSymbol };
+    }
+
+    private static DocumentSymbol CreateSectionSymbol(
+        DocumentSnapshot snapshot,
+        string name,
+        IReadOnlyList<DocumentSymbol> children)
+    {
+        var first = children[0].Range;
+        var last = children[children.Count - 1].Range;
+        var range = new LspRange(first.Start, last.End);
+        return new DocumentSymbol(
+            Name: name,
+            Kind: SymbolKind.Namespace,
+            Range: range,
+            SelectionRange: range,
+            Detail: name == ".data" ? "Sección de datos" : "Sección de ejecución",
+            Children: children);
     }
 
     /// <inheritdoc />
