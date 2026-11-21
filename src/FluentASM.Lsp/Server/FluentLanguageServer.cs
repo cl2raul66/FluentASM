@@ -1,3 +1,4 @@
+using FluentASM.Core.Catalog;
 using FluentASM.Core.Diagnostics;
 using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
@@ -94,6 +95,13 @@ public sealed class FluentLanguageServer : ILanguageService
         }
 
         int offset = snapshot.Lines.ToOffset(position);
+
+        // Si el offset está dentro de un comentario o cadena, no mostrar hover.
+        if (IsInsideCommentOrString(snapshot, offset))
+        {
+            return null;
+        }
+
         var tokens = snapshot.LexResult.Tokens;
         int index = FindTokenIndex(tokens, offset);
         if (index < 0)
@@ -101,25 +109,417 @@ public sealed class FluentLanguageServer : ILanguageService
             return null;
         }
 
-        string word = GetHoverWord(tokens, index);
-        if (string.IsNullOrWhiteSpace(word))
+        var token = tokens[index];
+
+        // 1. Member access: Gpr1.copy, Frf.zero, Ipr.current, Stack.push, etc.
+        if (token.Kind == TokenKind.Identifier &&
+            index >= 2 &&
+            tokens[index - 1].Kind == TokenKind.Dot &&
+            tokens[index - 2].Kind == TokenKind.Identifier)
+        {
+            var receiverToken = tokens[index - 2];
+            var memberToken = token;
+            return GetMemberHover(snapshot, receiverToken, memberToken, offset);
+        }
+
+        // 2. Identifier o palabra contextual simple: Gpr0, Frf, Ipr, Stack, Cpu, Port, Bit, Byte, etc.
+        if (token.Kind == TokenKind.Identifier ||
+            token.Kind == TokenKind.Magnitude ||
+            token.Kind == TokenKind.Port ||
+            token.Kind == TokenKind.DefaultValue ||
+            token.Kind == TokenKind.If ||
+            token.Kind == TokenKind.Not ||
+            token.Kind == TokenKind.And ||
+            token.Kind == TokenKind.Or ||
+            token.Kind == TokenKind.Equal ||
+            token.Kind == TokenKind.Unequal)
+        {
+            return GetIdentifierHover(snapshot, token, offset);
+        }
+
+        // 3. Label @etiqueta
+        if (token.Kind == TokenKind.Label)
+        {
+            return GetLabelHover(snapshot, token, offset);
+        }
+
+        return null;
+    }
+
+    private static bool IsInsideCommentOrString(DocumentSnapshot snapshot, int offset)
+    {
+        foreach (var comment in snapshot.LexResult.Comments)
+        {
+            // Comentarios de línea: incluir el final en la zona "no código"
+            bool atLineCommentEnd = !comment.IsBlock && offset == comment.Span.End;
+            if (offset >= comment.Span.Start && (offset < comment.Span.End || atLineCommentEnd))
+            {
+                return true;
+            }
+        }
+
+        foreach (var token in snapshot.LexResult.Tokens)
+        {
+            if (token.Kind == TokenKind.String &&
+                offset >= token.Span.Start &&
+                offset <= token.Span.End)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Hover? GetMemberHover(DocumentSnapshot snapshot, Token receiverToken, Token memberToken, int offset)
+    {
+        string receiver = receiverToken.Text;
+        string member = memberToken.Text;
+
+        // Calcular rango exacto: desde el inicio del receptor hasta el final del miembro
+        int rangeStart = receiverToken.Span.Start;
+        int rangeEnd = memberToken.Span.End;
+        var range = new LspRange(
+            snapshot.Lines.ToPosition(rangeStart),
+            snapshot.Lines.ToPosition(rangeEnd));
+
+        // Resolver receptor físico
+        if (RegisterModel.TryResolveName(receiverToken, out var receiverRef))
+        {
+            // GprN
+            if (receiverRef.Unit == RegisterUnit.Gpr)
+            {
+                return GetGprViewHover(receiverRef, member, range);
+            }
+
+            // Frf
+            if (receiverRef.Unit == RegisterUnit.Frf)
+            {
+                return GetFlagMemberHover(member, range);
+            }
+
+            // Ipr
+            if (receiverRef.Unit == RegisterUnit.Ipr)
+            {
+                return GetIprMemberHover(member, range);
+            }
+
+            // Stack
+            if (receiverRef.Unit == RegisterUnit.Stack)
+            {
+                return GetStackMemberHover(member, range);
+            }
+
+            // Cpu
+            if (receiverRef.Unit == RegisterUnit.Cpu)
+            {
+                return GetCpuMemberHover(member, range);
+            }
+        }
+
+        // Receptor es un símbolo de datos [numA] -> miembros: capacidad, etc.
+        if (snapshot.SemanticResult is { } semantic)
+        {
+            if (semantic.Symbols.TryGetData(receiver, out var data))
+            {
+                return GetDataSymbolMemberHover(data, member, range);
+            }
+
+            // Receptor es un parámetro de rutina (alias arg1..arg4) -> mostrar registro físico
+            foreach (var routine in semantic.Symbols.Routines)
+            {
+                var param = routine.Parameters.FirstOrDefault(p => p.Name == receiver);
+                if (param != null)
+                {
+                    return GetParameterHover(param, member, range);
+                }
+            }
+        }
+
+        // Fallback: buscar en catálogo como "Receiver.Member"
+        string fullName = receiver + "." + member;
+        if (LspCatalog.TryGetItem(fullName, out var item))
+        {
+            var hover = CreateHover(item);
+            return hover with { Range = range };
+        }
+
+        return null;
+    }
+
+    private static Hover? GetGprViewHover(RegisterReference receiver, string member, LspRange range)
+    {
+        // Buscar vista válida en el catálogo
+        var gpr = LanguageCatalog.Gprs.FirstOrDefault(g => g.Index == receiver.Index);
+        if (gpr == null)
         {
             return null;
         }
 
-        if (LspCatalog.TryGetItem(word, out var item))
+        var view = gpr.ValidViews.FirstOrDefault(v => v.Suffix == "." + member || v.Name.Equals(member, StringComparison.OrdinalIgnoreCase));
+        if (view == null)
         {
-            return CreateHover(item);
+            return null;
         }
 
-        if (!string.Equals(word, tokens[index].Text, StringComparison.Ordinal) &&
-            LspCatalog.TryGetItem(tokens[index].Text, out item))
-        {
-            return CreateHover(item);
-        }
+        string markdown = $"**Gpr{receiver.Index}.{member}**\n\n---\n- **Categoría:** Registros\n- **Descripción:** {view.Effect}\n- **Ancho:** {view.Bits} bits\n- **Registro físico:** {GetGprHardwareRef(receiver.Index)}";
 
-        return GetSymbolHover(snapshot, word) ?? GetSymbolHover(snapshot, tokens[index].Text);
+        return new Hover(MarkupContent.Markdown(markdown), range);
     }
+
+    private static Hover? GetFlagMemberHover(string member, LspRange range)
+    {
+        // Bandera física
+        if (FlagCatalog.TryGetFlags(member, out var flags) && flags != FlagSet.None)
+        {
+            string desc = FlagCatalog.Describe(flags);
+            string markdown = $"**Frf.{member}**\n\n---\n- **Categoría:** Banderas (Frf)\n- **Significado:** {GetPhysicalMeaning(member)}\n- **Bits evaluados:** {desc}\n- **Actualizada por:** {GetWhoUpdates(member)}";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        // Alias legible
+        if (FlagCatalog.Aliases.TryGetValue(member, out var aliasFlags))
+        {
+            var canonical = FlagCatalog.Aliases
+                .Where(kvp => kvp.Value == aliasFlags && kvp.Key != member)
+                .Select(kvp => $"Frf.{kvp.Key}")
+                .FirstOrDefault();
+
+            string desc = FlagCatalog.Describe(aliasFlags);
+            string markdown = $"**Frf.{member}** (alias legible)\n\n---\n- **Categoría:** Banderas (Frf)\n- **Forma canónica:** {canonical ?? "Frf." + member}\n- **Bits evaluados:** {desc}";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        return null;
+    }
+
+    private static Hover? GetIprMemberHover(string member, LspRange range)
+    {
+        if (member.Equals("current", StringComparison.Ordinal))
+        {
+            string markdown = $"**Ipr.current**\n\n---\n- **Categoría:** Registros\n- **Descripción:** Puntero de instrucción actual (RIP).\n- **Uso:** Solo lectura en contextos de dirección relativa.";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        return null;
+    }
+
+    private static Hover? GetStackMemberHover(string member, LspRange range)
+    {
+        var members = new Dictionary<string, string>
+        {
+            ["push"] = "Apila un operando en la pila (PUSH). Receptor: Stack. Argumento: Register | Memory | Port.",
+            ["pop"] = "Desapila hacia un registro o Frf (POP). Receptor: Register | Frf. Argumento: Stack.",
+            ["reserve"] = "Reserva espacio en la pila (SUB RSP). Receptor: Stack. Argumento: Byte:N.",
+            ["release"] = "Libera espacio en la pila (ADD RSP). Receptor: Stack. Argumento: Byte:N.",
+        };
+
+        if (members.TryGetValue(member, out var desc))
+        {
+            string markdown = $"**Stack.{member}**\n\n---\n- **Categoría:** Pila\n- **Descripción:** {desc}";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        return null;
+    }
+
+    private static Hover? GetCpuMemberHover(string member, LspRange range)
+    {
+        var members = new Dictionary<string, string>
+        {
+            ["noOperation"] = "Operación nula (NOP). No modifica estado.",
+            ["pause"] = "Pausa eficiente para spin-locks (PAUSE / F3 90).",
+            ["halt"] = "Detención de la CPU hasta interrupción (HLT).",
+        };
+
+        if (members.TryGetValue(member, out var desc))
+        {
+            string markdown = $"**Cpu.{member}**\n\n---\n- **Categoría:** Control de máquina\n- **Descripción:** {desc}";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        return null;
+    }
+
+    private static Hover? GetDataSymbolMemberHover(DataSymbol data, string member, LspRange range)
+    {
+        // En .data, el símbolo solo tiene capacidad. No hay "miembros" reales,
+        // pero si el usuario escribe [numA]. algo, podríamos informar.
+        if (member.Equals("capacity", StringComparison.OrdinalIgnoreCase) ||
+            member.Equals("size", StringComparison.OrdinalIgnoreCase))
+        {
+            string markdown = $"**{data.Name}.capacity**\n\n---\n- **Categoría:** Datos\n- **Símbolo:** {data.Name}\n- **Capacidad:** {data.ByteSize} bytes ({data.BitSize} bits)";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        return null;
+    }
+
+    private static Hover? GetParameterHover(RoutineParameter param, string member, LspRange range)
+    {
+        // Parámetros de rutina: alias -> registro físico asignado
+        if (member.Equals("register", StringComparison.OrdinalIgnoreCase) ||
+            member.Equals("reg", StringComparison.OrdinalIgnoreCase))
+        {
+            string gprName = $"Gpr{param.RegisterIndex}";
+            string markdown = $"**{param.Name}.register**\n\n---\n- **Categoría:** Parámetros\n- **Alias:** {param.Name}\n- **Registro físico:** {gprName} ({GetGprHardwareRef(param.RegisterIndex)})\n- **Magnitud:** {param.Magnitude.Display}";
+
+            return new Hover(MarkupContent.Markdown(markdown), range);
+        }
+
+        return null;
+    }
+
+    private static Hover? GetIdentifierHover(DocumentSnapshot snapshot, Token token, int offset)
+    {
+        string name = token.Text;
+        int rangeStart = token.Span.Start;
+        int rangeEnd = token.Span.End;
+        var range = new LspRange(
+            snapshot.Lines.ToPosition(rangeStart),
+            snapshot.Lines.ToPosition(rangeEnd));
+
+        // 1. Catálogo LSP (registros, unidades, verbos, magnitudes, etc.)
+        if (LspCatalog.TryGetItem(name, out var item))
+        {
+            var hover = CreateHover(item);
+            return hover with { Range = range };
+        }
+
+        // 2. Símbolos de datos .data
+        if (snapshot.SemanticResult is { } semantic)
+        {
+            if (semantic.Symbols.TryGetData(name, out var data))
+            {
+                string markdown = $"**{data.Name}**\n\n---\n- **Categoría:** Datos\n- **Capacidad:** {data.Capacity.Display} ({data.ByteSize} bytes, {data.BitSize} bits)\n- **Declaración:** .data -> dt.define<{data.Capacity.Display}>(d -> d.id({data.Name})...)";
+
+                return new Hover(MarkupContent.Markdown(markdown), range);
+            }
+
+            // 3. Rutinas
+            if (semantic.Symbols.TryGetRoutine(name, out var routine))
+            {
+                var paramList = routine.Parameters.Count > 0
+                    ? string.Join(", ", routine.Parameters.Select(p => $"{p.Name}:{p.Magnitude.Display}"))
+                    : "Ninguno";
+
+                string returnsInfo = routine.Returns is { } ret
+                    ? ret.Display
+                    : "Sin retorno (procedimiento)";
+
+                string markdown = $"**{routine.DisplayName}**\n\n---\n- **Categoría:** Rutina\n- **Parámetros:** {paramList}\n- **Retorno:** {returnsInfo}\n- **Forma:** {(routine.IsImplicit ? "Implícita (_ -> ...)" : "Explícita")}";
+
+                return new Hover(MarkupContent.Markdown(markdown), range);
+            }
+
+            // 4. Etiquetas locales
+            foreach (var scope in semantic.Symbols.Routines)
+            {
+                if (semantic.Symbols.LabelsOf(scope).TryGetValue(name, out var label))
+                {
+                    string markdown = $"**{label.Name}**\n\n---\n- **Categoría:** Etiqueta local\n- **Rutina:** {scope.DisplayName}\n- **Uso:** Destino de salto (Ipr.flowJump({label.Name}))";
+
+                    return new Hover(MarkupContent.Markdown(markdown), range);
+                }
+            }
+
+            // 5. Parámetros de la rutina actual (aliases arg1..arg4)
+            var currentScope = FindRoutineScopeForOffset(semantic, offset);
+            if (currentScope != null)
+            {
+                var param = currentScope.Parameters.FirstOrDefault(p => p.Name == name);
+                if (param != null)
+                {
+                    string gprName = $"Gpr{param.RegisterIndex}";
+                    string markdown = $"**{param.Name}** (parámetro de entrada)\n\n---\n- **Categoría:** Parámetros\n- **Alias:** {param.Name}\n- **Registro físico asignado:** {gprName} ({GetGprHardwareRef(param.RegisterIndex)})\n- **Magnitud:** {param.Magnitude.Display}";
+
+                    return new Hover(MarkupContent.Markdown(markdown), range);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static Hover? GetLabelHover(DocumentSnapshot snapshot, Token token, int offset)
+    {
+        // Token.Label ya incluye el '@' en su Text (ej. "@bucle")
+        string name = token.Text;
+        int rangeStart = token.Span.Start;
+        int rangeEnd = token.Span.End;
+        var range = new LspRange(
+            snapshot.Lines.ToPosition(rangeStart),
+            snapshot.Lines.ToPosition(rangeEnd));
+
+        if (snapshot.SemanticResult is { } semantic)
+        {
+            foreach (var scope in semantic.Symbols.Routines)
+            {
+                if (semantic.Symbols.LabelsOf(scope).TryGetValue(name, out var label))
+                {
+                    string md = $"**{label.Name}**\n\n---\n- **Categoría:** Etiqueta local\n- **Rutina:** {scope.DisplayName}\n- **Uso:** Destino de salto (Ipr.flowJump({label.Name}))";
+
+                    return new Hover(MarkupContent.Markdown(md), range);
+                }
+            }
+        }
+
+        // Fallback: etiqueta no resuelta semánticamente
+        string mdFallback = $"**{name}**\n\n---\n- **Categoría:** Etiqueta local\n- **Estado:** No resuelta en la tabla de símbolos actual";
+
+        return new Hover(MarkupContent.Markdown(mdFallback), range);
+    }
+
+    private static RoutineSymbol? FindRoutineScopeForOffset(SemanticResult semantic, int offset)
+    {
+        foreach (var routine in semantic.Symbols.Routines)
+        {
+            if (routine.Definition.Span.Start <= offset && offset < routine.Definition.Span.End)
+            {
+                return routine;
+            }
+        }
+        return null;
+    }
+
+    private static string GetGprHardwareRef(int index) => index switch
+    {
+        0 => "RAX", 1 => "RCX", 2 => "RDX", 3 => "RBX", 4 => "RSP", 5 => "RBP",
+        6 => "RSI", 7 => "RDI", 8 => "R8", 9 => "R9", 10 => "R10", 11 => "R11",
+        12 => "R12", 13 => "R13", 14 => "R14", 15 => "R15", _ => "?"
+    };
+
+    private static string GetPhysicalMeaning(string name) => name switch
+    {
+        "carry" => "Acarreo / préstamo sin signo (CF)",
+        "parity" => "Paridad par del byte bajo (PF)",
+        "adjust" => "Acarreo auxiliar BCD (AF)",
+        "zero" => "Resultado igual a cero (ZF)",
+        "sign" => "Bit más significativo = 1 (SF)",
+        "interrupt" => "Habilitación de interrupciones (IF)",
+        "direction" => "Dirección de bloques (DF: 0=adelante, 1=atrás)",
+        "overflow" => "Desbordamiento con signo (OF)",
+        _ => ""
+    };
+
+    private static string GetWhoUpdates(string name) => name switch
+    {
+        "carry" => "add, sub, compare, shift*, rotate*, *Bit, Frf.carry(...)",
+        "parity" => "Operaciones ALU estándar",
+        "adjust" => "add, sub, compare",
+        "zero" => "Casi toda la ALU, compare, test",
+        "sign" => "Casi toda la ALU, compare, test",
+        "interrupt" => "Frf.interrupt(1 | 0)",
+        "direction" => "Frf.direction(1 | 0)",
+        "overflow" => "add, sub, compare, multiply*",
+        _ => ""
+    };
 
     /// <inheritdoc />
     public IReadOnlyList<DocumentSymbol> GetDocumentSymbols(string uri)

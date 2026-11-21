@@ -20,6 +20,11 @@ namespace FluentASM_IDE.Services;
 /// cualquier elemento del lenguaje, muestra una tarjeta Flyout con su
 /// documentación, firma y metadatos.
 /// </summary>
+/// <remarks>
+/// Si la posición está dentro de un diagnóstico (error/advertencia), prioriza
+/// el flyout del diagnóstico (gestionado por <see cref="DiagnosticAdorner"/>)
+/// y no muestra el hover del LSP.
+/// </remarks>
 public sealed class HoverService
 {
     private readonly RichEditBox _editor;
@@ -113,6 +118,14 @@ public sealed class HoverService
             return;
         }
 
+        // PRIORIDAD: Si hay un diagnóstico en esta posición, NO mostrar hover LSP.
+        // El DiagnosticAdorner ya muestra su propio flyout para diagnósticos.
+        if (HasDiagnosticAtOffset(editorText, offset))
+        {
+            HideFlyout();
+            return;
+        }
+
         // Convertir a coordenadas LSP.
         string normalized = DocumentText.Normalize(editorText);
         int normalizedOffset = Math.Min(DocumentText.ToNormalizedOffset(editorText, offset), normalized.Length);
@@ -143,6 +156,18 @@ public sealed class HoverService
             Placement = FlyoutPlacementMode.Top,
             Position = new Point(Math.Max(0, position.X), Math.Max(0, position.Y)),
         });
+    }
+
+    private bool HasDiagnosticAtOffset(string editorText, int offset)
+    {
+        foreach (var diag in _vm.Diagnostics)
+        {
+            int start = DocumentText.ToEditorOffset(editorText, diag.Line - 1, diag.Column - 1);
+            int end = DocumentText.ToEditorOffset(editorText, diag.EndLine - 1, diag.EndColumn - 1);
+            if (end <= start) end = Math.Min(start + 1, editorText.Length);
+            if (offset >= start && offset < end) return true;
+        }
+        return false;
     }
 
     private void HideFlyout()
