@@ -27,6 +27,8 @@ internal sealed class EditorKeyboardHandler
     {
         bool isCtrl = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
                        CoreVirtualKeyStates.Down) != 0;
+        bool isShift = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) &
+                        CoreVirtualKeyStates.Down) != 0;
 
         // La navegación del overlay se atiende en PreviewKeyDown para que
         // Ningún control pueda consumir antes las flechas o Intro.
@@ -53,6 +55,11 @@ internal sealed class EditorKeyboardHandler
             _vm.ToggleCommandPalette();
             if (_vm.IsCommandPaletteOpen)
                 _editor.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
+        }
+        else if (isCtrl && isShift && e.Key == VirtualKey.O)
+        {
+            e.Handled = true;
+            _vm.ExecuteCommand("/simbolos");
         }
     }
 }

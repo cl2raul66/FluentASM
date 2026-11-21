@@ -534,6 +534,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 break;
 
             case "/esquema":
+            case "/simbolos":
                 OutlineRequested?.Invoke();
                 break;
 
@@ -576,14 +577,23 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         FilteredCommands.Clear();
         var trimmed = (query ?? string.Empty).Trim();
 
-        foreach (var cmd in AllCommands)
+        // Prefijo @: mostrar símbolos del documento en lugar de comandos
+        if (trimmed.StartsWith("@", StringComparison.Ordinal))
         {
-            if (string.IsNullOrWhiteSpace(trimmed) || trimmed == "/" ||
-                cmd.Command.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
-                cmd.Description.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
-                cmd.Category.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+            var symbolQuery = trimmed.Length > 1 ? trimmed[1..] : string.Empty;
+            FilterSymbols(symbolQuery);
+        }
+        else
+        {
+            foreach (var cmd in AllCommands)
             {
-                FilteredCommands.Add(cmd);
+                if (string.IsNullOrWhiteSpace(trimmed) || trimmed == "/" ||
+                    cmd.Command.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                    cmd.Description.Contains(trimmed, StringComparison.OrdinalIgnoreCase) ||
+                    cmd.Category.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    FilteredCommands.Add(cmd);
+                }
             }
         }
 
@@ -591,6 +601,60 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         {
             foreach (var c in FilteredCommands) c.IsActive = false;
             FilteredCommands[0].IsActive = true;
+        }
+    }
+
+    private void FilterSymbols(string query)
+    {
+        var symbols = LspServer.GetDocumentSymbols(DocumentUri);
+        var trimmed = (query ?? string.Empty).Trim();
+
+        foreach (var symbol in symbols)
+        {
+            if (MatchesSymbol(symbol, trimmed))
+            {
+                AddSymbolToPalette(symbol, 0);
+            }
+        }
+    }
+
+    private bool MatchesSymbol(DocumentSymbol symbol, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return true;
+        return symbol.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               (symbol.Detail?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private void AddSymbolToPalette(DocumentSymbol symbol, int indentLevel)
+    {
+        var indent = new string(' ', indentLevel * 2);
+        var kindLabel = symbol.Kind switch
+        {
+            SymbolKind.Function => "ƒ ",
+            SymbolKind.Field => "• ",
+            SymbolKind.Method => "▶ ",
+            _ => ""
+        };
+
+        var item = new CommandPaletteItem
+        {
+            Command = indent + kindLabel + symbol.Name,
+            Description = symbol.Detail ?? string.Empty,
+            Shortcut = "",
+            Category = "Símbolos (@)",
+            IconGlyph = symbol.Kind == SymbolKind.Function ? "\uE749" : "\uE8A6",
+            IconColorHex = symbol.Kind == SymbolKind.Function ? "#81CFFF" : "#B4E4FF",
+            IsActive = false,
+            IsCommand = false
+        };
+        FilteredCommands.Add(item);
+
+        if (symbol.Children is { Count: > 0 } children)
+        {
+            foreach (var child in children)
+            {
+                AddSymbolToPalette(child, indentLevel + 1);
+            }
         }
     }
 
@@ -654,6 +718,18 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             Shortcut = "",
             Category = "Comandos (/)",
             IconGlyph = "\uE8A6",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/simbolos",
+            Description = "Navegar a símbolo (datos, rutinas, etiquetas) — Ctrl+Shift+O",
+            Shortcut = "Ctrl+Shift+O",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE749",
             IconColorHex = "#60CDFF",
             IsActive = false,
             IsCommand = true
