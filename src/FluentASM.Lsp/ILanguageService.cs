@@ -42,6 +42,12 @@ public interface ILanguageService
     IReadOnlyList<DocumentSymbol> GetDocumentSymbols(string uri);
 
     /// <summary>
+    /// Devuelve las acciones rápidas disponibles para el documento vigente.
+    /// Las correcciones del lenguaje se calculan en el servicio, no en la IDE.
+    /// </summary>
+    IReadOnlyList<LspCodeAction> GetCodeActions(string uri, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Devuelve los tokens y comentarios clasificados para el resaltado, con
     /// spans absolutos <c>(Start, Length)</c> sobre el texto normalizado.
     /// </summary>

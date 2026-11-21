@@ -207,6 +207,57 @@ public static class DocumentText
     }
 
     /// <summary>
+    /// Convierte una posición base 0 de un texto normalizado en un offset
+    /// absoluto. Devuelve <c>false</c> si la línea o el carácter no existen;
+    /// no recorta silenciosamente rangos inválidos.
+    /// </summary>
+    public static bool TryGetNormalizedOffset(
+        string? normalizedText,
+        int line,
+        int character,
+        out int offset)
+    {
+        offset = 0;
+        if (line < 0 || character < 0)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(normalizedText))
+        {
+            return line == 0 && character == 0;
+        }
+
+        int currentLine = 0;
+        int lineStart = 0;
+        while (currentLine < line)
+        {
+            int newline = normalizedText.IndexOf('\n', lineStart);
+            if (newline < 0)
+            {
+                return false;
+            }
+
+            lineStart = newline + 1;
+            currentLine++;
+        }
+
+        int lineEnd = normalizedText.IndexOf('\n', lineStart);
+        if (lineEnd < 0)
+        {
+            lineEnd = normalizedText.Length;
+        }
+
+        if (character > lineEnd - lineStart)
+        {
+            return false;
+        }
+
+        offset = lineStart + character;
+        return true;
+    }
+
+    /// <summary>
     /// Convierte un offset del texto del editor en coordenadas base 0.
     /// </summary>
     public static (int Line, int Character) ToLineCharacter(string? editorText, int offset)

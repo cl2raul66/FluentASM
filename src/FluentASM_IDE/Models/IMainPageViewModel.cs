@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using FluentASM_IDE.Services;
 using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -50,6 +51,45 @@ public interface IMainPageViewModel
     // Editor coordinates
     void UpdateCursorPosition(int line, int col);
     void UpdateLineCount(int count);
+
+    /// <summary>
+    /// Desplazamiento vertical actual del editor, en píxeles. Necesario porque
+    /// <c>GetRangeFromPoint</c> resuelve contra el documento sin aplicar el scroll.
+    /// </summary>
+    double ScrollOffset { get; }
+
+    // Proyecto
+    string DocumentUri { get; }
+    string ProjectName { get; }
+    string SourceFilePath { get; }
+    bool IsProjectOpen { get; }
+    bool HasUnsavedChanges { get; }
+
+    /// <summary>Texto fuente cargado del proyecto abierto (normalizado).</summary>
+    string CurrentSourceText { get; }
+
+    /// <summary>Se dispara al abrir un proyecto con el texto fuente ya cargado.</summary>
+    /// <param name="sourceText">Texto fuente normalizado.</param>
+    event Action<string>? ProjectOpened;
+
+    /// <summary>
+    /// Se dispara cuando el ViewModel reemplaza el texto del documento
+    /// (por ejemplo, al aplicar un quick-fix). La vista debe sincronizar el editor.
+    /// </summary>
+    /// <param name="sourceText">Texto completo normalizado.</param>
+    /// <param name="caretOffset">Posición del caret en el texto normalizado.</param>
+    event Action<string, int>? DocumentTextReplaced;
+
+    event Action? UnsavedChangesChanged;
+    event Action? OpenProjectRequested;
+    event Action? SaveRequested;
+    event Action? OutlineRequested;
+    event Action? QuickFixAvailable;
+    ObservableCollection<QuickFixAction> QuickFixActions { get; }
+    void OpenProject(string sourcePath, string? projectFilePath = null);
+    bool SaveSource(string editorText);
+    void MarkUnsavedChanges(bool hasChanges);
+    void ApplyQuickFix(QuickFixAction action);
 
     // LSP Sync
     event Action? RevalidationRequested;
