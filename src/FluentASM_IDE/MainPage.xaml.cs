@@ -31,6 +31,7 @@ public sealed partial class MainPage : Page
     public MainPageViewModel ViewModel { get; } = new();
 
     private readonly DispatcherTimer _analysisDebounceTimer = new();
+    private readonly DispatcherTimer _completionDebounceTimer = new();
     private readonly DiagnosticAdorner _diagnosticAdorner;
     private readonly EditorKeyboardHandler _keyboardHandler;
     private readonly EditorUndoHistory _undoHistory = new();
@@ -39,11 +40,16 @@ public sealed partial class MainPage : Page
     private readonly OutlineService _outlineService;
     private ScrollViewer? _editorInternalScrollViewer;
     private CancellationTokenSource? _analysisCts;
+    private CancellationTokenSource? _completionCts;
     private IReadOnlyList<HighlightToken>? _highlightTokens;
     private string _highlightedText = string.Empty;
     private string _lastNormalizedText = string.Empty;
+    private string _savedNormalizedText = string.Empty;
+    private string? _suppressedAutomaticCompletionText;
+    private int _lastTextChangedCaretOffset = -1;
     private bool _isHighlighting;
     private bool _applyingUndo;
+    private bool _applyingCompletion;
 
     #endregion
 
@@ -54,7 +60,7 @@ public sealed partial class MainPage : Page
         InitializeComponent();
 
         _diagnosticAdorner = new DiagnosticAdorner(EditorBox, ViewModel);
-        _keyboardHandler = new EditorKeyboardHandler(EditorBox, ViewModel, IntelliSenseControl);
+        _keyboardHandler = new EditorKeyboardHandler(EditorBox, ViewModel);
         _projectService = ViewModel.ProjectService;
         _hoverService = new HoverService(EditorBox, ViewModel);
         _outlineService = new OutlineService(ViewModel, EditorBox);
@@ -86,6 +92,13 @@ public sealed partial class MainPage : Page
         {
             _analysisDebounceTimer.Stop();
             RunAnalysisAsync();
+        };
+
+        _completionDebounceTimer.Interval = TimeSpan.FromMilliseconds(120);
+        _completionDebounceTimer.Tick += (_, _) =>
+        {
+            _completionDebounceTimer.Stop();
+            RequestCompletionsAtCaret();
         };
     }
 
@@ -231,6 +244,9 @@ public sealed partial class MainPage : Page
 
     private void OnProjectOpened(string sourceText)
     {
+        CancelPendingCompletionRequest();
+        ViewModel.InvalidateCompletions();
+
         // La carga del documento no es una edición del usuario: evita marcarlo
         // como modificado y contaminar el historial de deshacer.
         _applyingUndo = true;
@@ -248,6 +264,8 @@ public sealed partial class MainPage : Page
 
         ConfigureEditorParagraphFormat();
         CaptureEditorState();
+        _savedNormalizedText = DocumentText.Normalize(sourceText);
+        _suppressedAutomaticCompletionText = null;
         UpdateLineCountFromDocument();
         UpdateCursorCoordinates();
         ViewModel.MarkUnsavedChanges(false);
@@ -256,6 +274,9 @@ public sealed partial class MainPage : Page
 
     private void OnDocumentTextReplaced(string sourceText, int caretOffset)
     {
+        CancelPendingCompletionRequest();
+        ViewModel.InvalidateCompletions();
+        _suppressedAutomaticCompletionText = null;
         string normalized = DocumentText.Normalize(sourceText);
         int normalizedCaret = Math.Clamp(caretOffset, 0, normalized.Length);
 
@@ -341,6 +362,7 @@ public sealed partial class MainPage : Page
             {
                 GutterScrollViewer.ChangeView(null, _editorInternalScrollViewer.VerticalOffset, null, true);
                 ViewModel.ScrollOffset = _editorInternalScrollViewer.VerticalOffset;
+                PositionIntelliSenseOverlay();
             };
         }
     }
@@ -398,27 +420,91 @@ public sealed partial class MainPage : Page
         // Los cambios de solo formato (resaltado, subrayados) también pueden
         // disparar TextChanged; solo se reanaliza cuando el texto cambió.
         EditorBox.Document.GetText(TextGetOptions.None, out string text);
+        text ??= string.Empty;
         string normalized = DocumentText.Normalize(text);
         if (string.Equals(normalized, _lastNormalizedText, StringComparison.Ordinal))
         {
             return;
         }
 
-        UpdateLineCountFromDocument();
-        RecordUndoStep();
-
-        // Marcar cambios no guardados solo si hay un proyecto/archivo real abierto.
-        if (ViewModel.IsProjectOpen)
+        // Un TextChanged tardío producido por el commit debe impedir que el
+        // propio texto insertado vuelva a disparar el overlay. La supresión
+        // solo sigue vigente mientras el documento conserve exactamente ese
+        // texto; la siguiente pulsación del usuario la cancela.
+        bool suppressAutomaticCompletion =
+            _suppressedAutomaticCompletionText is not null &&
+            string.Equals(
+                normalized,
+                _suppressedAutomaticCompletionText,
+                StringComparison.Ordinal);
+        if (!suppressAutomaticCompletion)
         {
-            ViewModel.MarkUnsavedChanges(true);
+            _suppressedAutomaticCompletionText = null;
         }
+
+        UpdateLineCountFromDocument();
+
+        // Durante un commit el paso de undo se registra de forma atómica al
+        // finalizar la inserción, no desde este evento intermediario.
+        if (!_applyingCompletion)
+        {
+            RecordUndoStep();
+        }
+
+        // El estado "sin guardar" se deriva del contenido guardado para que
+        // una reversión manual o un undo al baseline también lo limpien.
+        UpdateUnsavedChangesFromText(normalized);
 
         // Un único debounce para diagnósticos y resaltado.
         ScheduleAnalysis();
+        if (_applyingCompletion)
+        {
+            return;
+        }
+
+        _completionDebounceTimer.Stop();
+        CancelPendingCompletionRequest();
+        ViewModel.CloseIntelliSense();
+
+        int caretOffset = GetNormalizedCaretOffset(text, normalized);
+        _lastTextChangedCaretOffset = caretOffset;
+        if (!suppressAutomaticCompletion &&
+            ShouldTriggerAutomaticCompletion(normalized, caretOffset))
+        {
+            ScheduleAutomaticCompletion();
+        }
     }
 
     private void OnEditorSelectionChanged(object sender, RoutedEventArgs e)
-        => UpdateCursorCoordinates();
+    {
+        UpdateCursorCoordinates();
+
+        // Una escritura puede cambiar el caret y producir SelectionChanged
+        // después de TextChanged. En ese orden, el evento pertenece al texto
+        // recién editado y no debe cancelar el debounce que acaba de programar
+        // el autocompletado. Un movimiento explícito del caret sí invalida la
+        // sesión actual.
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        editorText ??= string.Empty;
+        string normalized = DocumentText.Normalize(editorText);
+        int caretOffset = GetNormalizedCaretOffset(editorText, normalized);
+        bool followsTextEdit =
+            _completionDebounceTimer.IsEnabled &&
+            caretOffset == _lastTextChangedCaretOffset;
+
+        if (!_applyingCompletion && !followsTextEdit)
+        {
+            _completionDebounceTimer.Stop();
+            CancelPendingCompletionRequest();
+        }
+
+        if (!_applyingCompletion && !followsTextEdit && ViewModel.IsIntelliSenseOpen)
+        {
+            ViewModel.CloseIntelliSense();
+        }
+
+        PositionIntelliSenseOverlay();
+    }
 
     private void OnEditorPointerMoved(object sender, PointerRoutedEventArgs e)
     {
@@ -443,6 +529,62 @@ public sealed partial class MainPage : Page
 
         bool isCtrl = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
                        CoreVirtualKeyStates.Down) != 0;
+
+        // PreviewKeyDown tiene prioridad sobre el bubbling KeyDown. Así las
+        // flechas, Intro y Escape nunca se insertan en el editor mientras el
+        // overlay está abierto.
+        if (ViewModel.IsIntelliSenseOpen)
+        {
+            switch (e.Key)
+            {
+                case VirtualKey.Up:
+                    IntelliSenseControl.SelectPrevious();
+                    e.Handled = true;
+                    return;
+                case VirtualKey.Down:
+                    IntelliSenseControl.SelectNext();
+                    e.Handled = true;
+                    return;
+                case VirtualKey.Enter:
+                    IntelliSenseControl.CommitSelected();
+                    e.Handled = true;
+                    return;
+            }
+        }
+
+        if (e.Key == VirtualKey.Escape)
+        {
+            _completionDebounceTimer.Stop();
+            CancelPendingCompletionRequest();
+            if (ViewModel.IsIntelliSenseOpen)
+            {
+                ViewModel.CloseIntelliSense();
+                e.Handled = true;
+            }
+
+            return;
+        }
+
+        if (isCtrl && e.Key == VirtualKey.Space)
+        {
+            e.Handled = true;
+            RequestCompletionsAtCaret();
+            return;
+        }
+
+        if (isCtrl && e.Key == VirtualKey.P)
+        {
+            e.Handled = true;
+            _completionDebounceTimer.Stop();
+            CancelPendingCompletionRequest();
+            ViewModel.ToggleCommandPalette();
+            if (ViewModel.IsCommandPaletteOpen)
+            {
+                CommandInputBox.Focus(FocusState.Programmatic);
+            }
+
+            return;
+        }
 
         if (isCtrl && e.Key == VirtualKey.O)
         {
@@ -470,6 +612,147 @@ public sealed partial class MainPage : Page
     {
         _analysisDebounceTimer.Stop();
         _analysisDebounceTimer.Start();
+    }
+
+    private void ScheduleAutomaticCompletion()
+    {
+        _completionDebounceTimer.Stop();
+        _completionDebounceTimer.Start();
+    }
+
+    private bool ShouldTriggerAutomaticCompletion(string normalized, int offset)
+    {
+        if (offset <= 0 || offset > normalized.Length)
+        {
+            return false;
+        }
+
+        char previous = normalized[offset - 1];
+        if (previous is '.' or '@' or '[')
+        {
+            return true;
+        }
+
+        int prefixStart = offset;
+        int letters = 0;
+        while (prefixStart > 0 && IsCompletionPrefixChar(normalized[prefixStart - 1]))
+        {
+            prefixStart--;
+            if (char.IsLetter(normalized[prefixStart]))
+            {
+                letters++;
+            }
+        }
+
+        if (letters >= 2)
+        {
+            return true;
+        }
+
+        // El contexto se deduce del documento actual, no de la notificación
+        // anterior de TextChanged. Así una edición coalescida como `.x` o
+        // `[ab` conserva el disparador aunque RichEditBox entregue una sola
+        // notificación para varios caracteres.
+        if (prefixStart < offset &&
+            prefixStart > 0 &&
+            normalized[prefixStart - 1] is '.' or '@' or '[')
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsCompletionPrefixChar(char value) =>
+        char.IsLetterOrDigit(value) || value == '_';
+
+    private async void RequestCompletionsAtCaret()
+    {
+        // La invocación explícita sustituye cualquier sugerencia automática
+        // pendiente; un debounce posterior no debe cancelar ni reemplazar esta
+        // solicitud.
+        _completionDebounceTimer.Stop();
+        CancelPendingCompletionRequest();
+        var cts = new CancellationTokenSource();
+        CancellationToken requestToken = cts.Token;
+        _completionCts = cts;
+
+        UpdateCursorCoordinates();
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        editorText ??= string.Empty;
+        string requestedText = DocumentText.Normalize(editorText);
+        int requestedOffset = GetNormalizedCaretOffset(editorText, requestedText);
+        var (line, character) = DocumentText.ToLineCharacter(requestedText, requestedOffset);
+        var requestedCaret = new Position(line, character);
+
+        try
+        {
+            await ViewModel.RequestLspCompletionsAsync(
+                requestedText,
+                requestedCaret,
+                openPopup: true,
+                requestToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Fallo al solicitar autocompletado: {ex}");
+            return;
+        }
+        finally
+        {
+            if (ReferenceEquals(_completionCts, cts))
+            {
+                _completionCts = null;
+            }
+
+            cts.Dispose();
+        }
+
+        if (requestToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        // El resultado solo se presenta si el documento y el caret no cambiaron
+        // mientras el LSP calculaba la lista.
+        EditorBox.Document.GetText(TextGetOptions.None, out string currentEditorText);
+        currentEditorText ??= string.Empty;
+        string currentText = DocumentText.Normalize(currentEditorText);
+        int currentOffset = GetNormalizedCaretOffset(currentEditorText, currentText);
+        if (!string.Equals(currentText, requestedText, StringComparison.Ordinal) ||
+            currentOffset != requestedOffset ||
+            !ViewModel.IsCompletionCurrent(requestedCaret))
+        {
+            ViewModel.InvalidateCompletions();
+            return;
+        }
+
+        if (ViewModel.IsIntelliSenseOpen)
+        {
+            PositionIntelliSenseOverlay();
+        }
+    }
+
+    private void CancelPendingCompletionRequest()
+    {
+        CancellationTokenSource? cts = _completionCts;
+        _completionCts = null;
+        if (cts is null)
+        {
+            return;
+        }
+
+        try
+        {
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private async void RunAnalysisAsync()
@@ -562,7 +845,11 @@ public sealed partial class MainPage : Page
     private void SaveCurrentFile()
     {
         EditorBox.Document.GetText(TextGetOptions.None, out string text);
-        ViewModel.SaveSource(text ?? string.Empty);
+        text ??= string.Empty;
+        if (ViewModel.SaveSource(text))
+        {
+            _savedNormalizedText = DocumentText.Normalize(text);
+        }
     }
 
     #endregion
@@ -622,6 +909,97 @@ public sealed partial class MainPage : Page
         ViewModel.UpdateCursorPosition(line + 1, character + 1);
     }
 
+    private void PositionIntelliSenseOverlay()
+    {
+        if (!ViewModel.IsIntelliSenseOpen)
+        {
+            return;
+        }
+
+        double left = 0;
+        double top = 0;
+        double caretTop = 0;
+        bool positioned = false;
+
+        try
+        {
+            EditorBox.Document.GetText(TextGetOptions.None, out string documentText);
+            int caret = Math.Clamp(
+                EditorBox.Document.Selection.StartPosition,
+                0,
+                documentText.Length);
+            ITextRange caretRange = EditorBox.Document.GetRange(caret, caret);
+            caretRange.GetRect(PointOptions.ClientCoordinates, out Rect rect, out int clipped);
+
+            if (double.IsFinite(rect.X) && double.IsFinite(rect.Y) &&
+                double.IsFinite(rect.Width) && double.IsFinite(rect.Height) &&
+                rect.Height > 0)
+            {
+                GeneralTransform transform = EditorBox.TransformToVisual(EditorHost);
+                Point clientPoint = transform.TransformPoint(new Point(rect.X, rect.Bottom));
+                Point clientTopPoint = transform.TransformPoint(new Point(rect.X, rect.Y));
+                left = clientPoint.X;
+                top = clientPoint.Y;
+                caretTop = clientTopPoint.Y;
+                positioned = true;
+            }
+        }
+        catch
+        {
+            // El control puede todavía estar compositando; se usa el fallback.
+        }
+
+        if (!positioned)
+        {
+            left = 16;
+            top = ViewModel.ActiveLineMargin.Top + 22;
+        }
+
+        if (EditorHost.ActualWidth > 0 && IntelliSenseControl.ActualWidth > 0)
+        {
+            double maxLeft = Math.Max(0, EditorHost.ActualWidth - IntelliSenseControl.ActualWidth - 8);
+            left = Math.Clamp(left, 0, maxLeft);
+        }
+        else
+        {
+            left = Math.Max(0, left);
+        }
+
+        if (EditorHost.ActualHeight > 0)
+        {
+            double availableHeight = EditorHost.ActualHeight;
+            double overlayHeight = IntelliSenseControl.ActualHeight;
+
+            if (positioned &&
+                overlayHeight > 0 &&
+                top + overlayHeight > availableHeight - 4)
+            {
+                double above = caretTop - overlayHeight - 4;
+                if (above >= 0)
+                {
+                    top = above;
+                }
+            }
+
+            double maxTop = overlayHeight > 0
+                ? Math.Max(0, availableHeight - overlayHeight - 4)
+                : Math.Max(0, availableHeight - 40);
+            top = Math.Clamp(top, 0, maxTop);
+        }
+        else
+        {
+            top = Math.Max(0, top);
+        }
+
+        IntelliSenseControl.Margin = new Thickness(left, top, 0, 0);
+    }
+
+    private void OnEditorHostSizeChanged(object sender, SizeChangedEventArgs e)
+        => PositionIntelliSenseOverlay();
+
+    private void OnIntelliSenseSizeChanged(object sender, SizeChangedEventArgs e)
+        => PositionIntelliSenseOverlay();
+
     #endregion
 
     #region IntelliSense Commit (from overlay)
@@ -630,11 +1008,188 @@ public sealed partial class MainPage : Page
     {
         if (item == null) return;
 
-        string insert = string.IsNullOrEmpty(item.InsertText) ? item.Label : item.InsertText;
-        insert = insert.Replace("$0", "");
-        EditorBox.Document.Selection.TypeText(insert);
-        ViewModel.CloseIntelliSense();
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        editorText ??= string.Empty;
+        string normalized = DocumentText.Normalize(editorText);
+        int currentCaretOffset = GetNormalizedCaretOffset(editorText, normalized);
+        var currentCaret = DocumentText.ToLineCharacter(normalized, currentCaretOffset);
+        if (!ViewModel.IsCompletionCurrent(new Position(currentCaret.Line, currentCaret.Character)))
+        {
+            ViewModel.InvalidateCompletions();
+            return;
+        }
+
+        if (item.ReplaceRange is not { } range ||
+            !DocumentText.TryGetNormalizedOffset(
+                normalized,
+                range.Start.Line,
+                range.Start.Character,
+                out int replaceStart) ||
+            !DocumentText.TryGetNormalizedOffset(
+                normalized,
+                range.End.Line,
+                range.End.Character,
+                out int replaceEnd) ||
+            replaceEnd < replaceStart ||
+            replaceEnd != currentCaretOffset)
+        {
+            ViewModel.InvalidateCompletions();
+            ViewModel.StatusText = "No se pudo aplicar el completado: rango de edición inválido.";
+            EditorBox.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        if (item.InsertTextFormat is not (InsertTextFormat.PlainText or InsertTextFormat.Snippet))
+        {
+            ViewModel.InvalidateCompletions();
+            ViewModel.StatusText = "No se pudo aplicar el completado: formato de inserción desconocido.";
+            EditorBox.Focus(FocusState.Programmatic);
+            return;
+        }
+
+        string completionText = item.HasExplicitInsertText
+            ? item.InsertText
+            : item.Label;
+        string indentation = GetLineIndentation(normalized, replaceStart);
+        (string insertion, int insertionCaretOffset) = ApplyCompletionText(
+            completionText,
+            item.InsertTextFormat,
+            item.CaretOffset,
+            indentation);
+
+        // Ninguna solicitud o debounce anterior puede reabrir el overlay
+        // usando el texto que el propio commit acaba de insertar.
+        _completionDebounceTimer.Stop();
+        CancelPendingCompletionRequest();
+
+        // El estado anterior conserva exactamente el rango sustituido para
+        // que el undo devuelva también el cursor al lugar del commit.
+        var undoBefore = new EditorUndoState(normalized, replaceStart, replaceEnd);
+        int[] editorMap = DocumentText.BuildNormalizedToEditorMap(editorText);
+        int editorStart = editorMap[replaceStart];
+        int editorEnd = editorMap[replaceEnd];
+
+        string updatedNormalized;
+        _applyingCompletion = true;
+        try
+        {
+            EditorBox.Document.Selection.SetRange(editorStart, editorEnd);
+            EditorBox.Document.Selection.TypeText(insertion);
+
+            // RichEditBox puede convertir los saltos del snippet en párrafos.
+            // El caret se calcula en texto normalizado y se traduce de nuevo a
+            // offsets nativos mediante el mapa actualizado.
+            EditorBox.Document.GetText(TextGetOptions.None, out string updatedEditorText);
+            updatedNormalized = DocumentText.Normalize(updatedEditorText);
+            int normalizedCaret = Math.Clamp(
+                replaceStart + insertionCaretOffset,
+                0,
+                updatedNormalized.Length);
+            int[] updatedMap = DocumentText.BuildNormalizedToEditorMap(updatedEditorText);
+            int editorCaret = updatedMap[normalizedCaret];
+            EditorBox.Document.Selection.SetRange(editorCaret, editorCaret);
+        }
+        finally
+        {
+            _applyingCompletion = false;
+        }
+
+        // Cada commit es una operación atómica e independiente de la
+        // agrupación normal de escritura por pulsaciones.
+        if (!string.Equals(updatedNormalized, normalized, StringComparison.Ordinal))
+        {
+            _undoHistory.Record(
+                undoBefore,
+                insertion,
+                DateTime.UtcNow,
+                forceNewStep: true);
+            _lastNormalizedText = updatedNormalized;
+        }
+
+        CancelPendingCompletionRequest();
+        ViewModel.InvalidateCompletions();
+        _suppressedAutomaticCompletionText = updatedNormalized;
+        UpdateUnsavedChangesFromText(updatedNormalized);
+
         EditorBox.Focus(FocusState.Programmatic);
+        UpdateCursorCoordinates();
+    }
+
+    private static string GetLineIndentation(string text, int offset)
+    {
+        int lineStart = Math.Clamp(offset, 0, text.Length);
+        while (lineStart > 0 && text[lineStart - 1] is not ('\r' or '\n'))
+        {
+            lineStart--;
+        }
+
+        int end = lineStart;
+        while (end < text.Length && text[end] is ' ' or '\t')
+        {
+            end++;
+        }
+
+        return text[lineStart..end];
+    }
+
+    private int GetNormalizedCaretOffset(string editorText, string normalized)
+    {
+        int editorOffset = Math.Clamp(
+            EditorBox.Document.Selection.StartPosition,
+            0,
+            editorText.Length);
+        return Math.Min(
+            DocumentText.ToNormalizedOffset(editorText, editorOffset),
+            normalized.Length);
+    }
+
+    private static (string Insertion, int CaretOffset) ApplyCompletionText(
+        string text,
+        InsertTextFormat format,
+        int? requestedCaretOffset,
+        string indentation)
+    {
+        if (format == InsertTextFormat.PlainText)
+        {
+            int caret = Math.Clamp(
+                requestedCaretOffset ?? text.Length,
+                0,
+                text.Length);
+            return (text, caret);
+        }
+
+        int marker = text.IndexOf("$0", StringComparison.Ordinal);
+        if (marker >= 0)
+        {
+            string before = text[..marker];
+            string after = text[(marker + 2)..];
+            string indentedBefore = IndentSnippetLines(before, indentation);
+            string indentedAfter = IndentSnippetLines(after, indentation);
+            return (indentedBefore + indentedAfter, indentedBefore.Length);
+        }
+
+        string insertion = IndentSnippetLines(text, indentation);
+        int fallbackCaret = Math.Clamp(
+            requestedCaretOffset ?? insertion.Length,
+            0,
+            insertion.Length);
+        return (insertion, fallbackCaret);
+    }
+
+    private static string IndentSnippetLines(string text, string indentation)
+    {
+        if (!text.Contains('\n') || indentation.Length == 0)
+        {
+            return text;
+        }
+
+        string[] lines = text.Split('\n');
+        for (int index = 1; index < lines.Length; index++)
+        {
+            lines[index] = indentation + lines[index];
+        }
+
+        return string.Join('\n', lines);
     }
 
     #endregion
@@ -702,6 +1257,7 @@ public sealed partial class MainPage : Page
 
         if (e.Key == VirtualKey.Escape)
         {
+            CancelPendingCompletionRequest();
             if (ViewModel.IsCommandPaletteOpen)
             {
                 ViewModel.CloseCommandPalette(); e.Handled = true;
@@ -713,6 +1269,8 @@ public sealed partial class MainPage : Page
         }
         else if (isCtrl && e.Key == VirtualKey.P)
         {
+            _completionDebounceTimer.Stop();
+            CancelPendingCompletionRequest();
             ViewModel.ToggleCommandPalette();
             if (ViewModel.IsCommandPaletteOpen)
                 EditorBox.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
@@ -818,6 +1376,9 @@ public sealed partial class MainPage : Page
         var target = _undoHistory.Undo(CaptureUndoState());
         if (target is not null)
         {
+            CancelPendingCompletionRequest();
+            ViewModel.InvalidateCompletions();
+            _suppressedAutomaticCompletionText = null;
             ApplyUndoState(target);
         }
     }
@@ -827,6 +1388,9 @@ public sealed partial class MainPage : Page
         var target = _undoHistory.Redo(CaptureUndoState());
         if (target is not null)
         {
+            CancelPendingCompletionRequest();
+            ViewModel.InvalidateCompletions();
+            _suppressedAutomaticCompletionText = null;
             ApplyUndoState(target);
         }
     }
@@ -844,13 +1408,20 @@ public sealed partial class MainPage : Page
 
     private void ApplyUndoState(EditorUndoState state)
     {
+        ViewModel.InvalidateCompletions();
         _applyingUndo = true;
         try
         {
-            // Los offsets guardados son del texto normalizado; ToEditorText
-            // reemplaza \n por \r uno a uno, así que se conservan.
             EditorBox.Document.SetText(TextSetOptions.None, DocumentText.ToEditorText(state.Text));
-            EditorBox.Document.Selection.SetRange(state.SelectionStart, state.SelectionEnd);
+
+            // Las posiciones del historial están en offsets normalizados. El
+            // editor usa \r como separador de párrafo, por lo que deben
+            // traducirse con el mapa antes de fijar la selección.
+            EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+            int[] offsetMap = DocumentText.BuildNormalizedToEditorMap(editorText);
+            int selectionStart = offsetMap[Math.Clamp(state.SelectionStart, 0, state.Text.Length)];
+            int selectionEnd = offsetMap[Math.Clamp(state.SelectionEnd, 0, state.Text.Length)];
+            EditorBox.Document.Selection.SetRange(selectionStart, selectionEnd);
             _lastNormalizedText = state.Text;
         }
         finally
@@ -860,7 +1431,20 @@ public sealed partial class MainPage : Page
 
         UpdateLineCountFromDocument();
         UpdateCursorCoordinates();
+        UpdateUnsavedChangesFromText(state.Text);
         ScheduleAnalysis();
+    }
+
+    private void UpdateUnsavedChangesFromText(string normalizedText)
+    {
+        if (string.IsNullOrEmpty(ViewModel.SourceFilePath))
+        {
+            ViewModel.MarkUnsavedChanges(false);
+            return;
+        }
+
+        ViewModel.MarkUnsavedChanges(
+            !string.Equals(normalizedText, _savedNormalizedText, StringComparison.Ordinal));
     }
 
     #endregion

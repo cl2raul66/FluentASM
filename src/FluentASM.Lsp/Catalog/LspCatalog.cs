@@ -34,18 +34,26 @@ public static class LspCatalog
 
         AllItems = items.ToImmutable();
 
-        var lookup = ImmutableDictionary.CreateBuilder<string, LspCompletionItem>(StringComparer.OrdinalIgnoreCase);
+        // FluentASM distingue mayúsculas y minúsculas. Un lookup insensible
+        // podría mezclar símbolos canónicos exactos como `rflags`/`EFLAGS` o
+        // `Rip` y devolver los metadatos de otro símbolo.
+        var lookup = ImmutableDictionary.CreateBuilder<string, LspCompletionItem>(StringComparer.Ordinal);
         foreach (var item in AllItems)
         {
-            lookup[item.Label] = item;
-            if (!string.IsNullOrEmpty(item.InsertText) && !lookup.ContainsKey(item.InsertText))
+            // La primera proyección canónica conserva la etiqueta. Así el
+            // registro `Frf.adjust` no queda sustituido por su alias y las
+            // magnitudes `Bit`/`Byte` no se mezclan con palabras contextuales.
+            // Las proyecciones por categoría siguen disponibles para resolver
+            // una ambigüedad explícita.
+            lookup.TryAdd(item.Label, item);
+            if (!string.IsNullOrEmpty(item.InsertText))
             {
-                lookup[item.InsertText] = item;
+                lookup.TryAdd(item.InsertText, item);
             }
 
-            if (!string.IsNullOrEmpty(item.FilterText) && !lookup.ContainsKey(item.FilterText))
+            if (!string.IsNullOrEmpty(item.FilterText))
             {
-                lookup[item.FilterText] = item;
+                lookup.TryAdd(item.FilterText, item);
             }
         }
         ItemsByLookup = lookup.ToImmutable();
@@ -55,6 +63,30 @@ public static class LspCatalog
 
     public static bool TryGetItem(string name, out LspCompletionItem item) =>
         ItemsByLookup.TryGetValue(name, out item!);
+
+    /// <summary>
+    /// Busca un símbolo exacto por nombre y categoría canónica. Se usa cuando
+    /// dos catálogos distintos comparten una etiqueta (por ejemplo, una
+    /// magnitud y una palabra contextual) y cada uno necesita sus metadatos.
+    /// </summary>
+    public static bool TryGetItem(
+        string name,
+        string category,
+        out LspCompletionItem item)
+    {
+        foreach (LspCompletionItem candidate in AllItems)
+        {
+            if (string.Equals(candidate.Label, name, StringComparison.Ordinal) &&
+                string.Equals(candidate.Metadata?.Category, category, StringComparison.Ordinal))
+            {
+                item = candidate;
+                return true;
+            }
+        }
+
+        item = null!;
+        return false;
+    }
 
     private static string GetViewSortText(string suffix) => suffix switch
     {

@@ -61,7 +61,9 @@
                     Fill="{ThemeResource GutterDividerBrush}" />
 
                 <!-- Columna del área de edición. -->
-                <Grid Grid.Column="2">
+                <Grid x:Name="EditorHost"
+                      Grid.Column="2"
+                      SizeChanged="OnEditorHostSizeChanged">
                     <!--  Active Line Highlight Overlay (Tracking current cursor row)  -->
                     <Border
                         Height="22"
@@ -97,10 +99,11 @@
                     <!--  ==============================================  -->
                     <controls:IntelliSenseOverlay
                         x:Name="IntelliSenseControl"
-                        Margin="{x:Bind ViewModel.IntelliSenseMargin, Mode=OneWay}"
                         HorizontalAlignment="Left"
                         VerticalAlignment="Top"
                         Canvas.ZIndex="30"
+                        SizeChanged="OnIntelliSenseSizeChanged"
+                        ContextText="{x:Bind ViewModel.CompletionContext, Mode=OneWay}"
                         ItemCommitted="OnIntelliSenseItemCommitted"
                         ItemsSource="{x:Bind ViewModel.CompletionItems, Mode=OneWay}"
                         SelectedItem="{x:Bind ViewModel.SelectedCompletion, Mode=TwoWay}"

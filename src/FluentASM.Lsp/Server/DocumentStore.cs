@@ -112,7 +112,8 @@ public sealed class DocumentStore
                 }
             }
 
-            lock (state.AnalysisGate)
+            state.AnalysisGate.Wait(cancellationToken);
+            try
             {
                 // Otra llamada pudo completar el análisis mientras se esperaba el turno.
                 lock (state.Gate)
@@ -152,6 +153,10 @@ public sealed class DocumentStore
                         document.Version,
                         state.Document.Version);
                 }
+            }
+            finally
+            {
+                state.AnalysisGate.Release();
             }
         }
     }
@@ -320,8 +325,12 @@ public sealed class DocumentStore
     {
         public object Gate { get; } = new();
 
-        /// <summary>Serializa el pipeline de análisis: como máximo uno en vuelo por documento.</summary>
-        public object AnalysisGate { get; } = new();
+        /// <summary>
+        /// Serializa el pipeline de análisis: como máximo uno en vuelo por
+        /// documento. La espera respeta el token de cancelación para que una
+        /// solicitud obsoleta de completado no bloquee el hilo de interfaz.
+        /// </summary>
+        public SemaphoreSlim AnalysisGate { get; } = new(1, 1);
 
         public TextDocumentItem? Document { get; set; }
 

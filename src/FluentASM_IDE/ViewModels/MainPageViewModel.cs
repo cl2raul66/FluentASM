@@ -54,7 +54,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
-    [NotifyPropertyChangedFor(nameof(IntelliSenseMargin))]
     [NotifyPropertyChangedFor(nameof(CursorPositionFormatted))]
     public partial int CurrentLine { get; set; } = 13;
 
@@ -64,7 +63,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
-    [NotifyPropertyChangedFor(nameof(IntelliSenseMargin))]
     public partial double ScrollOffset { get; set; } = 0;
 
     [ObservableProperty]
@@ -78,6 +76,10 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     [ObservableProperty]
     public partial bool IsIntelliSenseOpen { get; set; } = false;
+
+    /// <summary>Estado contextual o type-state shown by the completion overlay.</summary>
+    [ObservableProperty]
+    public partial string CompletionContext { get; set; } = string.Empty;
 
     [ObservableProperty]
     public partial string CommandQuery { get; set; } = "/";
@@ -99,6 +101,9 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     private readonly object documentGate = new();
     private int documentVersion;
+    private int completionVersion;
+    private int completionRequestVersion;
+    private Position completionCaret;
     private string documentText = string.Empty;
     private CancellationTokenSource? analysisCts;
 
@@ -152,8 +157,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     public Thickness ActiveLineMargin => new Thickness(0, 8 + (CurrentLine - 1) * 22.0 - ScrollOffset, 0, 0);
 
-    public Thickness IntelliSenseMargin => new Thickness(200, 8 + CurrentLine * 22.0 - ScrollOffset + 4, 0, 0);
-
     public string CursorPositionFormatted => $"Ln {CurrentLine}, Col {CurrentCol}";
 
     public string DiagnosticErrorSummary => DiagnosticErrorCount == 1
@@ -192,7 +195,9 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     public ObservableCollection<CommandPaletteItem> AllCommands { get; } = new();
     public ObservableCollection<CommandPaletteItem> FilteredCommands { get; } = new();
-    public ObservableCollection<CompletionItem> CompletionItems { get; } = new();
+
+    [ObservableProperty]
+    public partial ObservableCollection<CompletionItem> CompletionItems { get; set; } = new();
 
     /// <summary>
     /// Se dispara cuando la paleta pide volver a validar el documento actual.
@@ -358,7 +363,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         {
             CommandQuery = "/";
             FilterCommands(CommandQuery);
-            IsIntelliSenseOpen = false;
+            InvalidateCompletions();
         }
     }
 
@@ -368,7 +373,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         IsCommandPaletteOpen = true;
         CommandQuery = prefix;
         FilterCommands(CommandQuery);
-        IsIntelliSenseOpen = false;
+        InvalidateCompletions();
     }
 
     [RelayCommand]
@@ -380,16 +385,35 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [RelayCommand]
     public void ToggleIntelliSense()
     {
-        IsIntelliSenseOpen = !IsIntelliSenseOpen;
         if (IsIntelliSenseOpen)
         {
-            IsCommandPaletteOpen = false;
+            InvalidateCompletions();
+            return;
         }
+
+        IsCommandPaletteOpen = false;
+        IsIntelliSenseOpen = true;
     }
 
     [RelayCommand]
     public void CloseIntelliSense()
     {
+        InvalidateCompletions();
+    }
+
+    /// <summary>
+    /// Invalida por completo la sesión de completado: suggestions, selección,
+    /// contexto, versión y caret. Se usa ante cualquier mutación del texto,
+    /// incluida una deshacer/rehacer o un quick-fix programático.
+    /// </summary>
+    public void InvalidateCompletions()
+    {
+        Interlocked.Increment(ref completionRequestVersion);
+        Volatile.Write(ref completionVersion, 0);
+        completionCaret = default;
+        CompletionContext = string.Empty;
+        SelectedCompletion = null;
+        CompletionItems = new ObservableCollection<CompletionItem>();
         IsIntelliSenseOpen = false;
     }
 
@@ -734,7 +758,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             LspServer.OpenDocument(DocumentUri, normalized, documentVersion);
         }
 
-        RequestLspCompletions(InitialSampleAsm, openPopup: false);
     }
 
     /// <summary>
@@ -932,6 +955,9 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         string newText = before + action.ReplacementText + after;
 
         // Actualizar el documento en el LSP y marcar cambios no guardados.
+        // Una mutación programática invalida cualquier suggestion que siguiera
+        // abierta, aunque el editor no dispare SelectionChanged.
+        InvalidateCompletions();
         string normalized = DocumentText.Normalize(newText);
         lock (documentGate)
         {
@@ -1032,6 +1058,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         }
 
         // Configurar el URI del documento en el LSP.
+        InvalidateCompletions();
         DocumentUri = new Uri(fullSourcePath).AbsoluteUri;
         IsProjectOpen = _projectService.HasProject;
         ProjectName = _projectService.ProjectName ?? string.Empty;
@@ -1039,19 +1066,20 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
         // Actualizar título y estado.
         UpdateDocumentTitle();
-        StatusText = $"Proyecto abierto: {ProjectName} ({SourceFilePath})";
+        StatusText = IsProjectOpen
+            ? $"Proyecto abierto: {ProjectName} ({SourceFilePath})"
+            : $"Archivo abierto: {SourceFilePath}";
 
         // Abrir el documento en el LSP con el texto del archivo.
         string normalized = DocumentText.Normalize(sourceText);
         lock (documentGate)
         {
             documentText = normalized;
-            documentVersion = 1;
+            documentVersion++;
             LspServer.OpenDocument(DocumentUri, normalized, documentVersion);
         }
 
         HasUnsavedChanges = false;
-        RequestLspCompletions(sourceText, openPopup: false);
 
         // Notificar a la vista con el texto cargado para que lo muestre en el editor.
         CurrentSourceText = normalized;
@@ -1089,6 +1117,10 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         {
             DocumentTitle = $"{ProjectName}.fasm{suffix}";
         }
+        else if (!string.IsNullOrEmpty(SourceFilePath))
+        {
+            DocumentTitle = Path.GetFileName(SourceFilePath) + suffix;
+        }
         else
         {
             DocumentTitle = DocumentFileName + suffix;
@@ -1097,24 +1129,36 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     public void RequestLspCompletions(string sourceCode, bool openPopup = true)
     {
+        var requestedCaret = new Position(CurrentLine - 1, CurrentCol - 1);
+        RequestLspCompletions(sourceCode, requestedCaret, openPopup);
+    }
+
+    /// <summary>
+    /// Solicita suggestions para un caret explícito y conserva la versión del
+    /// documento junto con la posición exacta a la que pertenecen.
+    /// </summary>
+    public void RequestLspCompletions(
+        string sourceCode,
+        Position requestedCaret,
+        bool openPopup = true)
+    {
         int previousVersion = Volatile.Read(ref documentVersion);
         UpdateDocument(DocumentText.Normalize(sourceCode));
-        var lspCompletions = LspServer.GetCompletions(DocumentUri, new Position(CurrentLine - 1, CurrentCol - 1));
+        int currentVersion = Volatile.Read(ref documentVersion);
+        int requestVersion = BeginCompletionRequest();
+        var lspCompletions = LspServer.GetCompletions(DocumentUri, requestedCaret);
 
-        CompletionItems.Clear();
-        foreach (var lspItem in lspCompletions.Items)
+        if (!CanPublishCompletions(lspCompletions, currentVersion, requestVersion))
         {
-            CompletionItems.Add(CompletionItem.FromLsp(lspItem));
-        }
-
-        if (CompletionItems.Count > 0)
-        {
-            SelectCompletion(CompletionItems[0]);
-            if (openPopup)
+            if (currentVersion != previousVersion)
             {
-                IsIntelliSenseOpen = true;
+                AnalysisRequested?.Invoke();
             }
+
+            return;
         }
+
+        PublishCompletions(lspCompletions, currentVersion, requestedCaret, openPopup);
 
         // Si IntelliSense adelantó una versión nueva, la vista reprograma el
         // análisis para no quedarse con un resaltado obsoleto.
@@ -1123,6 +1167,111 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             AnalysisRequested?.Invoke();
         }
     }
+
+    /// <summary>
+    /// Solicita suggestions sin ejecutar lexer, parser ni semántica en el hilo
+    /// de interfaz. La solicitud queda invalidada si cambia el documento, el
+    /// caret o se inicia una consulta más reciente.
+    /// </summary>
+    public async Task RequestLspCompletionsAsync(
+        string sourceCode,
+        Position requestedCaret,
+        bool openPopup = true,
+        CancellationToken cancellationToken = default)
+    {
+        int previousVersion = Volatile.Read(ref documentVersion);
+        UpdateDocument(DocumentText.Normalize(sourceCode));
+        int currentVersion = Volatile.Read(ref documentVersion);
+        int requestVersion = BeginCompletionRequest();
+
+        CompletionList lspCompletions;
+        try
+        {
+            lspCompletions = await Task.Run(
+                () => LspServer.GetCompletions(DocumentUri, requestedCaret, cancellationToken),
+                cancellationToken).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!CanPublishCompletions(lspCompletions, currentVersion, requestVersion))
+        {
+            if (currentVersion != previousVersion)
+            {
+                AnalysisRequested?.Invoke();
+            }
+
+            return;
+        }
+
+        PublishCompletions(lspCompletions, currentVersion, requestedCaret, openPopup);
+        if (Volatile.Read(ref documentVersion) != previousVersion)
+        {
+            AnalysisRequested?.Invoke();
+        }
+    }
+
+    private int BeginCompletionRequest()
+    {
+        InvalidateCompletions();
+        return Volatile.Read(ref completionRequestVersion);
+    }
+
+    private bool CanPublishCompletions(
+        CompletionList completions,
+        int currentVersion,
+        int requestVersion) =>
+        requestVersion == Volatile.Read(ref completionRequestVersion) &&
+        currentVersion == Volatile.Read(ref documentVersion) &&
+        completions.Version is int snapshotVersion &&
+        snapshotVersion == currentVersion;
+
+    private void PublishCompletions(
+        CompletionList completions,
+        int currentVersion,
+        Position requestedCaret,
+        bool openPopup)
+    {
+        if (IsCommandPaletteOpen)
+        {
+            // La paleta de comandos y el overlay son superficies excluyentes.
+            // Una solicitud que quedó pendiente no puede reabrir IntelliSense
+            // detrás de la paleta.
+            return;
+        }
+
+        Volatile.Write(ref completionVersion, completions.Version ?? currentVersion);
+        completionCaret = completions.Caret ?? requestedCaret;
+        CompletionContext = completions.Context ?? string.Empty;
+
+        var items = new ObservableCollection<CompletionItem>();
+        foreach (var lspItem in completions.Items)
+        {
+            items.Add(CompletionItem.FromLsp(lspItem, completions.ReplaceRange));
+        }
+
+        CompletionItems = items;
+        if (CompletionItems.Count > 0)
+        {
+            SelectCompletion(CompletionItems[0]);
+            if (openPopup)
+            {
+                IsIntelliSenseOpen = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Indica si la sesión de completado sigue perteneciendo al documento y al
+    /// caret actuales. Impide confirmar un resultado obsoleto.
+    /// </summary>
+    public bool IsCompletionCurrent(Position caret) =>
+        IsIntelliSenseOpen &&
+        Volatile.Read(ref completionVersion) == Volatile.Read(ref documentVersion) &&
+        completionCaret == caret;
 }
 
 

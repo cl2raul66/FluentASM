@@ -3,6 +3,7 @@ using FluentASM.Core.Semantics;
 using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 using FluentASM.Lsp.Catalog;
+using FluentASM.Lsp.Completion;
 using FluentASM.Lsp.Protocol;
 using Microsoft.Extensions.Logging;
 
@@ -67,74 +68,20 @@ public sealed class FluentLanguageServer : ILanguageService
     public CompletionList GetCompletions(string uri, Position position, CancellationToken cancellationToken = default)
     {
         var snapshot = store.GetSnapshot(uri, cancellationToken);
-        if (snapshot is null || string.IsNullOrEmpty(snapshot.Text))
+        if (snapshot is null)
         {
-            return new CompletionList(false, LspCatalog.GetAllItems());
+            return new CompletionList(
+                IsIncomplete: false,
+                Items: Array.Empty<LspCompletionItem>(),
+                ReplaceRange: null,
+                Context: "Raíz",
+                Caret: position,
+                Version: null);
         }
 
-        var routines = CollectRoutines(snapshot);
-        var labels = CollectLabels(snapshot);
-        string prefix = GetLinePrefix(snapshot, position);
-        var result = new List<LspCompletionItem>();
-
-        // 1. Contexto de llamada a rutina (.flowCall(...)).
-        if (prefix.Contains(".flowCall", StringComparison.Ordinal) ||
-            prefix.EndsWith("flowCall(", StringComparison.Ordinal))
-        {
-            foreach (var routine in routines)
-            {
-                result.Add(CreateRoutineItem(routine, callContext: true));
-            }
-
-            return new CompletionList(false, result);
-        }
-
-        // 2. Contexto de salto a etiqueta (@loop, .flowJump, etc.).
-        if (prefix.EndsWith('@') ||
-            prefix.Contains(".flowJump", StringComparison.Ordinal) ||
-            prefix.Contains('@'))
-        {
-            foreach (var label in labels)
-            {
-                result.Add(CreateLabelItem(label));
-            }
-
-            if (prefix.EndsWith('@'))
-            {
-                return new CompletionList(false, result);
-            }
-        }
-
-        // 3. Contexto de miembro o verbo con punto (Gpr0., .flowJump, etc.).
-        if (prefix.EndsWith('.') || prefix.Contains('.'))
-        {
-            foreach (var item in LspCatalog.GetAllItems())
-            {
-                if (item.Metadata?.Category == "Verbos" ||
-                    item.Metadata?.Category == "Flujo" ||
-                    item.Label.Contains(".low", StringComparison.Ordinal))
-                {
-                    result.Add(item);
-                }
-            }
-
-            return new CompletionList(false, result);
-        }
-
-        // 4. Sugerencias generales: catálogo completo + rutinas + etiquetas locales.
-        result.AddRange(LspCatalog.GetAllItems());
-
-        foreach (var routine in routines)
-        {
-            result.Add(CreateRoutineItem(routine, callContext: false));
-        }
-
-        foreach (var label in labels)
-        {
-            result.Add(CreateLabelItem(label));
-        }
-
-        return new CompletionList(false, result);
+        // Un documento vacío sigue siendo un contexto raíz válido: Ctrl+Espacio
+        // debe ofrecer los constructores canónicos aun antes de escribir código.
+        return ContextualCompletionProvider.GetCompletions(snapshot, position, cancellationToken);
     }
 
     /// <inheritdoc />

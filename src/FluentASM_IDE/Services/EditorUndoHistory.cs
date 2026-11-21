@@ -5,8 +5,8 @@ namespace FluentASM_IDE.Services;
 
 /// <summary>Estado del editor en un instante: texto normalizado y selección.</summary>
 /// <param name="Text">Texto con saltos <c>\n</c>.</param>
-/// <param name="SelectionStart">Inicio de la selección en offsets del editor.</param>
-/// <param name="SelectionEnd">Fin de la selección en offsets del editor.</param>
+/// <param name="SelectionStart">Inicio de la selección en offsets normalizados.</param>
+/// <param name="SelectionEnd">Fin de la selección en offsets normalizados.</param>
 internal sealed record EditorUndoState(string Text, int SelectionStart, int SelectionEnd);
 
 /// <summary>
@@ -40,9 +40,14 @@ internal sealed class EditorUndoHistory
     /// Registra una edición del usuario con el estado inmediatamente anterior y
     /// el texto insertado (vacío en un borrado).
     /// </summary>
-    public void Record(EditorUndoState before, string inserted, DateTime now)
+    public void Record(
+        EditorUndoState before,
+        string inserted,
+        DateTime now,
+        bool forceNewStep = false)
     {
-        bool newStep = undo.Count == 0
+        bool newStep = forceNewStep
+            || undo.Count == 0
             || now - lastEdit >= Pause
             || inserted.Contains('\n', StringComparison.Ordinal)
             || inserted.Length > 1;
@@ -57,7 +62,12 @@ internal sealed class EditorUndoHistory
         }
 
         redo.Clear();
-        lastEdit = now;
+
+        // Un commit forzado es un límite de grupo: la escritura posterior debe
+        // crear su propio estado inicial. De lo contrario, una única pulsación
+        // posterior se agruparía con el commit y el primer undo lo borraría
+        // todo junto.
+        lastEdit = forceNewStep ? DateTime.MinValue : now;
     }
 
     /// <summary>Estado al que volver, o <c>null</c> si no hay nada que deshacer.</summary>

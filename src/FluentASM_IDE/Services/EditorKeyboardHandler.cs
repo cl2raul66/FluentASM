@@ -1,5 +1,3 @@
-using System;
-using FluentASM_IDE.Controls;
 using FluentASM_IDE.Models;
 using Microsoft.UI.Input;
 using Microsoft.UI.Text;
@@ -18,13 +16,11 @@ internal sealed class EditorKeyboardHandler
 {
     private readonly RichEditBox _editor;
     private readonly IMainPageViewModel _vm;
-    private readonly IntelliSenseOverlay _intelliSense;
 
-    public EditorKeyboardHandler(RichEditBox editor, IMainPageViewModel vm, IntelliSenseOverlay intelliSense)
+    public EditorKeyboardHandler(RichEditBox editor, IMainPageViewModel vm)
     {
         _editor = editor;
         _vm = vm;
-        _intelliSense = intelliSense;
     }
 
     public void OnKeyDown(KeyRoutedEventArgs e)
@@ -32,22 +28,14 @@ internal sealed class EditorKeyboardHandler
         bool isCtrl = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
                        CoreVirtualKeyStates.Down) != 0;
 
-        // IntelliSense navigation takes priority when open
-        if (_vm.IsIntelliSenseOpen)
-        {
-            if (HandleIntelliSenseKeys(e)) return;
-        }
+        // La navegación del overlay se atiende en PreviewKeyDown para que
+        // Ningún control pueda consumir antes las flechas o Intro.
 
         // Global editor shortcuts
         if (e.Key == VirtualKey.Tab)
         {
             e.Handled = true;
             _editor.Document.Selection.TypeText("    ");
-        }
-        else if (isCtrl && e.Key == VirtualKey.Space)
-        {
-            e.Handled = true;
-            RequestCompletions();
         }
         else if (e.Key == VirtualKey.F5)
         {
@@ -66,32 +54,6 @@ internal sealed class EditorKeyboardHandler
             if (_vm.IsCommandPaletteOpen)
                 _editor.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
         }
-    }
-
-    private bool HandleIntelliSenseKeys(KeyRoutedEventArgs e)
-    {
-        return e.Key switch
-        {
-            VirtualKey.Down => Handle(() => _intelliSense.SelectNext()),
-            VirtualKey.Up => Handle(() => _intelliSense.SelectPrevious()),
-            VirtualKey.Enter => Handle(() => _intelliSense.CommitSelected()),
-            VirtualKey.Escape => Handle(() => _vm.CloseIntelliSense()),
-            _ => false
-        };
-
-        bool Handle(Action action)
-        {
-            action();
-            e.Handled = true;
-            return true;
-        }
-    }
-
-    private void RequestCompletions()
-    {
-        _editor.Document.GetText(TextGetOptions.None, out string text);
-        _vm.RequestLspCompletions(text ?? string.Empty, openPopup: true);
-        _intelliSense.RefreshFilter();
     }
 }
 

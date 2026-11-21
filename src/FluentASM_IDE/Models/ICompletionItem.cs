@@ -1,4 +1,5 @@
 using System;
+using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
@@ -18,11 +19,19 @@ public interface ICompletionItem
     string Inputs { get; set; }
     string Modifies { get; set; }
     string Returns { get; set; }
+    string FlagsAffected { get; set; }
     string IconGlyph { get; set; }
     string IconColorHex { get; set; }
     string Category { get; set; }
     bool HasDocumentation { get; set; }
+    string Documentation { get; set; }
+    bool HasExplicitInsertText { get; set; }
     string InsertText { get; set; }
+    string FilterText { get; set; }
+    string SortText { get; set; }
+    LspRange? ReplaceRange { get; set; }
+    int? CaretOffset { get; set; }
+    InsertTextFormat InsertTextFormat { get; set; }
 
     bool IsSelected { get; set; }
     Thickness SelectedBorderThickness { get; }
