@@ -65,38 +65,42 @@ Usa la plantilla de `.github/PULL_REQUEST_TEMPLATE.md`. El cuerpo del Pull Reque
 ## Versiones a publicar
 ver(core): x.x.x-preview
 ver(compiler): x.x.x-preview
+ver(lsp): x.x.x-preview
+ver(ide): x.x.x-preview
 ```
 
-Solo se publican los proyectos cuya línea tenga una versión concreta (por ejemplo `ver(core): 0.2.0-preview`). Los que queden con el marcador `x.x.x-preview` no se publican; si no quieres publicar ninguno, deja las dos líneas como están. `FluentASM.Sample` no entra en el versionado: no lleva línea de versión ni se publica en releases.
+Solo se publican los proyectos cuya línea tenga una versión concreta (por ejemplo `ver(core): 0.2.0-preview`). Los que queden con el marcador `x.x.x-preview` no se publican; si no quieres publicar ninguno, deja las cuatro líneas como están. `FluentASM.Sample` no entra en el versionado: no lleva línea de versión ni se publica en releases.
 
 Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente de "Decisiones de diseño" en este documento.
 
 El número declarado en el PR es la fuente de verdad para esa publicación; el detalle está en la sección de versionado.
 
 ## Versionado
-
-Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`) y `compiler` (`FluentASM.Compiler`). Se sigue el versionado SemVer `MAJOR.MINOR.PATCH`.
-
+ 
+Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`), `compiler` (`FluentASM.Compiler`), `lsp` (`FluentASM.Lsp`) e `ide` (`FluentASM_IDE`). Se sigue el versionado SemVer `MAJOR.MINOR.PATCH`.
+ 
 | Merge | Versión publicada | Etiquetas | Línea necesaria en el PR |
 |---|---|---|---|
-| PR → `develop` | `x.x.x-preview` (prerelease) | `core-vx.x.x-preview`, `compiler-vx.x.x-preview` | `ver(proyecto): x.x.x-preview` con números |
-| PR → `main` | `x.x.x` (estable, sin sufijo) | `core-vx.x.x`, `compiler-vx.x.x` | igual: `ver(proyecto): x.x.x-preview` |
-
+| PR → `develop` | `x.x.x-preview` (prerelease) | `core-vx.x.x-preview`, `compiler-vx.x.x-preview`, `lsp-vx.x.x-preview`, `ide-vx.x.x-preview` | `ver(proyecto): x.x.x-preview` con números |
+| PR → `main` | `x.x.x` (estable, sin sufijo) | `core-vx.x.x`, `compiler-vx.x.x`, `lsp-vx.x.x`, `ide-vx.x.x` | igual: `ver(proyecto): x.x.x-preview` |
+ 
 - En los dos flujos el PR se escribe igual (`x.x.x-preview`); al mergear en `main` se publica la misma versión sin el sufijo `-preview`. El PR de promoción `develop` → `main` debe llevar **las mismas líneas `ver(...)`** del ciclo que se está promoviendo.
 - Un proyecto no se publica si su línea conserva el marcador `x.x.x-preview` o si no aparece en el PR.
 - **Solo se publica una versión estrictamente mayor que la última publicada.** Si la versión del PR es igual o menor, el flujo termina sin publicar y sin fallar (`skip`), dejando constancia en el registro del job.
-  - En `develop` la comparación es contra la última *prerelease* del proyecto (`core-v*-preview`, `compiler-v*-preview`).
-  - En `main` la comparación es contra la última estable (`core-v*`, `compiler-v*` sin sufijo).
+  - En `develop` la comparación es contra la última *prerelease* del proyecto (`core-v*-preview`, `compiler-v*-preview`, `lsp-v*-preview`, `ide-v*-preview`).
+  - En `main` la comparación es contra la última estable (`core-v*`, `compiler-v*`, `lsp-v*`, `ide-v*` sin sufijo).
 - Cada publicación adjunta un ZIP `FluentASM.<Proyecto>-v<versión>.zip` con la salida de `dotnet publish -c Release` de ese proyecto.
 - `FluentASM.Sample` **queda fuera del versionado**: no recibe versión propia, no genera ZIP ni release. Eso no lo excluye del repositorio: sus cambios se suben al origen (commit y push) como cualquier otro archivo, sin modificar `VERSION` ni las versiones de los proyectos.
 
 **Fuente de verdad del número de versión:** las líneas `ver(...)` del cuerpo del PR en el momento del merge. El flujo escribe esa versión en `<Version>` del `.csproj` **solo en el runner** para publicar; no se commitea nada de vuelta. El archivo `VERSION` (raíz, leído por `src/Directory.Build.props`) es solo el valor por defecto de las compilaciones locales: no decide ninguna publicación.
 
 **Ejemplo de ciclo completo:**
-
+ 
 1. PR de `feature/x` → `develop` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0-preview`.
 2. Otro PR a `develop` que vuelve a declarar `ver(core): 0.2.0-preview` → se salta (no es mayor).
 3. PR de `develop` → `main` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0` (estable).
+4. PR con `ver(lsp): 0.1.0-preview` y `ver(ide): 1.0.0-preview` → se publican `lsp-v0.1.0-preview` e `ide-v1.0.0-preview`.
+5. PR de `develop` → `main` con `ver(lsp): 0.1.0-preview` y `ver(ide): 1.0.0-preview` → se publican `lsp-v0.1.0` e `ide-v1.0.0`.
 
 ## Estándares de código
 
@@ -141,7 +145,7 @@ src/
   miCalculadoraCli/         → Programa de ejemplo de Fase 1 (.fproj + sourcesCode.fasm)
 ```
 
-La arquitectura sigue la dirección `FluentASM.Core` → `FluentASM.Lsp` → `FluentASM_IDE`: la UI consume `ILanguageService` y no mantiene catálogos del lenguaje ni expresiones regulares propias. `FluentASM.Lsp` y `FluentASM_IDE` están activos como banco de trabajo local, pero todavía no producen ZIP de release automático ni participan en los flujos de publicación de releases.
+La arquitectura sigue la dirección `FluentASM.Core` → `FluentASM.Lsp` → `FluentASM_IDE`: la UI consume `ILanguageService` y no mantiene catálogos del lenguaje ni expresiones regulares propias. `FluentASM.Lsp` y `FluentASM_IDE` participan en los flujos de publicación de releases generando ZIPs `FluentASM.Lsp-v<versión>.zip` y `FluentASM.IDE-v<versión>.zip`.
 
 ```
 rsc/

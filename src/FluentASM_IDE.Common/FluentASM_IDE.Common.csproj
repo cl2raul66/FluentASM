@@ -8,6 +8,8 @@
     <Nullable>enable</Nullable>
     <!-- Suppress style warnings treated as errors -->
     <NoWarn>IDE0011</NoWarn>
+    <!-- Asegurar salida correcta en Release/Debug -->
+    <BaseOutputPath>$(MSBuildThisFileDirectory)bin\</BaseOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
