@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FluentASM.Lsp;
+using FluentASM.Lsp.Diagnostics;
 using FluentASM.Lsp.Protocol;
 using FluentASM.Lsp.Server;
 using FluentASM_IDE.Models;
@@ -36,6 +37,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     private readonly ProjectService _projectService;
     private readonly QuickFixService _quickFixService;
+    private readonly IncidentRecorder _incidentRecorder;
 
     [ObservableProperty]
     public partial string DocumentTitle { get; set; } = DocumentFileName;
@@ -299,7 +301,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     /// <summary>Crea el ViewModel con el servidor de lenguaje por defecto.</summary>
     public MainPageViewModel()
-        : this(new FluentLanguageServer(LspLoggerFactory), new ProjectService(), new QuickFixService())
+        : this(new FluentLanguageServer(LspLoggerFactory), new ProjectService(), new QuickFixService(), new IncidentRecorder())
     {
     }
 
@@ -308,7 +310,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// permite sustituirlo en pruebas sin acoplarse a la implementación LSP.
     /// </summary>
     public MainPageViewModel(ILanguageService languageService)
-        : this(languageService, new ProjectService(), new QuickFixService())
+        : this(languageService, new ProjectService(), new QuickFixService(), new IncidentRecorder())
     {
     }
 
@@ -317,21 +319,23 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// <see cref="ProjectService"/> concretos.
     /// </summary>
     public MainPageViewModel(ILanguageService languageService, ProjectService projectService)
-        : this(languageService, projectService, new QuickFixService())
+        : this(languageService, projectService, new QuickFixService(), new IncidentRecorder())
     {
     }
 
     /// <summary>
     /// Crea el ViewModel con dependencias inyectadas.
     /// </summary>
-    public MainPageViewModel(ILanguageService languageService, ProjectService projectService, QuickFixService quickFixService)
+    public MainPageViewModel(ILanguageService languageService, ProjectService projectService, QuickFixService quickFixService, IncidentRecorder incidentRecorder)
     {
         ArgumentNullException.ThrowIfNull(languageService);
         ArgumentNullException.ThrowIfNull(projectService);
         ArgumentNullException.ThrowIfNull(quickFixService);
+        ArgumentNullException.ThrowIfNull(incidentRecorder);
         LspServer = languageService;
         _projectService = projectService;
         _quickFixService = quickFixService;
+        _incidentRecorder = incidentRecorder;
 
         UpdateLineCount(DocumentText.CountLines(DocumentText.Normalize(InitialSampleAsm)));
         InitializeCommands();
@@ -538,6 +542,10 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 OutlineRequested?.Invoke();
                 break;
 
+            case "/sucesos":
+                ShowIncidentsLog();
+                break;
+
             case "/build":
                 StatusText = "La compilación real estará disponible en Fase 2.";
                 break;
@@ -554,6 +562,50 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 StatusText = $"Referencia: {item.Command}";
                 break;
         }
+    }
+
+    private void ShowIncidentsLog()
+    {
+        if (_incidentRecorder is null) return;
+
+        var incidents = _incidentRecorder.ReadCurrentLog().ToList();
+        if (incidents.Count == 0)
+        {
+            StatusText = "Registro de sucesos vacío.";
+            return;
+        }
+
+        // Mostrar los últimos 20 incidentes en la paleta como comandos navegables
+        FilteredCommands.Clear();
+        foreach (var inc in incidents.TakeLast(20).Reverse())
+        {
+            string time = inc.TimestampUtc.ToLocalTime().ToString("HH:mm:ss.fff");
+            string levelIcon = inc.Level switch
+            {
+                IncidentLevel.Error => "❌ ",
+                IncidentLevel.Warning => "⚠️ ",
+                _ => "ℹ️ "
+            };
+            var item = new CommandPaletteItem
+            {
+                Command = $"{levelIcon}[{time}] {inc.Code}",
+                Description = inc.Message,
+                Shortcut = inc.Source,
+                Category = "Sucesos",
+                IconGlyph = inc.Level == IncidentLevel.Error ? "\uE783" : (inc.Level == IncidentLevel.Warning ? "\uE7BA" : "\uE8A6"),
+                IconColorHex = inc.Level == IncidentLevel.Error ? "#FFB4AB" : (inc.Level == IncidentLevel.Warning ? "#FFD4BE" : "#60CDFF"),
+                IsActive = false,
+                IsCommand = false
+            };
+            FilteredCommands.Add(item);
+        }
+
+        if (FilteredCommands.Count > 0)
+        {
+            FilteredCommands[0].IsActive = true;
+        }
+        IsCommandPaletteOpen = true;
+        CommandQuery = "/sucesos";
     }
 
     public void ExecuteCommand(string command)
@@ -731,6 +783,18 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             Category = "Comandos (/)",
             IconGlyph = "\uE749",
             IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/sucesos",
+            Description = "Ver registro de sucesos (incidentes internos, errores de mapeo, FASM9xxx)",
+            Shortcut = "",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE8A6",
+            IconColorHex = "#FFD4BE",
             IsActive = false,
             IsCommand = true
         });
