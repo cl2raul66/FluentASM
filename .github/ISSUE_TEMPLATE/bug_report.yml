@@ -36,9 +36,10 @@ body:
       options:
         - FluentASM.Core
         - FluentASM.Compiler (fluentasm)
+        - FluentASM.Lsp
+        - FluentASM.IDE
         - FluentASM.Sample
         - FluentASM.Admin (fase futura)
-        - FluentASM.IDE (fase futura)
         - Documentación
         - Plantillas / CI (.github)
     validations:

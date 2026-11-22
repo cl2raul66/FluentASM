@@ -57,9 +57,11 @@ jobs:
 
           $core = Get-DeclaredVersion 'core'
           $compiler = Get-DeclaredVersion 'compiler'
-          $has = ($core -ne "" -or $compiler -ne "")
+          $lsp = Get-DeclaredVersion 'lsp'
+          $ide = Get-DeclaredVersion 'ide'
+          $has = ($core -ne "" -or $compiler -ne "" -or $lsp -ne "" -or $ide -ne "")
 
-          Write-Host "Declarado en el PR -> core: '$core', compiler: '$compiler'"
+          Write-Host "Declarado en el PR -> core: '$core', compiler: '$compiler', lsp: '$lsp', ide: '$ide'"
           if (-not $has) {
             Write-Host "El PR de promoción no declara versiones: no se publica ninguna estable."
             Write-Host "::warning::Sin lineas ver(...) con números en el cuerpo del PR: no se publica nada."
@@ -67,6 +69,8 @@ jobs:
 
           "core=$core" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "compiler=$compiler" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "lsp=$lsp" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "ide=$ide" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "has_releases=$($has.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Resolver versiones estables frente a lo publicado
@@ -76,6 +80,8 @@ jobs:
         env:
           CORE: ${{ steps.parse.outputs.core }}
           COMPILER: ${{ steps.parse.outputs.compiler }}
+          LSP: ${{ steps.parse.outputs.lsp }}
+          IDE: ${{ steps.parse.outputs.ide }}
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -115,16 +121,24 @@ jobs:
 
           $core = Resolve-Project 'core' "$env:CORE"
           $compiler = Resolve-Project 'compiler' "$env:COMPILER"
+          $lsp = Resolve-Project 'lsp' "$env:LSP"
+          $ide = Resolve-Project 'ide' "$env:IDE"
 
           Write-Host "core: $($core.Reason)"
           Write-Host "compiler: $($compiler.Reason)"
+          Write-Host "lsp: $($lsp.Reason)"
+          Write-Host "ide: $($ide.Reason)"
 
           "core_publish=$($core.Publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "core_version=$($core.Version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "compiler_publish=$($compiler.Publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "compiler_version=$($compiler.Version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "lsp_publish=$($lsp.Publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "lsp_version=$($lsp.Version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "ide_publish=$($ide.Publish.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "ide_version=$($ide.Version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-          $any = ($core.Publish -or $compiler.Publish)
+          $any = ($core.Publish -or $compiler.Publish -or $lsp.Publish -or $ide.Publish)
           "has_releases=$($any.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Setup .NET 10
@@ -141,6 +155,10 @@ jobs:
           CORE_VERSION: ${{ steps.resolve.outputs.core_version }}
           COMPILER_PUBLISH: ${{ steps.resolve.outputs.compiler_publish }}
           COMPILER_VERSION: ${{ steps.resolve.outputs.compiler_version }}
+          LSP_PUBLISH: ${{ steps.resolve.outputs.lsp_publish }}
+          LSP_VERSION: ${{ steps.resolve.outputs.lsp_version }}
+          IDE_PUBLISH: ${{ steps.resolve.outputs.ide_publish }}
+          IDE_VERSION: ${{ steps.resolve.outputs.ide_version }}
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -162,6 +180,8 @@ jobs:
 
           if ($env:CORE_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM.Core/FluentASM.Core.csproj" $env:CORE_VERSION }
           if ($env:COMPILER_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM.Compiler/FluentASM.Compiler.csproj" $env:COMPILER_VERSION }
+          if ($env:LSP_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM.Lsp/FluentASM.Lsp.csproj" $env:LSP_VERSION }
+          if ($env:IDE_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM_IDE/FluentASM_IDE.csproj" $env:IDE_VERSION }
 
           dotnet restore src/FluentASM.slnx
           New-Item -ItemType Directory -Force -Path release_zips | Out-Null
@@ -174,6 +194,17 @@ jobs:
           if ($env:COMPILER_PUBLISH -eq 'true') {
             dotnet publish src/FluentASM.Compiler/FluentASM.Compiler.csproj -c Release --no-restore -o release_out/compiler
             Compress-Archive -Path "release_out/compiler/*" -DestinationPath "release_zips/FluentASM.Compiler-v$($env:COMPILER_VERSION).zip" -Force
+          }
+
+          if ($env:LSP_PUBLISH -eq 'true') {
+            dotnet publish src/FluentASM.Lsp/FluentASM.Lsp.csproj -c Release --no-restore -o release_out/lsp
+            Compress-Archive -Path "release_out/lsp/*" -DestinationPath "release_zips/FluentASM.Lsp-v$($env:LSP_VERSION).zip" -Force
+          }
+
+          if ($env:IDE_PUBLISH -eq 'true') {
+            # WinUI 3: publicar sin empaquetar MSIX (sin certificado) para que sea usable en runner
+            dotnet publish src/FluentASM_IDE/FluentASM_IDE.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:PublishTrimmed=false --no-restore -o release_out/ide
+            Compress-Archive -Path "release_out/ide/*" -DestinationPath "release_zips/FluentASM.IDE-v$($env:IDE_VERSION).zip" -Force
           }
 
       - name: Publicar Release Core (estable)
@@ -195,3 +226,23 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: release_zips/FluentASM.Compiler-v${{ steps.resolve.outputs.compiler_version }}.zip
+
+      - name: Publicar Release Lsp (estable)
+        if: steps.resolve.outputs.lsp_publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: lsp-v${{ steps.resolve.outputs.lsp_version }}
+          name: FluentASM.Lsp v${{ steps.resolve.outputs.lsp_version }}
+          prerelease: false
+          generate_release_notes: true
+          files: release_zips/FluentASM.Lsp-v${{ steps.resolve.outputs.lsp_version }}.zip
+
+      - name: Publicar Release IDE (estable)
+        if: steps.resolve.outputs.ide_publish == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ide-v${{ steps.resolve.outputs.ide_version }}
+          name: FluentASM_IDE v${{ steps.resolve.outputs.ide_version }}
+          prerelease: false
+          generate_release_notes: true
+          files: release_zips/FluentASM.IDE-v${{ steps.resolve.outputs.ide_version }}.zip

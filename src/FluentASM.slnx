@@ -20,6 +20,14 @@
       <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="Any CPU" />
       <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="Any CPU" />
     </Project>
+    <Project Path="FluentASM_IDE.Common/FluentASM_IDE.Common.csproj">
+      <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Debug|x86" Configuration="Debug" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|ARM64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x64" Configuration="Release" Platform="Any CPU" />
+      <ProjectConfiguration Include="Release|x86" Configuration="Release" Platform="Any CPU" />
+    </Project>
     <Project Path="FluentASM.Compiler/FluentASM.Compiler.csproj">
       <ProjectConfiguration Include="Debug|ARM64" Configuration="Debug" Platform="Any CPU" />
       <ProjectConfiguration Include="Debug|x64" Configuration="Debug" Platform="Any CPU" />
