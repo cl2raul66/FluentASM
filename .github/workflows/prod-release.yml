@@ -1,7 +1,7 @@
 name: Prod Release (main)
 
 # Publica la version estable al mergear develop en main.
-# El PR de promoción declara las MISMAS lineas ver(...) del ciclo (con -preview);
+# El PR de promocion declara las MISMAS lineas ver(...) del ciclo (con -preview);
 # este flujo quita el sufijo -preview y publica x.y.z.
 # Regla: solo se publica si la version es ESTRICTAMENTE MAYOR que la ultima estable.
 # Si es igual o menor, el job termina sin publicar y sin fallar.
@@ -31,7 +31,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Leer versiones del PR de promoción
+      - name: Leer versiones del PR de promocion
         id: parse
         shell: pwsh
         env:
@@ -40,7 +40,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $body = if ([string]::IsNullOrWhiteSpace($env:PR_BODY)) { "" } else { $env:PR_BODY }
 
-          # El PR de promoción escribe 'ver(core): 0.2.0-preview'; la estable es la base sin sufijo.
+          # El PR de promocion escribe 'ver(core): 0.2.0-preview'; la estable es la base sin sufijo.
           function Get-DeclaredVersion([string]$project) {
             $linePattern = '(?im)^[ \t]*ver\(' + [regex]::Escape($project) + '\)[ \t]*:[ \t]*([^\r\n]*?)[ \t]*\r?$'
             if ($body -notmatch $linePattern) { return "" }
@@ -63,8 +63,8 @@ jobs:
 
           Write-Host "Declarado en el PR -> core: '$core', compiler: '$compiler', lsp: '$lsp', ide: '$ide'"
           if (-not $has) {
-            Write-Host "El PR de promoción no declara versiones: no se publica ninguna estable."
-            Write-Host "::warning::Sin lineas ver(...) con números en el cuerpo del PR: no se publica nada."
+            Write-Host "El PR de promocion no declara versiones: no se publica ninguna estable."
+            Write-Host "::warning::Sin lineas ver(...) con numeros en el cuerpo del PR: no se publica nada."
           }
 
           "core=$core" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -184,26 +184,38 @@ jobs:
           if ($env:IDE_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM_IDE/FluentASM_IDE.csproj" $env:IDE_VERSION }
 
           dotnet restore src/FluentASM.slnx
+          if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet restore de la solucion." }
+
+          dotnet build src/FluentASM.slnx -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet build de la solucion en Release." }
+
+          dotnet run --project src/FluentASM.Sample/FluentASM.Sample.csproj -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw "Fallo la suite de validacion FluentASM.Sample." }
+
           New-Item -ItemType Directory -Force -Path release_zips | Out-Null
 
           if ($env:CORE_PUBLISH -eq 'true') {
             dotnet publish src/FluentASM.Core/FluentASM.Core.csproj -c Release --no-restore -o release_out/core
+            if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet publish de FluentASM.Core." }
             Compress-Archive -Path "release_out/core/*" -DestinationPath "release_zips/FluentASM.Core-v$($env:CORE_VERSION).zip" -Force
           }
 
           if ($env:COMPILER_PUBLISH -eq 'true') {
             dotnet publish src/FluentASM.Compiler/FluentASM.Compiler.csproj -c Release --no-restore -o release_out/compiler
+            if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet publish de FluentASM.Compiler." }
             Compress-Archive -Path "release_out/compiler/*" -DestinationPath "release_zips/FluentASM.Compiler-v$($env:COMPILER_VERSION).zip" -Force
           }
 
           if ($env:LSP_PUBLISH -eq 'true') {
             dotnet publish src/FluentASM.Lsp/FluentASM.Lsp.csproj -c Release --no-restore -o release_out/lsp
+            if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet publish de FluentASM.Lsp." }
             Compress-Archive -Path "release_out/lsp/*" -DestinationPath "release_zips/FluentASM.Lsp-v$($env:LSP_VERSION).zip" -Force
           }
 
           if ($env:IDE_PUBLISH -eq 'true') {
-            # WinUI 3: publicar sin empaquetar MSIX (sin certificado) para que sea usable en runner
-            dotnet publish src/FluentASM_IDE/FluentASM_IDE.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:PublishTrimmed=false --no-restore -o release_out/ide
+            # WinUI 3: publicar unpackaged self-contained (sin certificado MSIX) para ejecucion directa en Windows x64
+            dotnet publish src/FluentASM_IDE/FluentASM_IDE.csproj -c Release -p:Platform=x64 -r win-x64 --self-contained true -p:WindowsPackageType=None -p:WindowsAppSDKSelfContained=true -p:PublishSingleFile=false -p:PublishTrimmed=false -o release_out/ide
+            if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet publish de FluentASM_IDE." }
             Compress-Archive -Path "release_out/ide/*" -DestinationPath "release_zips/FluentASM.IDE-v$($env:IDE_VERSION).zip" -Force
           }
 
