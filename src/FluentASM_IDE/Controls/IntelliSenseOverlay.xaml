@@ -6,170 +6,170 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:FluentASM_IDE.Models"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    EffectiveViewportChanged="OnOverlayEffectiveViewportChanged">
 
     <Grid>
-        <StackPanel Orientation="Horizontal" Spacing="6">
-            <!-- ============================================== -->
-            <!-- LEFT AUTOCOMPLETE DROPDOWN BOX (Stitch Style)   -->
-            <!-- ============================================== -->
-            <Border Width="280"
-                    Background="#F21B1C1C"
-                    BorderBrush="#663E484E"
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <!-- Lista contextual de sugerencias. -->
+            <Border Width="320"
+                    Background="{ThemeResource ModalBackgroundBrush}"
+                    BorderBrush="{ThemeResource OutlineVariantBrush}"
                     BorderThickness="1"
                     CornerRadius="10">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <!-- Items List -->
-                    <ScrollViewer Grid.Row="0"
-                                  MaxHeight="260"
-                                  VerticalScrollBarVisibility="Auto">
-                        <ItemsControl ItemsSource="{x:Bind DisplayedItems, Mode=OneWay}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="models:CompletionItem">
-                                    <Border Background="{x:Bind ItemBackground, Mode=OneWay}"
-                                            BorderBrush="#60CDFF"
-                                            BorderThickness="{x:Bind SelectedBorderThickness, Mode=OneWay}"
-                                            Padding="10,6"
-                                            PointerEntered="OnItemPointerEntered"
-                                            PointerPressed="OnItemPointerPressed">
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                                <FontIcon Glyph="{x:Bind IconGlyph}"
-                                                          FontSize="13"
-                                                          Foreground="{x:Bind IconBrush}"
-                                                          VerticalAlignment="Center" />
-                                                <TextBlock Text="{x:Bind Label}"
-                                                           FontFamily="Cascadia Code, Consolas"
-                                                           FontSize="12"
-                                                           FontWeight="SemiBold"
-                                                           Foreground="#E5E2E1"
-                                                           VerticalAlignment="Center" />
-                                            </StackPanel>
-                                            <TextBlock Text="{x:Bind Detail}"
-                                                       FontFamily="Cascadia Code, Consolas"
-                                                       FontSize="10"
-                                                       Foreground="#889299"
-                                                       Margin="21,2,0,0"
-                                                       TextTrimming="CharacterEllipsis" />
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <!-- Estado contextual/type-state detectado por el LSP. -->
+                    <Border Grid.Row="0"
+                            Margin="10,8,10,0"
+                            Padding="8,4"
+                            Background="{ThemeResource SurfaceContainerHighBrush}"
+                            BorderBrush="{ThemeResource TitleBarBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="5"
+                            Visibility="{x:Bind ContextVisibility, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Contexto"
+                                       FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                                       FontSize="10"
+                                       Foreground="{ThemeResource OutlineBrush}" />
+                            <TextBlock Text="{x:Bind ContextText, Mode=OneWay}"
+                                       FontFamily="Cascadia Code, Consolas"
+                                       FontSize="10.5"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource PrimaryBrush}" />
+                        </StackPanel>
+                    </Border>
 
-                    <!-- Bottom Category Filter Bar (from Stitch Design) -->
-                    <Border Grid.Row="1"
-                            Background="#992A2A2A"
-                            BorderBrush="#333E484E"
+                    <ListView x:Name="CompletionListView"
+                              Grid.Row="1"
+                              MaxHeight="260"
+                              Padding="0"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              IsItemClickEnabled="False"
+                              ItemsSource="{x:Bind DisplayedItems, Mode=OneWay}"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              SelectionMode="None">
+                        <ListView.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{Binding ItemBackground, Mode=OneWay}"
+                                        BorderBrush="{ThemeResource PrimaryBrush}"
+                                        BorderThickness="{Binding SelectedBorderThickness, Mode=OneWay}"
+                                        Padding="10,6"
+                                        PointerEntered="OnItemPointerEntered"
+                                        PointerPressed="OnItemPointerPressed">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <FontIcon Glyph="{Binding IconGlyph}"
+                                                      FontSize="13"
+                                                      Foreground="{Binding IconBrush}"
+                                                      VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Label}"
+                                                       FontFamily="Cascadia Code, Consolas"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource OnSurfaceBrush}"
+                                                       VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding Detail}"
+                                                   FontFamily="Cascadia Code, Consolas"
+                                                   FontSize="10"
+                                                   Foreground="{ThemeResource OutlineBrush}"
+                                                   Margin="21,2,0,0"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <!-- Categorías dinámicas: proceden de Metadata.Category. -->
+                    <Border Grid.Row="2"
+                            Background="{ThemeResource SurfaceContainerHighBrush}"
+                            BorderBrush="{ThemeResource TitleBarBorderBrush}"
                             BorderThickness="0,1,0,0"
                             Padding="8,6">
-                        <Grid>
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <!-- All -->
-                                <Border Padding="5,2"
-                                        CornerRadius="4"
-                                        Background="{x:Bind GetCategoryBg('All'), Mode=OneWay}"
-                                        PointerPressed="OnFilterCategoryClicked"
-                                        Tag="All"
-                                        ToolTipService.ToolTip="Todos los símbolos">
-                                    <FontIcon Glyph="&#xE8B9;" FontSize="11" Foreground="#BDC8CF" />
-                                </Border>
-
-                                <!-- Methods -->
-                                <Border Padding="5,2"
-                                        CornerRadius="4"
-                                        Background="{x:Bind GetCategoryBg('Methods'), Mode=OneWay}"
-                                        PointerPressed="OnFilterCategoryClicked"
-                                        Tag="Methods"
-                                        ToolTipService.ToolTip="Métodos fluidos (.copy, .imult, .sub)">
-                                    <FontIcon Glyph="&#xE756;" FontSize="11" Foreground="#60CDFF" />
-                                </Border>
-
-                                <!-- Registers -->
-                                <Border Padding="5,2"
-                                        CornerRadius="4"
-                                        Background="{x:Bind GetCategoryBg('Registers'), Mode=OneWay}"
-                                        PointerPressed="OnFilterCategoryClicked"
-                                        Tag="Registers"
-                                        ToolTipService.ToolTip="Registros y Flags (GprN, rFlags)">
-                                    <FontIcon Glyph="&#xE713;" FontSize="11" Foreground="#81CFFF" />
-                                </Border>
-
-                                <!-- Labels -->
-                                <Border Padding="5,2"
-                                        CornerRadius="4"
-                                        Background="{x:Bind GetCategoryBg('Labels'), Mode=OneWay}"
-                                        PointerPressed="OnFilterCategoryClicked"
-                                        Tag="Labels"
-                                        ToolTipService.ToolTip="Etiquetas locales (@loop, @exit)">
-                                    <FontIcon Glyph="&#xE8EC;" FontSize="11" Foreground="#B4E4FF" />
-                                </Border>
-
-                                <!-- Flow -->
-                                <Border Padding="5,2"
-                                        CornerRadius="4"
-                                        Background="{x:Bind GetCategoryBg('Flow'), Mode=OneWay}"
-                                        PointerPressed="OnFilterCategoryClicked"
-                                        Tag="Flow"
-                                        ToolTipService.ToolTip="Instrucciones de flujo (.flowJump, .flowCall)">
-                                    <FontIcon Glyph="&#xE8EE;" FontSize="11" Foreground="#FFD4BE" />
-                                </Border>
-                            </StackPanel>
-
-                            <!-- Snippets toggle badge -->
-                            <Border HorizontalAlignment="Right"
-                                    Background="#3360CDFF"
-                                    BorderBrush="#60CDFF"
-                                    BorderThickness="1"
-                                    CornerRadius="4"
-                                    Padding="5,2"
-                                    ToolTipService.ToolTip="Fragmentos de código rápidos (Alt+T)">
-                                <FontIcon Glyph="&#xE71D;" FontSize="10" Foreground="#60CDFF" />
-                            </Border>
-                        </Grid>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                      VerticalScrollBarVisibility="Disabled">
+                            <ItemsControl ItemsSource="{x:Bind Categories, Mode=OneWay}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="7,3"
+                                                Background="{Binding Background, Mode=OneWay}"
+                                                BorderBrush="{ThemeResource PrimaryBrush}"
+                                                BorderThickness="{Binding BorderThickness, Mode=OneWay}"
+                                                CornerRadius="4"
+                                                PointerPressed="OnFilterCategoryClicked">
+                                            <TextBlock Text="{Binding DisplayName, Mode=OneWay}"
+                                                       FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                                                       FontSize="10"
+                                                       Foreground="{ThemeResource OnSurfaceVariantBrush}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
                     </Border>
                 </Grid>
             </Border>
 
-            <!-- ============================================== -->
-            <!-- RIGHT DOCUMENTATION CARD (LSP Hover Flyout)     -->
-            <!-- ============================================== -->
+            <!-- Documentación; permanece oculta mientras no hay selección. -->
             <Border Width="310"
-                    Background="#F21B1C1C"
-                    BorderBrush="#663E484E"
+                    Background="{ThemeResource ModalBackgroundBrush}"
+                    BorderBrush="{ThemeResource OutlineVariantBrush}"
                     BorderThickness="1"
                     CornerRadius="8"
                     Padding="12"
                     VerticalAlignment="Top"
-                    Visibility="{x:Bind SelectedItem.DocCardVisibility, Mode=OneWay}">
+                    Visibility="{x:Bind DocumentationVisibility, Mode=OneWay}">
                 <StackPanel Spacing="6">
-                    <!-- Signature -->
-                    <TextBlock Text="{x:Bind SelectedItem.Signature, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind SelectedSignature, Mode=OneWay}"
                                FontFamily="Cascadia Code, Consolas"
                                FontSize="12"
                                FontWeight="SemiBold"
-                               Foreground="#60CDFF"
+                               Foreground="{ThemeResource PrimaryBrush}"
                                TextWrapping="Wrap" />
 
-                    <Border Height="1" Background="#263E484E" Margin="0,2" />
+                    <TextBlock Text="{x:Bind SelectedDetail, Mode=OneWay}"
+                               FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                               FontSize="11.5"
+                               Foreground="{ThemeResource OnSurfaceVariantBrush}"
+                               TextWrapping="Wrap"
+                               LineHeight="16" />
 
-                    <!-- Inputs & Modifies & Returns -->
+                    <TextBlock Text="{x:Bind SelectedDocumentation, Mode=OneWay}"
+                               FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
+                               FontSize="11"
+                               Foreground="{ThemeResource OnSurfaceVariantBrush}"
+                               TextWrapping="Wrap"
+                               LineHeight="15"
+                               MaxHeight="150"
+                               TextTrimming="CharacterEllipsis" />
+
+                    <Border Height="1" Background="{ThemeResource TitleBarBorderBrush}" Margin="0,2" />
+
                     <StackPanel Spacing="3">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="Inputs:"
+                            <TextBlock Text="Entradas:"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#889299" />
-                            <TextBlock Text="{x:Bind SelectedItem.Inputs, Mode=OneWay}"
+                                       Foreground="{ThemeResource OutlineBrush}" />
+                            <TextBlock Text="{x:Bind SelectedInputs, Mode=OneWay}"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#E5E2E1"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
 
@@ -177,11 +177,11 @@
                             <TextBlock Text="Modifica:"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#889299" />
-                            <TextBlock Text="{x:Bind SelectedItem.Modifies, Mode=OneWay}"
+                                       Foreground="{ThemeResource OutlineBrush}" />
+                            <TextBlock Text="{x:Bind SelectedModifies, Mode=OneWay}"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#E5E2E1"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
 
@@ -189,11 +189,23 @@
                             <TextBlock Text="Retorna:"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#889299" />
-                            <TextBlock Text="{x:Bind SelectedItem.Returns, Mode=OneWay}"
+                                       Foreground="{ThemeResource OutlineBrush}" />
+                            <TextBlock Text="{x:Bind SelectedReturns, Mode=OneWay}"
                                        FontFamily="Cascadia Code, Consolas"
                                        FontSize="11"
-                                       Foreground="#E5E2E1"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="Banderas:"
+                                       FontFamily="Cascadia Code, Consolas"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource OutlineBrush}" />
+                            <TextBlock Text="{x:Bind SelectedFlags, Mode=OneWay}"
+                                       FontFamily="Cascadia Code, Consolas"
+                                       FontSize="11"
+                                       Foreground="{ThemeResource OnSurfaceBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
                     </StackPanel>

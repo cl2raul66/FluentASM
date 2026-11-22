@@ -42,3 +42,5 @@ public sealed class DiagnosticBag : IReadOnlyCollection<Diagnostic>
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
+
+

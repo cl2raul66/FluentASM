@@ -35,3 +35,5 @@ public static class ArchitectureNames
             "Arquitectura desconocida."),
     };
 }
+
+

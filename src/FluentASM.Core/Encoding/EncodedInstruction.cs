@@ -75,3 +75,5 @@ public sealed record EncodedInstruction(
     string Text,
     IReadOnlyList<InstructionFixup> Fixups,
     BranchForm Branch = BranchForm.None);
+
+

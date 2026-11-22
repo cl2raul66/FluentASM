@@ -6,32 +6,33 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:FluentASM_IDE"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="FluentASM IDE - main.asm"
+    Title="{x:Bind WindowTitle}"
     mc:Ignorable="d">
     <Window.SystemBackdrop>
         <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <Grid Background="#131313">
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Custom TitleBar Header matching Stitch Minimalist IDE design -->
+        <!-- Barra de título personalizada, minimalista y adaptable al tema. -->
         <Grid x:Name="AppTitleBar"
               Grid.Row="0"
               Height="32"
-              Background="#C01B1C1C"
-              BorderBrush="#333E484E"
+              Background="{ThemeResource TitleBarBackgroundBrush}"
+              BorderBrush="{ThemeResource TitleBarBorderBrush}"
               BorderThickness="0,0,0,1">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0" Spacing="8">
-                <FontIcon Glyph="&#xE756;" FontSize="14" Foreground="#60CDFF" />
-                <TextBlock Text="FluentASM IDE - CalculoPuro.fasm"
+                <FontIcon Glyph="&#xE756;" FontSize="14" Foreground="{ThemeResource PrimaryBrush}" />
+                <TextBlock x:Name="TitleTextBlock"
+                           Text="{x:Bind WindowTitle}"
                            FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                            FontSize="12"
                            FontWeight="Normal"
-                           Foreground="#BDC8CF"
+                           Foreground="{ThemeResource OnSurfaceVariantBrush}"
                            VerticalAlignment="Center" />
             </StackPanel>
         </Grid>

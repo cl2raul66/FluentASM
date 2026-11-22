@@ -11,3 +11,5 @@ public sealed record SourceLocation(string FilePath, int Line, int Column)
     /// <summary>Representa la ubicación como <c>ruta(linea,columna)</c>.</summary>
     public override string ToString() => $"{FilePath}({Line},{Column})";
 }
+
+

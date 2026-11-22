@@ -21,3 +21,5 @@ public sealed record AddressIndexSyntax(
     ExpressionSyntax Register,
     ExpressionSyntax? Scale,
     TextSpan Span) : SyntaxNode(Span);
+
+

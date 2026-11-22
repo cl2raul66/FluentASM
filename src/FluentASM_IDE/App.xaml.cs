@@ -1,9 +1,13 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Windows.Storage;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -36,6 +40,21 @@ public partial class App : Application
         WinRT.Interop.WindowNative.GetWindowHandle(Window);
 
     /// <summary>
+    /// Argumentos de línea de comandos pasados al lanzamiento (por ejemplo,
+    /// ruta de carpeta, archivo <c>.fproj</c> o archivo <c>.fasm</c>).
+    /// </summary>
+    public static IReadOnlyList<string> LaunchArguments { get; private set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Ruta activada por asociación de archivo (clic derecho → Abrir con FluentASM),
+    /// o <c>null</c> si no hay activación por archivo.
+    /// </summary>
+    public static string? ActivatedFilePath { get; private set; }
+
+    private static string CleanLaunchArgument(string? argument) =>
+        (argument ?? string.Empty).Trim().Trim('"');
+
+    /// <summary>
     /// Initializes the singleton application object.
     /// </summary>
     public App()
@@ -51,6 +70,64 @@ public partial class App : Application
     {
         Window = new MainWindow();
         DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+
+        // Recopilar argumentos de línea de comandos. El índice 0 es el propio
+        // ejecutable y no debe interpretarse como una ruta de proyecto.
+        var argsList = new List<string>();
+        try
+        {
+            string[] commandLineArgs = Environment.GetCommandLineArgs();
+            for (int index = 1; index < commandLineArgs.Length; index++)
+            {
+                string cleaned = CleanLaunchArgument(commandLineArgs[index]);
+                if (cleaned.Length > 0 && !argsList.Contains(cleaned, StringComparer.OrdinalIgnoreCase))
+                {
+                    argsList.Add(cleaned);
+                }
+            }
+        }
+        catch { }
+
+        // La activación por archivo de Windows App SDK se expone mediante
+        // AppInstance, no mediante LaunchActivatedEventArgs.
+        try
+        {
+            var activatedArgs = Microsoft.Windows.AppLifecycle.AppInstance
+                .GetCurrent()
+                .GetActivatedEventArgs();
+
+            if (activatedArgs.Kind == Microsoft.Windows.AppLifecycle.ExtendedActivationKind.File
+                && activatedArgs.Data is Windows.ApplicationModel.Activation.IFileActivatedEventArgs fileArgs)
+            {
+                var file = fileArgs.Files.FirstOrDefault();
+                string path = CleanLaunchArgument(file?.Path);
+                if (path.Length > 0)
+                {
+                    ActivatedFilePath = path;
+                    if (!argsList.Contains(path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        argsList.Add(path);
+                    }
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"No se pudo leer la activación enriquecida: {exception}");
+        }
+
+        // LaunchActivatedEventArgs.Arguments también puede contener la ruta
+        // recibida por el alias de ejecución; normalizar comillas y espacios.
+        string launchArgument = CleanLaunchArgument(args.Arguments);
+        if (launchArgument.Length > 0 && !argsList.Contains(launchArgument, StringComparer.OrdinalIgnoreCase))
+        {
+            argsList.Add(launchArgument);
+        }
+
+        LaunchArguments = argsList;
+
         Window.Activate();
     }
 }
+
+

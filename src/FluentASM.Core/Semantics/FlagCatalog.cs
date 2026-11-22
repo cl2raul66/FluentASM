@@ -6,9 +6,9 @@ namespace FluentASM.Core.Semantics;
 /// Nombres de bandera de <c>Frf</c> y sus alias legibles, según
 /// <c>FLUENT_SYNTAX_X64.md</c> §2.3 y §5.5.
 /// </summary>
-internal static class FlagCatalog
+public static class FlagCatalog
 {
-    private static readonly Dictionary<string, FlagSet> Aliases = new(StringComparer.Ordinal)
+    public static readonly Dictionary<string, FlagSet> Aliases = new(StringComparer.Ordinal)
     {
         ["carry"] = FlagSet.Carry,
         ["below"] = FlagSet.Carry,
@@ -30,7 +30,7 @@ internal static class FlagCatalog
         ["greater"] = FlagSet.Zero | FlagSet.Sign | FlagSet.Overflow,
     };
 
-    private static readonly (FlagSet Flag, string Name)[] Names =
+    public static readonly (FlagSet Flag, string Name)[] Names =
     [
         (FlagSet.Carry, "carry"),
         (FlagSet.Parity, "parity"),
@@ -61,3 +61,5 @@ internal static class FlagCatalog
         return names.Count == 0 ? "Frf" : string.Join(", ", names);
     }
 }
+
+

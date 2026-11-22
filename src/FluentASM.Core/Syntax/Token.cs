@@ -31,3 +31,5 @@ public sealed record Token
     /// <inheritdoc />
     public override string ToString() => $"{Location}: {Kind} '{Text}'";
 }
+
+

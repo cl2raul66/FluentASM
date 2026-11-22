@@ -389,3 +389,5 @@ internal sealed class VerbValidator
         diagnostics.Error(id, message, token?.Location, expression.Span);
     }
 }
+
+

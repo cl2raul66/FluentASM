@@ -7,3 +7,5 @@ namespace FluentASM.Core.Syntax.Ast;
 /// </summary>
 /// <param name="Span">Intervalo de caracteres que abarca el nodo dentro del archivo fuente.</param>
 public abstract record SyntaxNode(TextSpan Span);
+
+

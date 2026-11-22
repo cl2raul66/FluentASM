@@ -28,3 +28,5 @@ public static class SemanticAnalyzer
         return new SemanticResult(symbols, bag, contractsVerified);
     }
 }
+
+

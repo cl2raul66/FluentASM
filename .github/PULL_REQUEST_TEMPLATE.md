@@ -31,6 +31,8 @@ closes #
      FluentASM.Sample no entra en el versionado ni se publica en releases. -->
 ver(core): x.x.x-preview
 ver(compiler): x.x.x-preview
+ver(lsp): x.x.x-preview
+ver(ide): x.x.x-preview
 
 ## Notas para quien revisa
 <!-- Opcional: puntos de riesgo, dudas abiertas o partes en las que conviene fijarse. -->

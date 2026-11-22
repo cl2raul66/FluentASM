@@ -27,3 +27,5 @@ public sealed class SemanticResult
     /// <summary>Indica si la fase semántica no emitió ningún error.</summary>
     public bool Success => !Diagnostics.HasErrors;
 }
+
+

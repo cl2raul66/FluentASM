@@ -71,3 +71,5 @@ public sealed class RoutineSymbol
 /// <param name="Name">Nombre con prefijo <c>@</c>.</param>
 /// <param name="Declaration">Token de la declaración.</param>
 public sealed record LabelSymbol(string Name, Token Declaration);
+
+

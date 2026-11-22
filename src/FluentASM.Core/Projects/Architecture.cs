@@ -9,3 +9,5 @@ public enum Architecture
     /// <summary>x86-64 (imagen plana PIC, sin sistema operativo previo).</summary>
     X64,
 }
+
+

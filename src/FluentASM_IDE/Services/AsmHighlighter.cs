@@ -1,142 +1,161 @@
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
+using FluentASM.Lsp.Protocol;
+using FluentASM_IDE.Common.Services;
 using Microsoft.UI.Text;
+using Microsoft.UI.Xaml.Controls;
 using Windows.UI;
 
 namespace FluentASM_IDE.Services;
 
+/// <summary>
+/// Resaltador de sintaxis para FluentASM en <see cref="RichEditBox"/>.
+/// No conoce el lenguaje ni usa expresiones regulares: solo aplica los spans
+/// clasificados que entrega <c>ILanguageService.GetHighlightTokens</c>.
+/// </summary>
 public static class AsmHighlighter
 {
-    // Color Palette from Stitch FluentASM Minimalist IDE
-    public static readonly Color ColorKeyword = Color.FromArgb(255, 255, 212, 190);    // #FFD4BE (Keywords: program, routine, end, parameter)
-    public static readonly Color ColorSection = Color.FromArgb(255, 255, 219, 201);    // #FFDBC9 (Section: .execute, .rodata)
-    public static readonly Color ColorMethod = Color.FromArgb(255, 96, 205, 255);      // #60CDFF (Fluent methods: .copy, .imult, .flowCall)
-    public static readonly Color ColorRegister = Color.FromArgb(255, 129, 207, 255);   // #81CFFF (Registers: Gpr0, Gpr1, rFlags)
-    public static readonly Color ColorType = Color.FromArgb(255, 0, 157, 216);         // #009DD8 (Types: Bit, Byte)
-    public static readonly Color ColorLiteral = Color.FromArgb(255, 180, 228, 255);    // #B4E4FF (Literals: numbers, <2,0>)
-    public static readonly Color ColorString = Color.FromArgb(255, 255, 219, 201);     // #FFDBC9 (Strings: "...")
-    public static readonly Color ColorComment = Color.FromArgb(255, 136, 146, 153);    // #889299 (Comments: //, ;)
-    public static readonly Color ColorLabel = Color.FromArgb(255, 96, 205, 255);       // #60CDFF (Labels: @loop:, @loop)
-    public static readonly Color ColorDefault = Color.FromArgb(255, 229, 226, 225);    // #E5E2E1 (Default on-surface)
+    // ==============================================
+    // PALETA DEL TEMA OSCURO (Stitch minimalista)
+    // ==============================================
+    public static readonly Color DarkColorKeyword = Color.FromArgb(255, 255, 212, 190);    // #FFD4BE
+    public static readonly Color DarkColorSection = Color.FromArgb(255, 255, 219, 201);    // #FFDBC9
+    public static readonly Color DarkColorType = Color.FromArgb(255, 180, 196, 229);       // #B4C4E5
+    public static readonly Color DarkColorRegister = Color.FromArgb(255, 147, 196, 125);   // #93C47D
+    public static readonly Color DarkColorNumber = Color.FromArgb(255, 181, 206, 168);     // #B5CEA8
+    public static readonly Color DarkColorString = Color.FromArgb(255, 206, 145, 120);     // #CE9178
+    public static readonly Color DarkColorComment = Color.FromArgb(255, 106, 153, 85);     // #6A9955
+    public static readonly Color DarkColorOperator = Color.FromArgb(255, 212, 212, 212);   // #D4D4D4
+    public static readonly Color DarkColorDirective = Color.FromArgb(255, 180, 196, 229);  // #B4C4E5
+    public static readonly Color DarkColorDefault = Color.FromArgb(255, 229, 226, 225);    // #E5E2E1
 
-    private static readonly HashSet<string> StructuralKeywords = new(StringComparer.OrdinalIgnoreCase)
+    // ==============================================
+    // PALETA DEL TEMA CLARO (Fluent limpio)
+    // ==============================================
+    public static readonly Color LightColorKeyword = Color.FromArgb(255, 161, 56, 0);      // #A13800
+    public static readonly Color LightColorSection = Color.FromArgb(255, 0, 103, 192);     // #0067C0
+    public static readonly Color LightColorType = Color.FromArgb(255, 0, 72, 128);         // #004880
+    public static readonly Color LightColorRegister = Color.FromArgb(255, 0, 96, 0);       // #006000
+    public static readonly Color LightColorNumber = Color.FromArgb(255, 9, 87, 79);        // #09574F
+    public static readonly Color LightColorString = Color.FromArgb(255, 163, 21, 21);      // #A31515
+    public static readonly Color LightColorComment = Color.FromArgb(255, 0, 128, 0);       // #008000
+    public static readonly Color LightColorOperator = Color.FromArgb(255, 25, 28, 30);     // #191C1E
+    public static readonly Color LightColorDirective = Color.FromArgb(255, 0, 72, 128);    // #004880
+    public static readonly Color LightColorDefault = Color.FromArgb(255, 25, 28, 30);      // #191C1E
+
+    public static bool IsCurrentDark { get; set; } = true;
+
+    /// <summary>Color por defecto según tema actual.</summary>
+    public static Color ColorDefault => IsCurrentDark ? DarkColorDefault : LightColorDefault;
+
+    /// <summary>
+    /// Aplica el resaltado de la versión analizada. Los offsets de los tokens
+    /// son absolutos sobre el texto normalizado; se traducen a offsets del
+    /// <c>RichEditBox</c> con un único recorrido.
+    /// </summary>
+    /// <param name="editor">Editor destino.</param>
+    /// <param name="tokens">Tokens clasificados por el LSP.</param>
+    /// <param name="normalizedText">Texto normalizado al que pertenecen los tokens.</param>
+    public static void Apply(RichEditBox editor, IReadOnlyList<HighlightToken> tokens, string normalizedText)
     {
-        "program", "section", "entry", "routine", "parameter", "end",
-        "if", "not", "and", "or", "to", "as", "is"
-    };
+        ArgumentNullException.ThrowIfNull(editor);
+        ArgumentNullException.ThrowIfNull(tokens);
+        ArgumentNullException.ThrowIfNull(normalizedText);
 
-    private static readonly HashSet<string> NativeTypes = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Bit", "Byte", "Word", "DWord", "QWord"
-    };
+        editor.Document.GetText(TextGetOptions.None, out string editorText);
+        if (string.IsNullOrEmpty(editorText))
+        {
+            return;
+        }
 
-    private static readonly Regex TokenRegex = new(
-        @"(?<comment>(?://|;).*$)|" +
-        @"(?<string>""(?:[^""\\]|\\.)*"")|" +
-        @"(?<labelDef>@[a-zA-Z0-9_]+:)|" +
-        @"(?<labelRef>@[a-zA-Z0-9_]+)|" +
-        @"(?<generic><\d+(?:,\d+)*>)|" +
-        @"(?<method>\.(?:flowJump|flowCall|flowStackJump|flowLoop|copy|imult|mult|sub|add|cmp|test|and|or|xor|shl|shr|sar|div|mod|execute|rodata|data|bss)\b)|" +
-        @"(?<register>\b(?:Gpr\d+|rFlags|rip|Frf|Crf\d+|Srf\d+)(?:\.(?:low32|low16|low8|high8|zero|carry|sign|overflow|parity))?\b)|" +
-        @"(?<hex>0x[0-9a-fA-F]+)|" +
-        @"(?<num>\b\d+\b)|" +
-        @"(?<word>[a-zA-Z_][\w]*)",
-        RegexOptions.Multiline | RegexOptions.Compiled);
+        // Los spans solo son válidos si el texto no cambió desde el análisis.
+        if (!string.Equals(DocumentText.Normalize(editorText), normalizedText, StringComparison.Ordinal))
+        {
+            return;
+        }
 
-    public static void Highlight(RichEditTextDocument document)
-    {
-        if (document == null) return;
+        int[] map = DocumentText.BuildNormalizedToEditorMap(editorText);
+        int editorLength = editorText.Length;
 
-        document.GetText(TextGetOptions.None, out string text);
-        if (string.IsNullOrEmpty(text)) return;
-
-        int selStart = document.Selection.StartPosition;
-        int selEnd = document.Selection.EndPosition;
+        var document = editor.Document;
+        int selectionStart = document.Selection.StartPosition;
+        int selectionEnd = document.Selection.EndPosition;
 
         document.BatchDisplayUpdates();
         try
         {
-            // Reset entire range to default
-            var allRange = document.GetRange(0, text.Length);
-            allRange.CharacterFormat.ForegroundColor = ColorDefault;
-            allRange.CharacterFormat.Bold = FormatEffect.Off;
-            allRange.CharacterFormat.Italic = FormatEffect.Off;
+            var all = document.GetRange(0, editorLength).CharacterFormat;
+            all.ForegroundColor = ColorDefault;
+            all.Bold = FormatEffect.Off;
+            all.Italic = FormatEffect.Off;
 
-            var matches = TokenRegex.Matches(text);
-            foreach (Match match in matches)
+            foreach (var token in tokens)
             {
-                int start = match.Index;
-                int end = match.Index + match.Length;
-                var range = document.GetRange(start, end);
+                int start = MapOffset(map, token.Start);
+                int end = MapOffset(map, token.Start + token.Length);
+                if (end <= start)
+                {
+                    continue;
+                }
 
-                if (match.Groups["comment"].Success)
+                var range = document.GetRange(start, Math.Min(end, editorLength));
+                var format = range.CharacterFormat;
+                format.ForegroundColor = GetColor(token.Kind);
+
+                if (token.Kind == HighlightTokenKind.Comment)
                 {
-                    range.CharacterFormat.ForegroundColor = ColorComment;
-                    range.CharacterFormat.Italic = FormatEffect.On;
+                    format.Italic = FormatEffect.On;
                 }
-                else if (match.Groups["string"].Success)
+
+                if (token.Kind is HighlightTokenKind.Keyword
+                    or HighlightTokenKind.FlowConstructor
+                    or HighlightTokenKind.Label)
                 {
-                    range.CharacterFormat.ForegroundColor = ColorString;
-                }
-                else if (match.Groups["labelDef"].Success)
-                {
-                    range.CharacterFormat.ForegroundColor = ColorLabel;
-                    range.CharacterFormat.Bold = FormatEffect.On;
-                }
-                else if (match.Groups["labelRef"].Success)
-                {
-                    range.CharacterFormat.ForegroundColor = ColorLiteral;
-                    range.CharacterFormat.Bold = FormatEffect.On;
-                }
-                else if (match.Groups["method"].Success)
-                {
-                    string m = match.Value;
-                    if (m.StartsWith(".flow"))
-                    {
-                        range.CharacterFormat.ForegroundColor = ColorMethod;
-                        range.CharacterFormat.Bold = FormatEffect.On;
-                    }
-                    else if (m == ".execute" || m == ".rodata" || m == ".data" || m == ".bss")
-                    {
-                        range.CharacterFormat.ForegroundColor = ColorSection;
-                    }
-                    else
-                    {
-                        range.CharacterFormat.ForegroundColor = ColorMethod;
-                    }
-                }
-                else if (match.Groups["register"].Success)
-                {
-                    range.CharacterFormat.ForegroundColor = ColorRegister;
-                }
-                else if (match.Groups["generic"].Success || match.Groups["hex"].Success || match.Groups["num"].Success)
-                {
-                    range.CharacterFormat.ForegroundColor = ColorLiteral;
-                }
-                else if (match.Groups["word"].Success)
-                {
-                    string word = match.Value;
-                    if (StructuralKeywords.Contains(word))
-                    {
-                        range.CharacterFormat.ForegroundColor = ColorKeyword;
-                        if (word == "program" || word == "routine" || word == "end")
-                        {
-                            range.CharacterFormat.Bold = FormatEffect.On;
-                        }
-                    }
-                    else if (NativeTypes.Contains(word))
-                    {
-                        range.CharacterFormat.ForegroundColor = ColorType;
-                        range.CharacterFormat.Bold = FormatEffect.On;
-                    }
+                    format.Bold = FormatEffect.On;
                 }
             }
         }
         finally
         {
-            document.Selection.SetRange(selStart, selEnd);
+            document.Selection.SetRange(selectionStart, selectionEnd);
             document.ApplyDisplayUpdates();
         }
+    }
+
+    /// <summary>Color del tema actual para una categoría de token.</summary>
+    public static Color GetColor(HighlightTokenKind kind)
+    {
+        bool dark = IsCurrentDark;
+
+        return kind switch
+        {
+            HighlightTokenKind.Keyword => dark ? DarkColorKeyword : LightColorKeyword,
+            HighlightTokenKind.Verb => dark ? DarkColorKeyword : LightColorKeyword,
+            HighlightTokenKind.Routine => dark ? DarkColorType : LightColorType,
+            HighlightTokenKind.FlowConstructor => dark ? DarkColorSection : LightColorSection,
+            HighlightTokenKind.Directive => dark ? DarkColorDirective : LightColorDirective,
+            HighlightTokenKind.Register => dark ? DarkColorRegister : LightColorRegister,
+            HighlightTokenKind.Flag => dark ? DarkColorRegister : LightColorRegister,
+            HighlightTokenKind.Magnitude => dark ? DarkColorType : LightColorType,
+            HighlightTokenKind.Data => dark ? DarkColorType : LightColorType,
+            HighlightTokenKind.Number => dark ? DarkColorNumber : LightColorNumber,
+            HighlightTokenKind.String => dark ? DarkColorString : LightColorString,
+            HighlightTokenKind.Comment => dark ? DarkColorComment : LightColorComment,
+            HighlightTokenKind.Label => dark ? DarkColorSection : LightColorSection,
+            HighlightTokenKind.Operator => dark ? DarkColorOperator : LightColorOperator,
+            HighlightTokenKind.Punctuation => dark ? DarkColorOperator : LightColorOperator,
+            _ => ColorDefault,
+        };
+    }
+
+    private static int MapOffset(int[] map, int normalizedOffset)
+    {
+        if (map.Length == 0)
+        {
+            return 0;
+        }
+
+        int index = Math.Clamp(normalizedOffset, 0, map.Length - 1);
+        return map[index];
     }
 }

@@ -124,3 +124,5 @@ public sealed class ImageMap
         _ => "símbolo",
     };
 }
+
+

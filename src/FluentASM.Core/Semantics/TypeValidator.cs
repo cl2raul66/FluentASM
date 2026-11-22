@@ -740,3 +740,5 @@ internal sealed class TypeValidator
             token.Span);
     }
 }
+
+

@@ -26,3 +26,5 @@ public sealed class ParseResult
     /// <summary>Indica si no se emitió ningún error.</summary>
     public bool Success => !Diagnostics.HasErrors;
 }
+
+
