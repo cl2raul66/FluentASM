@@ -1,14 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using FluentASM.Lsp.Protocol;
 using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Services;
 using FluentASM_IDE.ViewModels;
-using Microsoft.Extensions.Logging;
 using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -16,11 +10,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
-using Windows.Storage;
 using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
-using WinRT.Interop;
 
 namespace FluentASM_IDE;
 
@@ -131,7 +123,7 @@ public sealed partial class MainPage : Page
         // El historial de undo propio evita que el resaltado contamine Ctrl+Z.
         EditorBox.Document.UndoLimit = 0;
 
-        bool isDark = ActualTheme != ElementTheme.Light;
+        bool isDark = ActualTheme is not ElementTheme.Light;
         AsmHighlighter.IsCurrentDark = isDark;
         ViewModel.UpdateTheme(isDark);
 
@@ -340,7 +332,7 @@ public sealed partial class MainPage : Page
         }
 
         var result = await dialog.ShowAsync();
-        return result == ContentDialogResult.Primary;
+        return result is ContentDialogResult.Primary;
     }
 
     private void ConfigureEditorParagraphFormat()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using FluentASM.Lsp.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
@@ -30,6 +31,12 @@ public partial class App : Application
     /// <see cref="Windows.System.DispatcherQueue"/>.
     /// </summary>
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
+
+    /// <summary>
+    /// Registro de Sucesos compartido por la ventana y el resto del IDE. Una
+    /// única instancia evita aperturas concurrentes del mismo archivo JSONL.
+    /// </summary>
+    public static IncidentRecorder Incidents { get; } = new();
 
     /// <summary>
     /// The native window handle (HWND). Use for file pickers,
