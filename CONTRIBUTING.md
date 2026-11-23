@@ -76,14 +76,14 @@ Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente
 El número declarado en el PR es la fuente de verdad para esa publicación; el detalle está en la sección de versionado.
 
 ## Versionado
- 
+
 Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`), `compiler` (`FluentASM.Compiler`), `lsp` (`FluentASM.Lsp`) e `ide` (`FluentASM_IDE`). Se sigue el versionado SemVer `MAJOR.MINOR.PATCH`.
- 
+
 | Merge | Versión publicada | Etiquetas | Línea necesaria en el PR |
 |---|---|---|---|
 | PR → `develop` | `x.x.x-preview` (prerelease) | `core-vx.x.x-preview`, `compiler-vx.x.x-preview`, `lsp-vx.x.x-preview`, `ide-vx.x.x-preview` | `ver(proyecto): x.x.x-preview` con números |
 | PR → `main` | `x.x.x` (estable, sin sufijo) | `core-vx.x.x`, `compiler-vx.x.x`, `lsp-vx.x.x`, `ide-vx.x.x` | igual: `ver(proyecto): x.x.x-preview` |
- 
+
 - En los dos flujos el PR se escribe igual (`x.x.x-preview`); al mergear en `main` se publica la misma versión sin el sufijo `-preview`. El PR de promoción `develop` → `main` debe llevar **las mismas líneas `ver(...)`** del ciclo que se está promoviendo.
 - Un proyecto no se publica si su línea conserva el marcador `x.x.x-preview` o si no aparece en el PR.
 - **Solo se publica una versión estrictamente mayor que la última publicada.** Si la versión del PR es igual o menor, el flujo termina sin publicar y sin fallar (`skip`), dejando constancia en el registro del job.
@@ -95,7 +95,7 @@ Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`), `c
 **Fuente de verdad del número de versión:** las líneas `ver(...)` del cuerpo del PR en el momento del merge. El flujo escribe esa versión en `<Version>` del `.csproj` **solo en el runner** para publicar; no se commitea nada de vuelta. El archivo `VERSION` (raíz, leído por `src/Directory.Build.props`) es solo el valor por defecto de las compilaciones locales: no decide ninguna publicación.
 
 **Ejemplo de ciclo completo:**
- 
+
 1. PR de `feature/x` → `develop` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0-preview`.
 2. Otro PR a `develop` que vuelve a declarar `ver(core): 0.2.0-preview` → se salta (no es mayor).
 3. PR de `develop` → `main` con `ver(core): 0.2.0-preview` → se publica `core-v0.2.0` (estable).
@@ -114,6 +114,7 @@ El proyecto sigue convenciones consistentes tanto en el código C# del compilado
 - **No uses abreviaturas crípticas.** `registroDestino` es mejor que `rd`.
 - **Fuente única de nombres:** los registros, verbos y reglas del lenguaje se toman siempre de [FLUENT_SYNTAX.md](FLUENT_SYNTAX.md) (común) y [FLUENT_SYNTAX_X64.md](FLUENT_SYNTAX_X64.md) (x64); no se inventan alias.
 - `.editorconfig` en la raíz es obligatorio y las advertencias se tratan como errores (`TreatWarningsAsErrors`) en la compilación local y en la publicación.
+- En `FluentASM_IDE`, toda nueva llamada P/Invoke debe añadirse en `Helpers/NativeMethods.cs` mediante `[LibraryImport]` (no usar `[DllImport]` dispersos en servicios o controles).
 
 **Verbos y elementos canónicos de Fase 1 (x64 *bare metal*):**
 
@@ -353,6 +354,14 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
 - **Pérdida:** El menú de Explorer es una entrada clásica de Windows 11 y el alias requiere una instalación o despliegue previo; no hay todavía un modelo de espacios de trabajo ni integración con Git.
 - **Mitigación:** El registro temporal es reversible con `-u` y no modifica el sistema más allá de `HKCU`; las capacidades ampliadas se incorporarán mediante decisiones posteriores.
 
+### Decisión 0011 — Geometría de ventana (`WorkArea` + DWM), centralización `[LibraryImport]` y legibilidad base del IDE (2026-11-23)
+
+* **Contexto:** Al incorporar el arranque centrado multi-monitor en `FluentASM_IDE` (Fase 1C), las ventanas estándar de Windows presentan marcos invisibles asimétricos (izquierda, derecha y abajo, pero no arriba) que rompían la simetría visual del margen, además de requerir llamadas Win32/DWM reutilizables a medida que crezca el IDE.
+* **Decisión:**
+  1. **Centralización de interoperabilidad nativa:** Todas las llamadas no administradas de `FluentASM_IDE` (`user32.dll`, `shcore.dll`, `dwmapi.dll` y futuras APIs Win32) deben vivir centralizadas en `FluentASM_IDE/Helpers/NativeMethods.cs` usando `[LibraryImport]` (`internal static partial class`) en lugar de `[DllImport]` dispersos por servicios o vistas.
+  2. **Posicionamiento visual simétrico sobre `WorkArea`:** `Services/WindowGeometryService.cs` calcula el arranque centrado sobre `WorkArea` en el monitor activo del cursor con un hueco pequeño (`EdgeGapRatio = 0.008`, `10–18 DIP`), compensando los bordes invisibles DWM (`GetSystemMetricsForDpi` + `DWMWA_EXTENDED_FRAME_BOUNDS`) y leyendo métricas reales de sistema/presentador sin constantes visuales fijas.
+  3. **Respeto a *Windows Snap* y persistencia mínima diferida:** Si el usuario mueve, redimensiona o acopla la ventana con *Snap*, el servicio no la recentra mientras sus límites visibles quepan en `WorkArea`. En `LocalFolder/window-state.json` (estado efímero de aplicación, ajeno al workspace) solo se persiste `IsMaximized`; recordar dimensiones elegidas por el usuario queda diferido hasta definir el almacenamiento de ajustes del editor.
+  4. **Tipografía base del editor:** `RichEditBox` y la columna de números de línea (`LineNumbersText`) usan `FontSize="16"` sincronizado en `MainPage.xaml`.
 
 ## CI-CD (Integración y Despliegue Continuos)
 
