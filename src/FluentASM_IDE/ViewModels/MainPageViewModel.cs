@@ -1,11 +1,5 @@
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
-using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FluentASM.Lsp;
@@ -99,7 +93,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public QuickFixService QuickFixService => _quickFixService;
 
     /// <summary>Acciones rápidas disponibles para el diagnóstico actualmente seleccionado.</summary>
-    public ObservableCollection<QuickFixAction> QuickFixActions { get; } = new();
+    public ObservableCollection<QuickFixAction> QuickFixActions { get; } = [];
 
     private readonly object documentGate = new();
     private int documentVersion;
@@ -149,7 +143,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [NotifyPropertyChangedFor(nameof(DiagnosticWarningSummary))]
     public partial int DiagnosticWarningCount { get; set; } = 0;
 
-    public ObservableCollection<DiagnosticItem> Diagnostics { get; } = new();
+    public ObservableCollection<DiagnosticItem> Diagnostics { get; } = [];
 
     public DiagnosticItem? FirstDiagnostic => Diagnostics.Count > 0 ? Diagnostics[0] : null;
 
@@ -157,7 +151,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     public DiagnosticItem? FirstWarningDiagnostic => Diagnostics.FirstOrDefault(diagnostic => diagnostic.IsWarning);
 
-    public Thickness ActiveLineMargin => new Thickness(0, 8 + (CurrentLine - 1) * 22.0 - ScrollOffset, 0, 0);
+    public Thickness ActiveLineMargin => new(0, 8 + (CurrentLine - 1) * 22.0 - ScrollOffset, 0, 0);
 
     public string CursorPositionFormatted => $"Ln {CurrentLine}, Col {CurrentCol}";
 
@@ -195,11 +189,11 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     [ObservableProperty]
     public partial CompletionItem? SelectedCompletion { get; set; }
 
-    public ObservableCollection<CommandPaletteItem> AllCommands { get; } = new();
-    public ObservableCollection<CommandPaletteItem> FilteredCommands { get; } = new();
+    public ObservableCollection<CommandPaletteItem> AllCommands { get; } = [];
+    public ObservableCollection<CommandPaletteItem> FilteredCommands { get; } = [];
 
     [ObservableProperty]
-    public partial ObservableCollection<CompletionItem> CompletionItems { get; set; } = new();
+    public partial ObservableCollection<CompletionItem> CompletionItems { get; set; } = [];
 
     /// <summary>
     /// Se dispara cuando la paleta pide volver a validar el documento actual.
@@ -301,7 +295,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     /// <summary>Crea el ViewModel con el servidor de lenguaje por defecto.</summary>
     public MainPageViewModel()
-        : this(new FluentLanguageServer(LspLoggerFactory), new ProjectService(), new QuickFixService(), new IncidentRecorder())
+        : this(new FluentLanguageServer(LspLoggerFactory), new ProjectService(), new QuickFixService(), App.Incidents)
     {
     }
 
@@ -310,7 +304,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// permite sustituirlo en pruebas sin acoplarse a la implementación LSP.
     /// </summary>
     public MainPageViewModel(ILanguageService languageService)
-        : this(languageService, new ProjectService(), new QuickFixService(), new IncidentRecorder())
+        : this(languageService, new ProjectService(), new QuickFixService(), App.Incidents)
     {
     }
 
@@ -319,7 +313,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     /// <see cref="ProjectService"/> concretos.
     /// </summary>
     public MainPageViewModel(ILanguageService languageService, ProjectService projectService)
-        : this(languageService, projectService, new QuickFixService(), new IncidentRecorder())
+        : this(languageService, projectService, new QuickFixService(), App.Incidents)
     {
     }
 
@@ -417,7 +411,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         completionCaret = default;
         CompletionContext = string.Empty;
         SelectedCompletion = null;
-        CompletionItems = new ObservableCollection<CompletionItem>();
+        CompletionItems = [];
         IsIntelliSenseOpen = false;
     }
 
@@ -592,8 +586,8 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 Description = inc.Message,
                 Shortcut = inc.Source,
                 Category = "Sucesos",
-                IconGlyph = inc.Level == IncidentLevel.Error ? "\uE783" : (inc.Level == IncidentLevel.Warning ? "\uE7BA" : "\uE8A6"),
-                IconColorHex = inc.Level == IncidentLevel.Error ? "#FFB4AB" : (inc.Level == IncidentLevel.Warning ? "#FFD4BE" : "#60CDFF"),
+                IconGlyph = inc.Level is IncidentLevel.Error ? "\uE783" : (inc.Level is IncidentLevel.Warning ? "\uE7BA" : "\uE8A6"),
+                IconColorHex = inc.Level is IncidentLevel.Error ? "#FFB4AB" : (inc.Level is IncidentLevel.Warning ? "#FFD4BE" : "#60CDFF"),
                 IsActive = false,
                 IsCommand = false
             };
@@ -630,7 +624,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         var trimmed = (query ?? string.Empty).Trim();
 
         // Prefijo @: mostrar símbolos del documento en lugar de comandos
-        if (trimmed.StartsWith("@", StringComparison.Ordinal))
+        if (trimmed.StartsWith('@'))
         {
             var symbolQuery = trimmed.Length > 1 ? trimmed[1..] : string.Empty;
             FilterSymbols(symbolQuery);
@@ -694,8 +688,8 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             Description = symbol.Detail ?? string.Empty,
             Shortcut = "",
             Category = "Símbolos (@)",
-            IconGlyph = symbol.Kind == SymbolKind.Function ? "\uE749" : "\uE8A6",
-            IconColorHex = symbol.Kind == SymbolKind.Function ? "#81CFFF" : "#B4E4FF",
+            IconGlyph = symbol.Kind is SymbolKind.Function ? "\uE749" : "\uE8A6",
+            IconColorHex = symbol.Kind is SymbolKind.Function ? "#81CFFF" : "#B4E4FF",
             IsActive = false,
             IsCommand = false
         };
@@ -1011,13 +1005,13 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         {
             var start = diagnostic.Range.Start;
             var end = diagnostic.Range.End;
-            bool isError = diagnostic.Severity == DiagnosticSeverity.Error;
+            bool isError = diagnostic.Severity is DiagnosticSeverity.Error;
 
             if (isError)
             {
                 errors++;
             }
-            else if (diagnostic.Severity == DiagnosticSeverity.Warning)
+            else if (diagnostic.Severity is DiagnosticSeverity.Warning)
             {
                 warnings++;
             }
@@ -1038,7 +1032,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 EndLine = end.Line + 1,
                 EndColumn = end.Character + 1,
                 IsError = isError,
-                IsWarning = diagnostic.Severity == DiagnosticSeverity.Warning
+                IsWarning = diagnostic.Severity is DiagnosticSeverity.Warning
             });
         }
 
@@ -1418,5 +1412,3 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         Volatile.Read(ref completionVersion) == Volatile.Read(ref documentVersion) &&
         completionCaret == caret;
 }
-
-

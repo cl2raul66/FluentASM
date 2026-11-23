@@ -15,7 +15,7 @@
 
 
     <Grid>
-        <!-- Distribución principal: editor y telemetría. -->
+        <!--  Distribución principal: editor y telemetría.  -->
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="*" />
@@ -23,19 +23,19 @@
             </Grid.RowDefinitions>
 
             <!--  ==============================================  -->
-            <!-- FILA 0: EDITOR RICO Y MARGEN DE CÓDIGO. -->
+            <!--  FILA 0: EDITOR RICO Y MARGEN DE CÓDIGO.  -->
             <!--  ==============================================  -->
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions>
-                    <!-- Columna del margen: 52 px de ancho. -->
+                    <!--  Columna del margen: 52 px de ancho.  -->
                     <ColumnDefinition Width="52" />
-                    <!-- Separador vertical del margen: 1 px. -->
+                    <!--  Separador vertical del margen: 1 px.  -->
                     <ColumnDefinition Width="1" />
-                    <!-- Columna del editor de código. -->
+                    <!--  Columna del editor de código.  -->
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <!-- Margen de números de línea. -->
+                <!--  Margen de números de línea.  -->
                 <ScrollViewer
                     x:Name="GutterScrollViewer"
                     Grid.Column="0"
@@ -45,7 +45,7 @@
                     <TextBlock
                         Margin="0,8,16,24"
                         FontFamily="{StaticResource CodeFontFamily}"
-                        FontSize="13"
+                        FontSize="16"
                         Foreground="{ThemeResource GutterTextBrush}"
                         LineHeight="22"
                         LineStackingStrategy="BlockLineHeight"
@@ -53,17 +53,18 @@
                         TextAlignment="Right" />
                 </ScrollViewer>
 
-                <!-- Separador del margen. -->
+                <!--  Separador del margen.  -->
                 <Rectangle
                     Grid.Column="1"
                     Width="1"
                     VerticalAlignment="Stretch"
                     Fill="{ThemeResource GutterDividerBrush}" />
 
-                <!-- Columna del área de edición. -->
-                <Grid x:Name="EditorHost"
-                      Grid.Column="2"
-                      SizeChanged="OnEditorHostSizeChanged">
+                <!--  Columna del área de edición.  -->
+                <Grid
+                    x:Name="EditorHost"
+                    Grid.Column="2"
+                    SizeChanged="OnEditorHostSizeChanged">
                     <!--  Active Line Highlight Overlay (Tracking current cursor row)  -->
                     <Border
                         Height="22"
@@ -82,18 +83,18 @@
                         AcceptsReturn="True"
                         Background="Transparent"
                         BorderThickness="0"
+                        ContextRequested="OnEditorContextRequested"
                         CornerRadius="0"
                         FontFamily="{StaticResource CodeFontFamily}"
-                        FontSize="13"
+                        FontSize="16"
                         Foreground="{ThemeResource OnSurfaceBrush}"
+                        GotFocus="OnEditorGotFocus"
                         IsSpellCheckEnabled="False"
                         KeyDown="OnEditorKeyDown"
+                        PointerEntered="OnEditorPointerEntered"
                         PreviewKeyDown="OnEditorPreviewKeyDown"
                         SelectionChanged="OnEditorSelectionChanged"
-                        TextChanged="OnEditorTextChanged"
-                        ContextRequested="OnEditorContextRequested"
-                        GotFocus="OnEditorGotFocus"
-                        PointerEntered="OnEditorPointerEntered" />
+                        TextChanged="OnEditorTextChanged" />
 
                     <!--  ==============================================  -->
                     <!--  CUSTOMIZABLE INTELLISENSE OVERLAY (LSP READY)  -->
@@ -103,17 +104,17 @@
                         HorizontalAlignment="Left"
                         VerticalAlignment="Top"
                         Canvas.ZIndex="30"
-                        SizeChanged="OnIntelliSenseSizeChanged"
                         ContextText="{x:Bind ViewModel.CompletionContext, Mode=OneWay}"
                         ItemCommitted="OnIntelliSenseItemCommitted"
                         ItemsSource="{x:Bind ViewModel.CompletionItems, Mode=OneWay}"
                         SelectedItem="{x:Bind ViewModel.SelectedCompletion, Mode=TwoWay}"
+                        SizeChanged="OnIntelliSenseSizeChanged"
                         Visibility="{x:Bind ViewModel.IsIntelliSenseOpen, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" />
                 </Grid>
             </Grid>
 
             <!--  ==============================================  -->
-            <!--  ROW 1: FLOATING AMBIENT STATUS DOCK (28px)      -->
+            <!--  ROW 1: FLOATING AMBIENT STATUS DOCK (28px)  -->
             <!--  ==============================================  -->
             <Border
                 Grid.Row="1"
@@ -312,7 +313,7 @@
         </Grid>
 
         <!--  ==============================================  -->
-        <!--  COMMAND PALETTE MODAL OVERLAY (Ctrl+P / '/')    -->
+        <!--  COMMAND PALETTE MODAL OVERLAY (Ctrl+P / '/')  -->
         <!--  ==============================================  -->
         <Grid
             x:Name="CommandPaletteOverlay"
