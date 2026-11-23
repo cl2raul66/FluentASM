@@ -75,6 +75,18 @@ Si cambia una decisión de diseño, incluye o enlaza la sección correspondiente
 
 El número declarado en el PR es la fuente de verdad para esa publicación; el detalle está en la sección de versionado.
 
+**Valores sugeridos en cada `push`:** todo `push` de una rama de trabajo debe acompañarse de una propuesta de versiones para el PR, con este formato exacto:
+
+```
+Valores sugeridos
+ver(core): x.x.x-preview
+ver(compiler): x.x.x-preview
+ver(lsp): x.x.x-preview
+ver(ide): x.x.x-preview
+```
+
+La propuesta se calcula con `git tag` y `gh release list` (última versión publicada de cada proyecto) aplicando la regla de "solo se publica una versión estrictamente mayor"; los proyectos sin cambios en la rama conservan el marcador `x.x.x-preview`. Incluye además el motivo breve de cada número (funcionalidad nueva → MINOR, corrección → PATCH, primer release → versión inicial acordada). Así el autor conoce de antemano qué declarar en el PR y el workflow `dev-release.yml` no publica nada por sorpresa.
+
 ## Versionado
 
 Cada proyecto publicable se versiona por separado: `core` (`FluentASM.Core`), `compiler` (`FluentASM.Compiler`), `lsp` (`FluentASM.Lsp`) e `ide` (`FluentASM_IDE`). Se sigue el versionado SemVer `MAJOR.MINOR.PATCH`.
