@@ -1,6 +1,7 @@
 using FluentASM.Lsp.Protocol;
 using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
+using FluentASM_IDE.Editing;
 using FluentASM_IDE.Services;
 using FluentASM_IDE.ViewModels;
 using Microsoft.UI.Input;
@@ -10,7 +11,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
-using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
 
@@ -27,6 +27,8 @@ public sealed partial class MainPage : Page
     private readonly DiagnosticAdorner _diagnosticAdorner;
     private readonly EditorKeyboardHandler _keyboardHandler;
     private readonly EditorUndoHistory _undoHistory = new();
+    private readonly RichEditBoxCodeEditor _codeEditor;
+    private readonly FormatCommandHandler _formatHandler;
     private readonly ProjectService _projectService;
     private readonly HoverService _hoverService;
     private readonly OutlineService _outlineService;
@@ -38,10 +40,15 @@ public sealed partial class MainPage : Page
     private string _lastNormalizedText = string.Empty;
     private string _savedNormalizedText = string.Empty;
     private string? _suppressedAutomaticCompletionText;
+    private bool _lastEditKeyWasDeletion;
     private int _lastTextChangedCaretOffset = -1;
     private bool _isHighlighting;
     private bool _applyingUndo;
     private bool _applyingCompletion;
+    private bool _applyingAssist;
+    private bool _formatting;
+    private bool _formatChordArmed;
+    private PendingCloser _pendingAutoCloser;
 
     #endregion
 
@@ -52,7 +59,9 @@ public sealed partial class MainPage : Page
         InitializeComponent();
 
         _diagnosticAdorner = new DiagnosticAdorner(EditorBox, ViewModel);
-        _keyboardHandler = new EditorKeyboardHandler(EditorBox, ViewModel);
+        _codeEditor = new RichEditBoxCodeEditor(EditorBox);
+        _formatHandler = new FormatCommandHandler(ViewModel);
+        _keyboardHandler = new EditorKeyboardHandler(EditorBox, ViewModel, _codeEditor);
         _projectService = ViewModel.ProjectService;
         _hoverService = new HoverService(EditorBox, ViewModel);
         _outlineService = new OutlineService(ViewModel, EditorBox);
@@ -66,6 +75,14 @@ public sealed partial class MainPage : Page
         EditorBox.AddHandler(
             UIElement.PointerExitedEvent,
             new PointerEventHandler(OnEditorPointerExited),
+            handledEventsToo: true);
+
+        // El RichEditBox marca Backspace/Delete como atendidas; este registro
+        // solo anota la naturaleza de la pulsación para no reabrir sugerencias
+        // durante un borrado.
+        EditorBox.AddHandler(
+            UIElement.KeyDownEvent,
+            new KeyEventHandler(OnEditorKeyDownForEditKind),
             handledEventsToo: true);
 
         InitializeTimers();
@@ -112,6 +129,7 @@ public sealed partial class MainPage : Page
         ViewModel.DiagnosticNavigationRequested += NavigateToDiagnostic;
         ViewModel.ProjectOpened += OnProjectOpened;
         ViewModel.DocumentTextReplaced += OnDocumentTextReplaced;
+        ViewModel.FormatRequested += OnFormatRequested;
     }
 
     private void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -193,6 +211,19 @@ public sealed partial class MainPage : Page
     }
 
     private async void OpenProjectOrFolder(string path)
+    {
+        try
+        {
+            await OpenProjectOrFolderCoreAsync(path);
+        }
+        catch (Exception ex)
+        {
+            App.Incidents.RecordException(ex, "MainPage.OpenProjectOrFolder", path);
+            ViewModel.StatusText = $"No se pudo abrir: {path}";
+        }
+    }
+
+    private async Task OpenProjectOrFolderCoreAsync(string path)
     {
         // Si hay cambios no guardados, pedir confirmación antes de abrir otro proyecto.
         if (ViewModel.HasUnsavedChanges)
@@ -419,7 +450,7 @@ public sealed partial class MainPage : Page
 
     private void OnEditorTextChanged(object sender, RoutedEventArgs e)
     {
-        if (_isHighlighting || _applyingUndo) return;
+        if (_isHighlighting || _applyingUndo || _applyingAssist) return;
 
         _diagnosticAdorner.OnPointerExited(); // close any open flyout
         UpdateCursorCoordinates();
@@ -432,6 +463,23 @@ public sealed partial class MainPage : Page
         if (string.Equals(normalized, _lastNormalizedText, StringComparison.Ordinal))
         {
             return;
+        }
+
+        // Naturaleza de la pulsación: se consume aquí para que un cambio de
+        // texto posterior (pegado, IME, comando) no herede el estado anterior.
+        bool deletionKey = _lastEditKeyWasDeletion;
+        _lastEditKeyWasDeletion = false;
+        string previousNormalized = _lastNormalizedText;
+
+        // Capa A (autocierre, salto sobre cierre, borrado en pareja) y Capa B
+        // (on-type acotado) se aplican antes de registrar el paso de deshacer:
+        // la pulsación completa se deshace con un único Ctrl+Z.
+        if (!_applyingCompletion && !_formatting)
+        {
+            normalized = ApplyContextualAssist(normalized);
+            EditorBox.Document.GetText(TextGetOptions.None, out text);
+            text ??= string.Empty;
+            normalized = DocumentText.Normalize(text);
         }
 
         // Un TextChanged tardío producido por el commit debe impedir que el
@@ -475,11 +523,138 @@ public sealed partial class MainPage : Page
 
         int caretOffset = GetNormalizedCaretOffset(text, normalized);
         _lastTextChangedCaretOffset = caretOffset;
+
+        // Un borrado puro (Backspace/Delete sin insertar texto) nunca abre el
+        // overlay: durante una ráfaga de borrado solo generaría peticiones que
+        // la siguiente pulsación cancelaría. Reemplazar una selección por texto
+        // nuevo no cuenta como borrado aunque el documento se acorte.
+        bool pureDeletion = deletionKey && IsPureDeletion(previousNormalized, normalized);
         if (!suppressAutomaticCompletion &&
+            !pureDeletion &&
             ShouldTriggerAutomaticCompletion(normalized, caretOffset))
         {
             ScheduleAutomaticCompletion();
         }
+    }
+
+    /// <summary>
+    /// Aplica la asistencia contextual de la Capa A y el formateo <em>on-type</em>
+    /// de la Capa B sobre el texto recién modificado. Devuelve el texto
+    /// normalizado resultante.
+    /// </summary>
+    private string ApplyContextualAssist(string normalized)
+    {
+        string previous = _lastNormalizedText;
+        if (string.Equals(previous, normalized, StringComparison.Ordinal))
+        {
+            return normalized;
+        }
+
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        int caret = GetNormalizedCaretOffset(editorText, normalized);
+
+        AssistEdit? plan = AutoPairAssist.PlanAfterTyping(previous, normalized, caret, _pendingAutoCloser);
+        if (plan is null)
+        {
+            // Sin reacción de la Capa A el cierre pendiente deja de ser válido.
+            _pendingAutoCloser = default;
+            plan = AutoPairAssist.PlanAfterBackspace(previous, normalized, caret);
+        }
+
+        if (plan is not null)
+        {
+            ApplyAssistEdit(plan.Value);
+
+            EditorBox.Document.GetText(TextGetOptions.None, out editorText);
+            normalized = DocumentText.Normalize(editorText);
+            caret = GetNormalizedCaretOffset(editorText, normalized);
+        }
+
+        // On-type de la Capa B: solo '}' y el '>' que completa '->'.
+        char? trigger = DetectOnTypeTrigger(previous, normalized, caret);
+        if (trigger is not null)
+        {
+            ApplyOnTypeFormatting(normalized, caret, trigger.Value);
+            EditorBox.Document.GetText(TextGetOptions.None, out editorText);
+            normalized = DocumentText.Normalize(editorText);
+        }
+
+        return normalized;
+    }
+
+    /// <summary>
+    /// Aplica una edición mínima de la Capa A sobre el editor y deja el caret
+    /// donde indique el plan.
+    /// </summary>
+    private void ApplyAssistEdit(AssistEdit edit)
+    {
+        bool consumesPending =
+            _pendingAutoCloser.Closer != '\0' &&
+            edit.Length == 1 &&
+            edit.Text.Length == 0 &&
+            edit.Start == _pendingAutoCloser.Offset;
+
+        _applyingAssist = true;
+        _codeEditor.BeginApply();
+        try
+        {
+            _codeEditor.Replace(edit.Start, edit.Length, edit.Text);
+            _codeEditor.SetCaret(edit.CaretOffset);
+        }
+        catch (Exception ex)
+        {
+            App.Incidents.RecordException(ex, "MainPage.ApplyAssistEdit");
+            _pendingAutoCloser = default;
+        }
+        finally
+        {
+            _codeEditor.EndApply();
+            _applyingAssist = false;
+        }
+
+        _pendingAutoCloser = consumesPending
+            ? default
+            : AutoPairAssist.TrackPendingCloser(edit);
+    }
+
+    /// <summary>
+    /// Detecta el disparador del formateo <em>on-type</em>: la llave
+    /// <c>}</c> o el <c>></c> que completa <c>-></c>. Cualquier otro
+    /// carácter (o un pegado) devuelve <c>null</c>.
+    /// </summary>
+    private static char? DetectOnTypeTrigger(string previous, string current, int caret)
+    {
+        if (caret <= 0 || caret > current.Length)
+        {
+            return null;
+        }
+
+        // La pulsación debe ser exactamente una inserción de un carácter en la
+        // posición del caret (mismo criterio que la Capa A).
+        if (current.Length != previous.Length + 1)
+        {
+            return null;
+        }
+
+        int typedOffset = caret - 1;
+        if (!previous.AsSpan(0, typedOffset).SequenceEqual(current.AsSpan(0, typedOffset)) ||
+            !previous.AsSpan(typedOffset).SequenceEqual(current.AsSpan(typedOffset + 1)))
+        {
+            return null;
+        }
+
+        char typed = current[typedOffset];
+        if (typed == '}')
+        {
+            return '}';
+        }
+
+        if (typed == '>' && typedOffset > 0 && current[typedOffset - 1] == '-')
+        {
+            return '>';
+        }
+
+        return null;
     }
 
     private void OnEditorSelectionChanged(object sender, RoutedEventArgs e)
@@ -556,6 +731,36 @@ public sealed partial class MainPage : Page
 
         bool isCtrl = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) &
                        CoreVirtualKeyStates.Down) != 0;
+        bool isShift = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift) &
+                        CoreVirtualKeyStates.Down) != 0;
+        bool isAlt = (InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu) &
+                      CoreVirtualKeyStates.Down) != 0;
+
+        // Secuencia Ctrl+K, Ctrl+D (formatear) y su alternativa Shift+Alt+F.
+        if (isCtrl && e.Key == VirtualKey.K)
+        {
+            e.Handled = true;
+            _formatChordArmed = true;
+            return;
+        }
+
+        if (_formatChordArmed)
+        {
+            _formatChordArmed = false;
+            if (isCtrl && e.Key == VirtualKey.D)
+            {
+                e.Handled = true;
+                OnFormatRequested();
+                return;
+            }
+        }
+
+        if (isShift && isAlt && e.Key == VirtualKey.F)
+        {
+            e.Handled = true;
+            OnFormatRequested();
+            return;
+        }
 
         // PreviewKeyDown tiene prioridad sobre el bubbling KeyDown. Así las
         // flechas, Intro y Escape nunca se insertan en el editor mientras el
@@ -631,6 +836,15 @@ public sealed partial class MainPage : Page
     private void OnEditorKeyDown(object sender, KeyRoutedEventArgs e)
         => _keyboardHandler.OnKeyDown(e);
 
+    /// <summary>
+    /// Anota si la pulsación fue un borrado. Se registra con
+    /// <c>handledEventsToo</c> porque el <see cref="RichEditBox"/> marca
+    /// Backspace/Delete como atendidas y el <c>KeyDown</c> del XAML no siempre
+    /// las recibe. No atiende atajos: eso sigue en <see cref="OnEditorKeyDown"/>.
+    /// </summary>
+    private void OnEditorKeyDownForEditKind(object sender, KeyRoutedEventArgs e)
+        => _lastEditKeyWasDeletion = e.Key is VirtualKey.Back or VirtualKey.Delete;
+
     #endregion
 
     #region LSP Synchronization
@@ -693,6 +907,24 @@ public sealed partial class MainPage : Page
     private static bool IsCompletionPrefixChar(char value) =>
         char.IsLetterOrDigit(value) || value == '_';
 
+    /// <summary>
+    /// Determina si el paso de texto es un borrado puro: el documento vigente es
+    /// el anterior con un tramo eliminado y ningún carácter insertado. La
+    /// comprobación de la tecla (Back/Delete) evita confundir un reemplazo de
+    /// selección por texto nuevo —que también acorta el documento— con un
+    /// borrado.
+    /// </summary>
+    private static bool IsPureDeletion(string previous, string current)
+    {
+        if (current.Length >= previous.Length)
+        {
+            return false;
+        }
+
+        var (_, removed, inserted) = DiffText(previous, current);
+        return removed > 0 && inserted.Length == 0;
+    }
+
     private async void RequestCompletionsAtCaret()
     {
         // La invocación explícita sustituye cualquier sugerencia automática
@@ -726,7 +958,12 @@ public sealed partial class MainPage : Page
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Fallo al solicitar autocompletado: {ex}");
+            // Un fallo inesperado del completado debe quedar trazado (FASM9999)
+            // aunque no interrumpa la edición.
+            App.Incidents.RecordException(
+                ex,
+                "MainPage.RequestCompletionsAtCaret",
+                ViewModel.DocumentUri);
             return;
         }
         finally
@@ -803,7 +1040,7 @@ public sealed partial class MainPage : Page
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[RunAnalysisAsync] Exception: {ex}");
+            App.Incidents.RecordException(ex, "MainPage.RunAnalysisAsync", ViewModel.DocumentUri);
             return;
         }
 
@@ -852,38 +1089,302 @@ public sealed partial class MainPage : Page
 
     private async void OpenFolderPickerAsync()
     {
-        if (ViewModel.HasUnsavedChanges)
+        try
         {
-            if (!await ConfirmDiscardChangesAsync())
+            if (ViewModel.HasUnsavedChanges)
             {
-                return;
+                if (!await ConfirmDiscardChangesAsync())
+                {
+                    return;
+                }
+            }
+
+            // Selector nativo Win32: funciona con identidad de paquete (MSIX) y
+            // en despliegues unpackaged/self-contained, incluso elevados, donde
+            // Windows.Storage.Pickers.FolderPicker lanza COMException.
+            string? folderPath = NativeFolderPicker.PickFolder(
+                App.WindowHandle,
+                GetInitialPickerDirectory(),
+                "Abrir carpeta de proyecto");
+
+            if (!string.IsNullOrEmpty(folderPath))
+            {
+                OpenProjectOrFolder(folderPath);
             }
         }
-
-        var picker = new FolderPicker
+        catch (Exception ex)
         {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
-        };
-        picker.FileTypeFilter.Add("*");
-
-        // Inicializar el picker con el handle de la ventana (requerido en WinUI 3).
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, App.WindowHandle);
-
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder is not null)
-        {
-            OpenProjectOrFolder(folder.Path);
+            App.Incidents.RecordException(ex, "MainPage.OpenFolderPickerAsync");
+            ViewModel.StatusText = "No se pudo abrir el selector de carpetas.";
         }
+    }
+
+    /// <summary>
+    /// Carpeta inicial del selector: la del documento abierto si existe; en su
+    /// defecto, la carpeta de documentos del usuario.
+    /// </summary>
+    private string? GetInitialPickerDirectory()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(ViewModel.SourceFilePath))
+            {
+                string? directory = Path.GetDirectoryName(ViewModel.SourceFilePath);
+                if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                {
+                    return directory;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Ruta con formato no válido: se usa la ubicación por defecto.
+        }
+
+        string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        return string.IsNullOrEmpty(documents) || !Directory.Exists(documents) ? null : documents;
     }
 
     private void SaveCurrentFile()
     {
+        if (ViewModel.FormatOnSave)
+        {
+            FormatDocumentForSave();
+        }
+
         EditorBox.Document.GetText(TextGetOptions.None, out string text);
         text ??= string.Empty;
         if (ViewModel.SaveSource(text))
         {
             _savedNormalizedText = DocumentText.Normalize(text);
         }
+    }
+
+    #endregion
+
+    #region Formatting (Capa B)
+
+    /// <summary>
+    /// Botón de la barra de estado: formatea el documento o la selección.
+    /// </summary>
+    private void OnFormatButtonClick(object sender, RoutedEventArgs e)
+    {
+        OnFormatRequested();
+        EditorBox.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Alterna «Formatear al guardar» desde la barra de estado.
+    /// </summary>
+    private void OnFormatOnSaveToggled(object sender, RoutedEventArgs e)
+    {
+        ViewModel.RefreshFormatOnSaveCommand();
+        ViewModel.StatusText = ViewModel.FormatOnSave
+            ? "Formatear al guardar: activado."
+            : "Formatear al guardar: desactivado.";
+    }
+
+    /// <summary>
+    /// Formatea el documento o las líneas tocadas por la selección actual.
+    /// Lo invocan el comando <c>/format</c>, los atajos <c>Ctrl+K, Ctrl+D</c> y
+    /// <c>Shift+Alt+F</c>, y el botón de la barra de estado.
+    /// </summary>
+    private void OnFormatRequested()
+    {
+        if (_formatting)
+        {
+            return;
+        }
+
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        string normalized = DocumentText.Normalize(editorText);
+        int selectionStart = _codeEditor.SelectionStart;
+        int selectionLength = _codeEditor.SelectionLength;
+
+        FormatResult? result;
+        string scope;
+        try
+        {
+            if (selectionLength > 0)
+            {
+                result = _formatHandler.FormatSelection(normalized, selectionStart, selectionLength);
+                scope = "selección";
+            }
+            else
+            {
+                result = _formatHandler.FormatDocument(normalized);
+                scope = "documento";
+            }
+        }
+        catch (Exception ex)
+        {
+            App.Incidents.RecordException(ex, "MainPage.OnFormatRequested");
+            ViewModel.StatusText = "No se pudo formatear: el motor devolvió un error.";
+            return;
+        }
+
+        if (result is null)
+        {
+            ViewModel.StatusText = "El formateo no está disponible en esta sesión.";
+            return;
+        }
+
+        ApplyFormattingResult(result, scope, recordUndoStep: true);
+    }
+
+    /// <summary>
+    /// Formatea el documento antes de guardarlo. Si el formateo falla, el
+    /// guardado continúa igualmente (el formateo nunca bloquea la escritura).
+    /// </summary>
+    private void FormatDocumentForSave()
+    {
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        string normalized = DocumentText.Normalize(editorText);
+
+        FormatResult? result;
+        try
+        {
+            result = _formatHandler.FormatDocument(normalized);
+        }
+        catch (Exception ex)
+        {
+            App.Incidents.RecordException(ex, "MainPage.FormatDocumentForSave");
+            App.Incidents.RecordInfo(
+                "FASM1D03",
+                "Formateo al guardar falló; se guardó el documento sin cambios.",
+                "MainPage.FormatOnSave");
+            return;
+        }
+
+        if (result is null || result.Edits.Count == 0)
+        {
+            App.Incidents.RecordInfo(
+                "FASM1D03",
+                "Formateo al guardar sin cambios que aplicar.",
+                "MainPage.FormatOnSave");
+            return;
+        }
+
+        bool applied = ApplyFormattingResult(result, "documento", recordUndoStep: true);
+        App.Incidents.RecordInfo(
+            "FASM1D03",
+            applied
+                ? "Formateo al guardar aplicado antes de guardar."
+                : "Formateo al guardar no se pudo aplicar; se guardó el documento sin cambios.",
+            "MainPage.FormatOnSave");
+    }
+
+    /// <summary>
+    /// Aplica el lote de ediciones de la Capa B sobre el editor y, si procede,
+    /// lo registra como un único paso forzado de deshacer.
+    /// </summary>
+    /// <param name="result">Lote de ediciones y texto base.</param>
+    /// <param name="scope">Ámbito para los mensajes ("documento", "selección").</param>
+    /// <param name="recordUndoStep">
+    /// <c>false</c> cuando el lote forma parte de una pulsación que ya se
+    /// registrará como un paso propio (formateo <em>on-type</em>).
+    /// </param>
+    private bool ApplyFormattingResult(FormatResult result, string scope, bool recordUndoStep)
+    {
+        if (result.Edits.Count == 0)
+        {
+            if (recordUndoStep)
+            {
+                ViewModel.StatusText = $"Sin cambios de formato ({scope}).";
+            }
+
+            return false;
+        }
+
+        EditorBox.Document.GetText(TextGetOptions.None, out string editorText);
+        string current = DocumentText.Normalize(editorText);
+        int caret = GetNormalizedCaretOffset(editorText, current);
+        var before = new EditorUndoState(current, caret, caret);
+
+        _formatting = true;
+        _applyingUndo = true;
+        try
+        {
+            TextEditApplyStatus status = TextEditApplier.TryApply(
+                EditorBox,
+                result.Text,
+                result.Edits,
+                caret,
+                out _,
+                out string? error);
+
+            switch (status)
+            {
+                case TextEditApplyStatus.Applied:
+                    break;
+
+                case TextEditApplyStatus.Stale:
+                    App.Incidents.RecordInfo(
+                        "FASM1D06",
+                        "Lote de ediciones descartado: la versión del documento estaba obsoleta.",
+                        "MainPage.Formatting",
+                        error);
+                    ViewModel.StatusText = "El documento cambió: no se aplicó el formateo.";
+                    return false;
+
+                default:
+                    App.Incidents.RecordInfo(
+                        "FASM1D07",
+                        "Fallo al aplicar TextEdit[] en el editor; el texto no se modificó.",
+                        "MainPage.Formatting",
+                        error);
+                    ViewModel.StatusText = "No se pudo aplicar el formateo; el texto no se modificó.";
+                    return false;
+            }
+        }
+        finally
+        {
+            _formatting = false;
+            _applyingUndo = false;
+        }
+
+        EditorBox.Document.GetText(TextGetOptions.None, out string updatedEditorText);
+        string updated = DocumentText.Normalize(updatedEditorText);
+
+        if (recordUndoStep)
+        {
+            // Un único paso forzado: un Ctrl+Z revierte todo el lote.
+            _undoHistory.Record(before, updated, DateTime.UtcNow, forceNewStep: true);
+            _lastNormalizedText = updated;
+            UpdateUnsavedChangesFromText(updated);
+            UpdateLineCountFromDocument();
+            UpdateCursorCoordinates();
+            ScheduleAnalysis();
+            ViewModel.StatusText = $"Formateado ({scope}).";
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Formateo <em>on-type</em> de la Capa B (solo <c>}</c> y el <c>></c>
+    /// de <c>-></c>). No registra paso de deshacer propio: forma parte de la
+    /// pulsación que ya se registra como un único paso.
+    /// </summary>
+    private void ApplyOnTypeFormatting(string normalized, int caret, char trigger)
+    {
+        FormatResult? result;
+        try
+        {
+            result = _formatHandler.FormatOnType(normalized, caret, trigger);
+        }
+        catch (Exception ex)
+        {
+            App.Incidents.RecordException(ex, "MainPage.ApplyOnTypeFormatting");
+            return;
+        }
+
+        if (result is null || result.Edits.Count == 0)
+        {
+            return;
+        }
+
+        ApplyFormattingResult(result, "on-type", recordUndoStep: false);
     }
 
     #endregion
