@@ -93,16 +93,33 @@ public sealed record MagnitudeDescriptor(
 }
 
 /// <summary>Constructor fluido de nivel superior (<c>.data</c>, <c>.execute</c>, <c>.initialize</c>).</summary>
+/// <remarks>
+/// La aridad permite que la IDE y el LSP distingan una llamada sin argumentos
+/// (<c>.initialize()</c>) de una llamada con lambda (<c>.data(dt -> { ... })</c>).
+/// </remarks>
 public sealed record FlowConstructorDescriptor(
     string Name,
     string Description,
     string Syntax,
-    string SemanticDescription)
+    string SemanticDescription,
+    int MinArguments,
+    int MaxArguments)
 {
     public string CanonicalName => Name;
+
+    /// <summary>Indica si el constructor espera una lambda como argumento.</summary>
+    public bool RequiresLambda => MaxArguments > 0;
 }
 
 /// <summary>Directiva dentro de <c>.data</c> o <c>.execute</c>.</summary>
+/// <remarks>
+/// No expone aridad: todas las directivas invocables (<c>define</c>, <c>routines</c>,
+/// <c>id</c>, <c>returns</c>, <c>run</c>, <c>value</c>, <c>target</c>, <c>inputs</c>,
+/// <c>output</c>) exigen al menos un argumento y el resto de entradas
+/// (<c>if</c>, <c>not</c>, <c>and</c>, <c>or</c>, <c>equal</c>, <c>unequal</c>)
+/// no son formas de llamada. Si en el futuro se añade una directiva de cero
+/// argumentos, este descriptor deberá exponer <c>MinArguments</c>/<c>MaxArguments</c>.
+/// </remarks>
 public sealed class DirectiveDescriptor
 {
     public string Name { get; init; }

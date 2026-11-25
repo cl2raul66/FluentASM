@@ -184,9 +184,9 @@ public static class X64LanguageCatalogProvider
     {
         return new[]
         {
-            new FlowConstructorDescriptor(".data", "Declaracion de datos opcional", "Proyecto.data(dt -> { dt.define<Byte:N>(d -> d.id(nombre).value(...)) })", "Declara simbolos de datos con capacidad Byte:N y valor inicial (entero, cadena o defaultValue)."),
-            new FlowConstructorDescriptor(".execute", "Seccion ejecutable obligatoria", "Proyecto.execute(ex -> { ex.routines(rt -> { rt.define(d -> { d.id(nombre).returns(...).run(...) }) }) })", "Contiene las rutinas ejecutables del programa. Debe contener al menos una rutina con d.id(main) o _."),
-            new FlowConstructorDescriptor(".initialize", "Terminal obligatorio", "Proyecto.data(...).execute(...).initialize()", "Cierra el contrato del programa. Despues de .initialize() no se puede encadenar mas."),
+            new FlowConstructorDescriptor(".data", "Declaracion de datos opcional", "Proyecto.data(dt -> { dt.define<Byte:N>(d -> d.id(nombre).value(...)) })", "Declara simbolos de datos con capacidad Byte:N y valor inicial (entero, cadena o defaultValue).", 1, 1),
+            new FlowConstructorDescriptor(".execute", "Seccion ejecutable obligatoria", "Proyecto.execute(ex -> { ex.routines(rt -> { rt.define(d -> { d.id(nombre).returns(...).run(...) }) }) })", "Contiene las rutinas ejecutables del programa. Debe contener al menos una rutina con d.id(main) o _.", 1, 1),
+            new FlowConstructorDescriptor(".initialize", "Terminal obligatorio", "Proyecto.data(...).execute(...).initialize()", "Cierra el contrato del programa. Despues de .initialize() no se puede encadenar mas.", 0, 0),
         }.ToImmutableArray();
     }
 
