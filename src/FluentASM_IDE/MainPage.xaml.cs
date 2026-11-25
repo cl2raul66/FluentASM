@@ -11,7 +11,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
-using Windows.Storage.Pickers;
 using Windows.System;
 using Windows.UI.Core;
 
@@ -212,6 +211,19 @@ public sealed partial class MainPage : Page
     }
 
     private async void OpenProjectOrFolder(string path)
+    {
+        try
+        {
+            await OpenProjectOrFolderCoreAsync(path);
+        }
+        catch (Exception ex)
+        {
+            App.Incidents.RecordException(ex, "MainPage.OpenProjectOrFolder", path);
+            ViewModel.StatusText = $"No se pudo abrir: {path}";
+        }
+    }
+
+    private async Task OpenProjectOrFolderCoreAsync(string path)
     {
         // Si hay cambios no guardados, pedir confirmación antes de abrir otro proyecto.
         if (ViewModel.HasUnsavedChanges)
@@ -1077,28 +1089,60 @@ public sealed partial class MainPage : Page
 
     private async void OpenFolderPickerAsync()
     {
-        if (ViewModel.HasUnsavedChanges)
+        try
         {
-            if (!await ConfirmDiscardChangesAsync())
+            if (ViewModel.HasUnsavedChanges)
             {
-                return;
+                if (!await ConfirmDiscardChangesAsync())
+                {
+                    return;
+                }
+            }
+
+            // Selector nativo Win32: funciona con identidad de paquete (MSIX) y
+            // en despliegues unpackaged/self-contained, incluso elevados, donde
+            // Windows.Storage.Pickers.FolderPicker lanza COMException.
+            string? folderPath = NativeFolderPicker.PickFolder(
+                App.WindowHandle,
+                GetInitialPickerDirectory(),
+                "Abrir carpeta de proyecto");
+
+            if (!string.IsNullOrEmpty(folderPath))
+            {
+                OpenProjectOrFolder(folderPath);
             }
         }
-
-        var picker = new FolderPicker
+        catch (Exception ex)
         {
-            SuggestedStartLocation = PickerLocationId.DocumentsLibrary
-        };
-        picker.FileTypeFilter.Add("*");
-
-        // Inicializar el picker con el handle de la ventana (requerido en WinUI 3).
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, App.WindowHandle);
-
-        var folder = await picker.PickSingleFolderAsync();
-        if (folder is not null)
-        {
-            OpenProjectOrFolder(folder.Path);
+            App.Incidents.RecordException(ex, "MainPage.OpenFolderPickerAsync");
+            ViewModel.StatusText = "No se pudo abrir el selector de carpetas.";
         }
+    }
+
+    /// <summary>
+    /// Carpeta inicial del selector: la del documento abierto si existe; en su
+    /// defecto, la carpeta de documentos del usuario.
+    /// </summary>
+    private string? GetInitialPickerDirectory()
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(ViewModel.SourceFilePath))
+            {
+                string? directory = Path.GetDirectoryName(ViewModel.SourceFilePath);
+                if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory))
+                {
+                    return directory;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // Ruta con formato no válido: se usa la ubicación por defecto.
+        }
+
+        string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        return string.IsNullOrEmpty(documents) || !Directory.Exists(documents) ? null : documents;
     }
 
     private void SaveCurrentFile()
