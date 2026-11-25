@@ -29,8 +29,6 @@
                 <Grid.ColumnDefinitions>
                     <!--  Columna del margen: 52 px de ancho.  -->
                     <ColumnDefinition Width="52" />
-                    <!--  Separador vertical del margen: 1 px.  -->
-                    <ColumnDefinition Width="1" />
                     <!--  Columna del editor de código.  -->
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
@@ -53,17 +51,10 @@
                         TextAlignment="Right" />
                 </ScrollViewer>
 
-                <!--  Separador del margen.  -->
-                <Rectangle
-                    Grid.Column="1"
-                    Width="1"
-                    VerticalAlignment="Stretch"
-                    Fill="{ThemeResource GutterDividerBrush}" />
-
                 <!--  Columna del área de edición.  -->
                 <Grid
                     x:Name="EditorHost"
-                    Grid.Column="2"
+                    Grid.Column="1"
                     SizeChanged="OnEditorHostSizeChanged">
                     <!--  Active Line Highlight Overlay (Tracking current cursor row)  -->
                     <Border
@@ -250,6 +241,65 @@
                         VerticalAlignment="Center"
                         Orientation="Horizontal"
                         Spacing="8">
+                        <!--  Format Document (Ctrl+K, Ctrl+D / Shift+Alt+F)  -->
+                        <Button
+                            Height="24"
+                            Padding="6,2"
+                            AutomationProperties.Name="Formatear documento o selección"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Click="OnFormatButtonClick"
+                            ToolTipService.ToolTip="Formatear documento o selección (Ctrl+K, Ctrl+D / Shift+Alt+F)">
+                            <StackPanel
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal"
+                                Spacing="4">
+                                <FontIcon
+                                    FontSize="13"
+                                    Foreground="{ThemeResource PrimaryBrush}"
+                                    Glyph="&#xE8A1;" />
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontFamily="{StaticResource CodeFontFamily}"
+                                    FontSize="11"
+                                    Foreground="{ThemeResource OnSurfaceBrush}"
+                                    Text="Formatear" />
+                            </StackPanel>
+                        </Button>
+
+                        <!--  Format On Save (Ctrl+S)  -->
+                        <ToggleButton
+                            Height="24"
+                            Padding="6,2"
+                            AutomationProperties.Name="Formatear al guardar"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Click="OnFormatOnSaveToggled"
+                            IsChecked="{x:Bind ViewModel.FormatOnSave, Mode=TwoWay}"
+                            ToolTipService.ToolTip="Formatear el documento al guardar (Ctrl+S)">
+                            <StackPanel
+                                VerticalAlignment="Center"
+                                Orientation="Horizontal"
+                                Spacing="4">
+                                <FontIcon
+                                    FontSize="13"
+                                    Foreground="{ThemeResource OnSurfaceBrush}"
+                                    Glyph="&#xE74E;" />
+                                <TextBlock
+                                    VerticalAlignment="Center"
+                                    FontFamily="{StaticResource CodeFontFamily}"
+                                    FontSize="11"
+                                    Foreground="{ThemeResource OnSurfaceBrush}"
+                                    Text="Al guardar" />
+                            </StackPanel>
+                        </ToggleButton>
+
+                        <Rectangle
+                            Width="1"
+                            Height="12"
+                            VerticalAlignment="Center"
+                            Fill="{ThemeResource OutlineVariantBrush}" />
+
                         <!--  Real-time Cursor Ln/Col  -->
                         <TextBlock
                             VerticalAlignment="Center"

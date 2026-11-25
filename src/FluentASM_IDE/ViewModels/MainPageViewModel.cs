@@ -207,6 +207,57 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public event Action? AnalysisRequested;
 
     /// <summary>
+    /// Se dispara cuando la paleta solicita formatear el documento o la
+    /// selección (<see cref="FormatCommandHandler"/> no toca la vista).
+    /// </summary>
+    public event Action? FormatRequested;
+
+    /// <inheritdoc />
+    public IFormattingService? FormattingService => LspServer as IFormattingService;
+
+    /// <summary>Opción de sesión «Formatear al guardar».</summary>
+    [ObservableProperty]
+    public partial bool FormatOnSave { get; set; }
+
+    private string? indentationUnit;
+
+    /// <inheritdoc />
+    public string IndentationUnit
+    {
+        get
+        {
+            if (indentationUnit is not null)
+            {
+                return indentationUnit;
+            }
+
+            try
+            {
+                indentationUnit = FormattingService?.GetIndentUnit(DocumentUri);
+            }
+            catch (Exception ex)
+            {
+                _incidentRecorder.RecordException(ex, "MainPageViewModel.IndentationUnit", DocumentUri);
+                indentationUnit = null;
+            }
+
+            if (string.IsNullOrEmpty(indentationUnit))
+            {
+                indentationUnit = "    ";
+            }
+
+            return indentationUnit;
+        }
+    }
+
+    /// <inheritdoc />
+    public void SyncDocumentForFormatting(string normalizedText)
+    {
+        ArgumentNullException.ThrowIfNull(normalizedText);
+        UpdateDocument(normalizedText);
+    }
+
+    /// <summary>
     /// Se dispara cuando cambian los diagnósticos para que la vista actualice
     /// los subrayados del editor.
     /// </summary>
@@ -295,7 +346,7 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
     /// <summary>Crea el ViewModel con el servidor de lenguaje por defecto.</summary>
     public MainPageViewModel()
-        : this(new FluentLanguageServer(LspLoggerFactory), new ProjectService(), new QuickFixService(), App.Incidents)
+        : this(new FluentLanguageServer(LspLoggerFactory, App.Incidents), new ProjectService(), new QuickFixService(), App.Incidents)
     {
     }
 
@@ -531,6 +582,18 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 SaveRequested?.Invoke();
                 break;
 
+            case "/format":
+                FormatRequested?.Invoke();
+                break;
+
+            case "/format al guardar":
+                FormatOnSave = !FormatOnSave;
+                RefreshFormatOnSaveCommand();
+                StatusText = FormatOnSave
+                    ? "Formatear al guardar: activado."
+                    : "Formatear al guardar: desactivado.";
+                break;
+
             case "/esquema":
             case "/simbolos":
                 OutlineRequested?.Invoke();
@@ -556,6 +619,22 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
                 StatusText = $"Referencia: {item.Command}";
                 break;
         }
+    }
+
+    /// <summary>
+    /// Refleja el estado de «Formatear al guardar» en la paleta de comandos.
+    /// </summary>
+    public void RefreshFormatOnSaveCommand()
+    {
+        CommandPaletteItem? item = AllCommands.FirstOrDefault(command => command.Command == "/format al guardar");
+        if (item is null)
+        {
+            return;
+        }
+
+        item.Description = FormatOnSave
+            ? "Formatear al guardar activado: pulsa para desactivarlo"
+            : "Alternar el formateo automático al guardar (Ctrl+S)";
     }
 
     private void ShowIncidentsLog()
@@ -759,6 +838,30 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
 
         AllCommands.Add(new CommandPaletteItem
         {
+            Command = "/format",
+            Description = "Formatear el documento o la selección con el Pacto v1",
+            Shortcut = "Ctrl+K, Ctrl+D",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE8A1",
+            IconColorHex = "#60CDFF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
+            Command = "/format al guardar",
+            Description = "Alternar el formateo automático al guardar (Ctrl+S)",
+            Shortcut = "",
+            Category = "Comandos (/)",
+            IconGlyph = "\uE74E",
+            IconColorHex = "#B4E4FF",
+            IsActive = false,
+            IsCommand = true
+        });
+
+        AllCommands.Add(new CommandPaletteItem
+        {
             Command = "/esquema",
             Description = "Mostrar outline de símbolos del documento",
             Shortcut = "",
@@ -889,6 +992,12 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             documentText = normalized;
             documentVersion = 1;
             DocumentUri = "file:///" + DocumentFileName;
+            if (LspServer is FluentLanguageServer languageServer)
+            {
+                languageServer.DocumentFilePath = null;
+            }
+
+            indentationUnit = null;
             LspServer.OpenDocument(DocumentUri, normalized, documentVersion);
         }
 
@@ -1203,6 +1312,15 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
         ProjectName = _projectService.ProjectName ?? string.Empty;
         SourceFilePath = _projectService.SourceFilePath ?? string.Empty;
 
+        // El motor de formateo resuelve .editorconfig desde la ruta real.
+        if (LspServer is FluentLanguageServer languageServer)
+        {
+            languageServer.DocumentFilePath =
+                string.IsNullOrEmpty(SourceFilePath) ? null : SourceFilePath;
+        }
+
+        indentationUnit = null;
+
         // Actualizar título y estado.
         UpdateDocumentTitle();
         StatusText = IsProjectOpen
@@ -1329,24 +1447,38 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             lspCompletions = await Task.Run(
                 () => LspServer.GetCompletions(DocumentUri, requestedCaret, cancellationToken),
                 cancellationToken).ConfigureAwait(true);
+
+            // La comprobación vive dentro del try: una cancelación posterior al
+            // await no debe escapar del método ni llegar al llamante.
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!CanPublishCompletions(lspCompletions, currentVersion, requestVersion))
+            {
+                if (currentVersion != previousVersion)
+                {
+                    AnalysisRequested?.Invoke();
+                }
+
+                return;
+            }
+
+            PublishCompletions(lspCompletions, currentVersion, requestedCaret, openPopup);
         }
         catch (OperationCanceledException)
         {
+            // Cancelación cooperativa: el usuario siguió escribiendo o movió el
+            // caret. Es rutinaria y no se registra como incidencia.
             return;
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!CanPublishCompletions(lspCompletions, currentVersion, requestVersion))
+        catch (Exception ex)
         {
-            if (currentVersion != previousVersion)
-            {
-                AnalysisRequested?.Invoke();
-            }
-
+            _incidentRecorder.RecordException(
+                ex,
+                "MainPageViewModel.RequestLspCompletionsAsync",
+                DocumentUri);
             return;
         }
 
-        PublishCompletions(lspCompletions, currentVersion, requestedCaret, openPopup);
         if (Volatile.Read(ref documentVersion) != previousVersion)
         {
             AnalysisRequested?.Invoke();
