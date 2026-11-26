@@ -5,6 +5,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
+using DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue;
+using DispatcherQueuePriority = Microsoft.UI.Dispatching.DispatcherQueuePriority;
 
 namespace FluentASM_IDE.Controls;
 
@@ -70,6 +72,21 @@ public sealed partial class CommandPaletteOverlay : UserControl
     /// <summary>Se produce cuando la paleta se cierra.</summary>
     public event EventHandler? Closed;
 
+    /// <summary>
+    /// Evita encolar varios intentos de foco para la misma apertura.
+    /// </summary>
+    private bool _focusPending;
+
+    /// <summary>
+    /// Número de intentos diferidos de foco ya realizados en esta apertura.
+    /// </summary>
+    private int _focusAttempts;
+
+    /// <summary>
+    /// Tope de intentos diferidos de foco por apertura.
+    /// </summary>
+    private const int MaxDeferredFocusAttempts = 2;
+
     public CommandPaletteOverlay()
     {
         InitializeComponent();
@@ -77,18 +94,94 @@ public sealed partial class CommandPaletteOverlay : UserControl
     }
 
     /// <summary>
-    /// Lleva el foco a la caja de búsqueda. Si el control acaba de hacerse
-    /// visible, se fuerza el layout para que la caja tenga tamaño real.
+    /// Lleva el foco a la caja de búsqueda.
+    /// <para>
+    /// El foco no puede fijarse de forma síncrona cuando la paleta se abre
+    /// con una tecla: el <c>RichEditBox</c> todavía está procesando el evento
+    /// y recupera el foco al terminarlo. Por eso el intento se hace también
+    /// de forma diferida, en el dispatcher, cuando el control ya es visible,
+    /// tiene layout y el evento de teclado ha concluded.
+    /// </para>
     /// </summary>
     public void FocusInput()
     {
-        if (CommandInputBox.Focus(FocusState.Programmatic))
+        UpdateVisibility();
+        PaletteRoot.UpdateLayout();
+
+        CommandInputBox.Focus(FocusState.Programmatic);
+        ScheduleDeferredFocus(DispatcherQueuePriority.Normal);
+    }
+
+    /// <summary>
+    /// Encola un intento de foco para después del evento de teclado actual.
+    /// Si el foco síncrono funcionó, este intento solo lo confirma.
+    /// </summary>
+    private void ScheduleDeferredFocus(DispatcherQueuePriority priority)
+    {
+        if (_focusPending || _focusAttempts >= MaxDeferredFocusAttempts)
         {
             return;
         }
 
-        PaletteRoot.UpdateLayout();
-        CommandInputBox.Focus(FocusState.Programmatic);
+        DispatcherQueue? queue = DispatcherQueue;
+        if (queue is null)
+        {
+            return;
+        }
+
+        _focusPending = true;
+        queue.TryEnqueue(priority, () =>
+        {
+            _focusPending = false;
+
+            if (!IsOpen)
+            {
+                return;
+            }
+
+            if (!CommandInputBox.Focus(FocusState.Programmatic))
+            {
+                PaletteRoot.UpdateLayout();
+                CommandInputBox.Focus(FocusState.Programmatic);
+            }
+
+            PlaceCaretAtEnd();
+            _focusAttempts++;
+
+            // Si el editor recuperó el foco al terminar su propio evento, se
+            // reintenta una última vez con la prioridad más baja.
+            if (!HasInputFocus())
+            {
+                ScheduleDeferredFocus(DispatcherQueuePriority.Low);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Indica si la caja de búsqueda es el elemento con el foco activo.
+    /// </summary>
+    private bool HasInputFocus()
+    {
+        XamlRoot? root = CommandInputBox.XamlRoot;
+        if (root is null)
+        {
+            return false;
+        }
+
+        return ReferenceEquals(FocusManager.GetFocusedElement(root), CommandInputBox);
+    }
+
+    /// <summary>
+    /// Coloca el cursor al final del texto para que el usuario escriba a
+    /// continuación del prefijo ya presente (por ejemplo, «/»).
+    /// </summary>
+    private void PlaceCaretAtEnd()
+    {
+        int length = CommandInputBox.Text?.Length ?? 0;
+        if (length > 0)
+        {
+            CommandInputBox.Select(length, 0);
+        }
     }
 
     private static void OnIsOpenChangedStatic(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -102,6 +195,7 @@ public sealed partial class CommandPaletteOverlay : UserControl
 
         if (control.IsOpen)
         {
+            control._focusAttempts = 0;
             control.FocusInput();
         }
         else

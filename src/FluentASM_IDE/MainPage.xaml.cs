@@ -180,7 +180,20 @@ public sealed partial class MainPage : Page
 
         // Asegurar foco para atajos de teclado de página (Ctrl+O, Ctrl+P, etc.).
         this.Focus(FocusState.Programmatic);
-        this.GotFocus += (_, _) => EditorBox.Focus(FocusState.Programmatic);
+        this.GotFocus += (_, _) =>
+        {
+            // GotFocus se emite de forma asíncrona y se propaga desde
+            // cualquier descendiente que reciba el foco. Con la paleta
+            // abierta, el foco pertenece a su caja de búsqueda: sin esta
+            // guarda la página devolvía el foco al editor en cuanto el
+            // evento llegaba hasta ella y la paleta perdía el foco.
+            if (ViewModel.IsCommandPaletteOpen)
+            {
+                return;
+            }
+
+            EditorBox.Focus(FocusState.Programmatic);
+        };
     }
 
     private void ProcessLaunchArguments()

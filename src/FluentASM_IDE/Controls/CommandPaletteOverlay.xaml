@@ -62,6 +62,8 @@
                             BorderThickness="0"
                             FontFamily="Segoe UI Variable, Segoe UI, sans-serif"
                             FontSize="13.5"
+                            IsEnabled="True"
+                            IsTabStop="True"
                             KeyDown="OnCommandInputKeyDown"
                             PlaceholderText="Escribe un comando con '/' o busca ayuda... (ej. /problema, /reanalizar, Gpr)"
                             Text="{x:Bind CommandQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
