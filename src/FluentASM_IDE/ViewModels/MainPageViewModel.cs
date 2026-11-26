@@ -10,7 +10,6 @@ using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Services;
 using Microsoft.Extensions.Logging;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 
@@ -49,7 +48,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public partial string LineEnding { get; set; } = "LF";
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
     [NotifyPropertyChangedFor(nameof(CursorPositionFormatted))]
     public partial int CurrentLine { get; set; } = 13;
 
@@ -58,7 +56,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public partial int CurrentCol { get; set; } = 1;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ActiveLineMargin))]
     public partial double ScrollOffset { get; set; } = 0;
 
     [ObservableProperty]
@@ -150,8 +147,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
     public DiagnosticItem? FirstErrorDiagnostic => Diagnostics.FirstOrDefault(diagnostic => diagnostic.IsError);
 
     public DiagnosticItem? FirstWarningDiagnostic => Diagnostics.FirstOrDefault(diagnostic => diagnostic.IsWarning);
-
-    public Thickness ActiveLineMargin => new(0, 8 + (CurrentLine - 1) * 22.0 - ScrollOffset, 0, 0);
 
     public string CursorPositionFormatted => $"Ln {CurrentLine}, Col {CurrentCol}";
 
@@ -512,50 +507,6 @@ public partial class MainPageViewModel : ObservableObject, IMainPageViewModel
             c.IsSelected = (c == item);
         }
         SelectedCompletion = item;
-    }
-
-    [RelayCommand]
-    public void SelectNextPaletteItem()
-    {
-        if (FilteredCommands.Count == 0) return;
-        int index = -1;
-        for (int i = 0; i < FilteredCommands.Count; i++)
-        {
-            if (FilteredCommands[i].IsActive) { index = i; break; }
-        }
-
-        int next = (index + 1) % FilteredCommands.Count;
-        for (int i = 0; i < FilteredCommands.Count; i++)
-        {
-            FilteredCommands[i].IsActive = (i == next);
-        }
-    }
-
-    [RelayCommand]
-    public void SelectPrevPaletteItem()
-    {
-        if (FilteredCommands.Count == 0) return;
-        int index = 0;
-        for (int i = 0; i < FilteredCommands.Count; i++)
-        {
-            if (FilteredCommands[i].IsActive) { index = i; break; }
-        }
-
-        int prev = (index - 1 + FilteredCommands.Count) % FilteredCommands.Count;
-        for (int i = 0; i < FilteredCommands.Count; i++)
-        {
-            FilteredCommands[i].IsActive = (i == prev);
-        }
-    }
-
-    [RelayCommand]
-    public void ExecuteActivePaletteItem()
-    {
-        var active = FilteredCommands.FirstOrDefault(c => c.IsActive) ?? FilteredCommands.FirstOrDefault();
-        if (active is not null)
-        {
-            ExecutePaletteItem(active);
-        }
     }
 
     [RelayCommand]

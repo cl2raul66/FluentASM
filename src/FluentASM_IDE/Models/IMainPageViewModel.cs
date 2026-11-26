@@ -40,9 +40,6 @@ public interface IMainPageViewModel
     void CloseCommandPalette();
     void ToggleCommandPalette();
     void ExecutePaletteItem(CommandPaletteItem? item);
-    void SelectNextPaletteItem();
-    void SelectPrevPaletteItem();
-    void ExecuteActivePaletteItem();
     void ExecuteCommand(string command);
 
     // Status/Theme
