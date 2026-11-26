@@ -1,11 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Text;
-using System.Threading.Tasks;
 using FluentASM.Core.Projects;
 using FluentASM_IDE.Common.Services;
-using FluentASM_IDE.Models;
 using Microsoft.Extensions.Logging;
 
 namespace FluentASM_IDE.Services;
@@ -48,8 +43,7 @@ public sealed class ProjectService
         ArgumentException.ThrowIfNullOrWhiteSpace(folderPath);
 
         var fprojCandidate = Path.Combine(folderPath, Path.GetFileName(folderPath) + ".fproj");
-        string? fprojPath = null;
-
+        string? fprojPath;
         if (File.Exists(fprojCandidate))
         {
             fprojPath = fprojCandidate;
