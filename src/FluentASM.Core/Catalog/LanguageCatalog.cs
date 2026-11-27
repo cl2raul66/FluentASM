@@ -72,6 +72,13 @@ public static class LanguageCatalog
     /// <summary>Constructores fluidos de nivel superior (<c>.data</c>, <c>.execute</c>, <c>.initialize</c>).</summary>
     public static IReadOnlyList<FlowConstructorDescriptor> FlowConstructors { get; } = X64LanguageCatalogProvider.GetFlowConstructorDescriptors().ToImmutableList();
 
+    /// <summary>
+    /// Constructores de flujo indexados por nombre canonico (incluido el punto
+    /// inicial) para que la IDE y el LSP resuelvan su aridad sin recorrer la lista.
+    /// </summary>
+    public static IReadOnlyDictionary<string, FlowConstructorDescriptor> FlowConstructorsByName { get; } =
+        FlowConstructors.ToImmutableDictionary(descriptor => descriptor.CanonicalName, StringComparer.Ordinal);
+
     /// <summary>Directivas dentro de <c>.data</c> y <c>.execute</c>.</summary>
     public static IReadOnlyList<DirectiveDescriptor> Directives { get; } = X64LanguageCatalogProvider.GetDirectiveDescriptors().ToImmutableList();
 

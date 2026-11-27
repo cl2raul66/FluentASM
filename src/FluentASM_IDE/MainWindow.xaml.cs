@@ -1,12 +1,14 @@
+using FluentASM_IDE.Services;
 using FluentASM_IDE.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Windows.Graphics;
 
 namespace FluentASM_IDE;
 
 public sealed partial class MainWindow : Window
 {
+    private readonly WindowGeometryService _geometryService;
+
     public string WindowTitle => MainPageViewModel.WindowTitle;
 
     public MainWindow()
@@ -29,7 +31,11 @@ public sealed partial class MainWindow : Window
         catch { }
 
         AppWindow.Title = MainPageViewModel.WindowTitle;
-        AppWindow.Resize(new SizeInt32(1100, 750));
+
+        // Colocar la ventana antes de mostrarla evita el parpadeo inicial.
+        _geometryService = new WindowGeometryService(this, App.Incidents);
+        _geometryService.ApplyStartupPlacement();
+        Closed += (_, _) => _geometryService.Dispose();
 
         RootFrame.Navigate(typeof(MainPage));
     }

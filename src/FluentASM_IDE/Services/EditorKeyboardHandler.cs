@@ -1,5 +1,6 @@
 using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
+using FluentASM_IDE.Editing;
 using Microsoft.UI.Input;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -17,11 +18,13 @@ internal sealed class EditorKeyboardHandler
 {
     private readonly RichEditBox _editor;
     private readonly IMainPageViewModel _vm;
+    private readonly ICodeEditor _codeEditor;
 
-    public EditorKeyboardHandler(RichEditBox editor, IMainPageViewModel vm)
+    public EditorKeyboardHandler(RichEditBox editor, IMainPageViewModel vm, ICodeEditor codeEditor)
     {
         _editor = editor;
         _vm = vm;
+        _codeEditor = codeEditor;
     }
 
     public void OnKeyDown(KeyRoutedEventArgs e)
@@ -38,11 +41,11 @@ internal sealed class EditorKeyboardHandler
         if (e.Key == VirtualKey.Tab)
         {
             e.Handled = true;
-            _editor.Document.Selection.TypeText("    ");
+            _editor.Document.Selection.TypeText(IndentUnit);
         }
         else if (e.Key == VirtualKey.Enter)
         {
-            // Auto-indent: mantener la indentación de la línea actual.
+            // La Capa A es la única responsable de los saltos de línea.
             e.Handled = true;
             HandleEnterKey();
         }
@@ -78,36 +81,31 @@ internal sealed class EditorKeyboardHandler
         }
     }
 
+    /// <summary>
+    /// Unidad de indentación efectiva resuelta por la Capa B; si el documento
+    /// aún no está sincronizado se usa el valor del repositorio (4 espacios).
+    /// </summary>
+    private string IndentUnit
+    {
+        get
+        {
+            string unit = _vm.IndentationUnit;
+            return string.IsNullOrEmpty(unit) ? "    " : unit;
+        }
+    }
+
     private void HandleEnterKey()
     {
-        _editor.Document.GetText(TextGetOptions.None, out string editorText);
-        editorText ??= string.Empty;
+        _codeEditor.IndentUnit = IndentUnit;
 
-        int caretOffset = _editor.Document.Selection.StartPosition;
-        if (caretOffset < 0 || caretOffset >= editorText.Length)
+        if (EnterAssist.TryHandle(_codeEditor))
         {
-            _editor.Document.Selection.TypeText("\n");
             return;
         }
 
-        // Encontrar el inicio de la línea actual.
-        int lineStart = caretOffset;
-        while (lineStart > 0 && editorText[lineStart - 1] != '\n' && editorText[lineStart - 1] != '\r')
-        {
-            lineStart--;
-        }
-
-        // Extraer la indentación de la línea actual (espacios/tabs iniciales).
-        string currentLine = editorText.Substring(lineStart, caretOffset - lineStart);
-        string indent = "";
-        foreach (char c in currentLine)
-        {
-            if (c == ' ' || c == '\t') indent += c;
-            else break;
-        }
-
-        // Insertar salto de línea + indentación.
-        _editor.Document.Selection.TypeText("\n" + indent);
+        // Respaldo: si el editor está aplicando un cambio propio, se conserva
+        // el comportamiento nativo de un salto simple.
+        _editor.Document.Selection.TypeText("\n");
     }
 
     public void ApplyQuickFixAtCaret()

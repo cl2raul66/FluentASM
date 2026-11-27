@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FluentASM_IDE.Services;
+using FluentASM.Lsp;
 using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -94,6 +95,31 @@ public interface IMainPageViewModel
     // LSP Sync
     event Action? RevalidationRequested;
     event Action? AnalysisRequested;
+
+    // Formateo (Capa B)
+    /// <summary>
+    /// Servicio de formateo del mismo servidor de lenguaje; <c>null</c> si la
+    /// implementación inyectada no lo soporta.
+    /// </summary>
+    IFormattingService? FormattingService { get; }
+
+    /// <summary>
+    /// Unidad de indentación efectiva (tabulador o N espacios) resuelta por la
+    /// Capa B. La Capa A la usa para <c>Enter</c> sin leer <c>.editorconfig</c>.
+    /// </summary>
+    string IndentationUnit { get; }
+
+    /// <summary>
+    /// Sincroniza de forma inmediata el texto del editor con el snapshot del
+    /// LSP antes de pedir un formateo <em>on-type</em> o manual.
+    /// </summary>
+    void SyncDocumentForFormatting(string normalizedText);
+
+    /// <summary>Opción de sesión «Formatear al guardar» (desactivada por defecto).</summary>
+    bool FormatOnSave { get; set; }
+
+    /// <summary>Se dispara cuando la paleta pide formatear el documento o la selección.</summary>
+    event Action? FormatRequested;
 
     /// <summary>
     /// Sincroniza el documento con una versión incremental y devuelve el

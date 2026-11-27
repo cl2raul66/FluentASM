@@ -141,11 +141,14 @@ jobs:
           $any = ($core.Publish -or $compiler.Publish -or $lsp.Publish -or $ide.Publish)
           "has_releases=$($any.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Setup .NET 10
+      - name: Setup .NET 10 LTS (version fijada por global.json)
         if: steps.resolve.outputs.has_releases == 'true'
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          # La version del SDK sale de global.json (raiz del repo): .NET 10 LTS.
+          # Sin esta entrada setup-dotnet deja que se use el SDK global mas alto
+          # instalado en el runner (11.x), que no es una version LTS.
+          global-json-file: global.json
 
       - name: Aplicar versiones y generar ZIPs
         if: steps.resolve.outputs.has_releases == 'true'
@@ -183,7 +186,11 @@ jobs:
           if ($env:LSP_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM.Lsp/FluentASM.Lsp.csproj" $env:LSP_VERSION }
           if ($env:IDE_PUBLISH -eq 'true') { Set-CsprojVersion "src/FluentASM_IDE/FluentASM_IDE.csproj" $env:IDE_VERSION }
 
-          dotnet restore src/FluentASM.slnx
+          # El restore debe usar la MISMA configuracion que el build que le sigue:
+          # en Release el SDK resuelve SelfContained=true (RID win-x64) y exige el
+          # runtime pack Microsoft.NETCore.App.Runtime.win-x64, que en Debug no se
+          # descarga. Sin esta alineacion el build falla con NETSDK1112.
+          dotnet restore src/FluentASM.slnx -p:Configuration=Release
           if ($LASTEXITCODE -ne 0) { throw "Fallo dotnet restore de la solucion." }
 
           dotnet build src/FluentASM.slnx -c Release --no-restore

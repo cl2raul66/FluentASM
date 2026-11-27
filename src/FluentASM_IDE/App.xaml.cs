@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using FluentASM.Lsp.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
-using Windows.Storage;
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -32,8 +32,15 @@ public partial class App : Application
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
 
     /// <summary>
-    /// The native window handle (HWND). Use for file pickers,
-    /// <c>DataTransferManager</c>, and any WinRT interop that requires
+    /// Registro de Sucesos compartido por la ventana y el resto del IDE. Una
+    /// única instancia evita aperturas concurrentes del mismo archivo JSONL.
+    /// </summary>
+    public static IncidentRecorder Incidents { get; } = new();
+
+    /// <summary>
+    /// The native window handle (HWND). Use as owner of native dialogs (for
+    /// example, the folder picker built on <c>IFileOpenDialog</c>), for
+    /// <c>DataTransferManager</c>, and for any WinRT interop that requires
     /// <c>InitializeWithWindow</c>.
     /// </summary>
     public static nint WindowHandle =>

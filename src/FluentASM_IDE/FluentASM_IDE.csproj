@@ -14,6 +14,7 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Fix WMC1509: pass local assembly to XAML compiler for type resolution -->
     <XamlCompilerOptions>/localAssembly:$(TargetPath)</XamlCompilerOptions>
     <!-- Suppress style warnings treated as errors -->

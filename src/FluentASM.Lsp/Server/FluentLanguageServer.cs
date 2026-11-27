@@ -5,6 +5,8 @@ using FluentASM.Core.Syntax;
 using FluentASM.Core.Syntax.Ast;
 using FluentASM.Lsp.Catalog;
 using FluentASM.Lsp.Completion;
+using FluentASM.Lsp.Diagnostics;
+using FluentASM.Lsp.Formatting;
 using FluentASM.Lsp.Protocol;
 using Microsoft.Extensions.Logging;
 
@@ -20,9 +22,14 @@ namespace FluentASM.Lsp.Server;
 /// pipeline de análisis se ejecuta una sola vez por versión y se reutiliza en
 /// diagnósticos, resaltado, completado, hover y símbolos.
 /// </remarks>
-public sealed class FluentLanguageServer : ILanguageService
+public sealed class FluentLanguageServer : ILanguageService, IFormattingService
 {
     private readonly DocumentStore store;
+    private readonly FasmFormatter formatter;
+    private readonly IncidentRecorder? incidents;
+
+    /// <summary>Indentación de reserva cuando no hay configuración legible.</summary>
+    private const string DefaultIndentUnit = "    ";
 
     /// <summary>Crea el servidor sin registro estructurado.</summary>
     public FluentLanguageServer()
@@ -36,10 +43,24 @@ public sealed class FluentLanguageServer : ILanguageService
     /// <see cref="ILoggerFactory"/>.
     /// </summary>
     /// <param name="loggerFactory">Fábrica de registro; puede ser <c>null</c>.</param>
-    public FluentLanguageServer(ILoggerFactory? loggerFactory)
+    /// <param name="incidents">
+    /// Registro de sucesos compartido con el IDE; puede ser <c>null</c>. Se usa
+    /// para trazar los fallos inesperados del motor de formateo.
+    /// </param>
+    public FluentLanguageServer(ILoggerFactory? loggerFactory, IncidentRecorder? incidents = null)
     {
         store = new DocumentStore(loggerFactory);
+        this.incidents = incidents;
+        formatter = new FasmFormatter(incidents: incidents);
     }
+
+    /// <summary>
+    /// Ruta física del documento vigente, usada para resolver
+    /// <c>.editorconfig</c> desde su directorio hacia arriba. El IDE la asigna
+    /// al abrir un proyecto o archivo fuente. Si es <c>null</c>, se intenta
+    /// derivar del URI.
+    /// </summary>
+    public string? DocumentFilePath { get; set; }
 
     /// <inheritdoc />
     public void OpenDocument(string uri, string text, int version = 1) => store.Open(uri, text, version);
@@ -54,36 +75,176 @@ public sealed class FluentLanguageServer : ILanguageService
     public string? GetDocumentText(string uri) => store.GetText(uri);
 
     /// <inheritdoc />
-    public DocumentSnapshot? GetSnapshot(string uri, CancellationToken cancellationToken = default) =>
-        store.GetSnapshot(uri, cancellationToken);
+    /// <remarks>
+    /// Una cancelación es cooperativa y rutinaria (el usuario sigue
+    /// escribiendo): nunca se propaga al IDE, que la interpreta como «sin
+    /// snapshot». El cálculo interno sí se interrumpe.
+    /// </remarks>
+    public DocumentSnapshot? GetSnapshot(string uri, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return store.GetSnapshot(uri, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
+        }
+    }
 
     /// <inheritdoc />
-    public IReadOnlyList<LspDiagnostic> ValidateDocument(string uri, CancellationToken cancellationToken = default) =>
-        store.GetDiagnostics(uri, cancellationToken);
+    public IReadOnlyList<LspDiagnostic> ValidateDocument(string uri, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return store.GetDiagnostics(uri, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return Array.Empty<LspDiagnostic>();
+        }
+    }
 
     /// <inheritdoc />
-    public IReadOnlyList<HighlightToken> GetHighlightTokens(string uri, CancellationToken cancellationToken = default) =>
-        store.GetHighlightTokens(uri, cancellationToken);
+    public IReadOnlyList<HighlightToken> GetHighlightTokens(string uri, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return store.GetHighlightTokens(uri, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return Array.Empty<HighlightToken>();
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<TextEdit> FormatDocument(string uri)
+    {
+        try
+        {
+            DocumentSnapshot? snapshot = store.GetSnapshot(uri);
+            return snapshot is null
+                ? Array.Empty<TextEdit>()
+                : formatter.FormatDocument(snapshot.Text, ResolveFormattingPath(uri));
+        }
+        catch (OperationCanceledException)
+        {
+            return Array.Empty<TextEdit>();
+        }
+        catch (Exception ex)
+        {
+            incidents?.RecordException(ex, "FluentLanguageServer.FormatDocument", uri);
+            return Array.Empty<TextEdit>();
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<TextEdit> FormatRange(string uri, LspRange range)
+    {
+        try
+        {
+            DocumentSnapshot? snapshot = store.GetSnapshot(uri);
+            return snapshot is null
+                ? Array.Empty<TextEdit>()
+                : formatter.FormatRange(snapshot.Text, ResolveFormattingPath(uri), range);
+        }
+        catch (OperationCanceledException)
+        {
+            return Array.Empty<TextEdit>();
+        }
+        catch (Exception ex)
+        {
+            incidents?.RecordException(ex, "FluentLanguageServer.FormatRange", uri);
+            return Array.Empty<TextEdit>();
+        }
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<TextEdit> FormatOnType(string uri, Position position, char trigger)
+    {
+        try
+        {
+            DocumentSnapshot? snapshot = store.GetSnapshot(uri);
+            return snapshot is null
+                ? Array.Empty<TextEdit>()
+                : formatter.FormatOnType(snapshot.Text, ResolveFormattingPath(uri), position, trigger);
+        }
+        catch (OperationCanceledException)
+        {
+            return Array.Empty<TextEdit>();
+        }
+        catch (Exception ex)
+        {
+            incidents?.RecordException(ex, "FluentLanguageServer.FormatOnType", uri);
+            return Array.Empty<TextEdit>();
+        }
+    }
+
+    /// <inheritdoc />
+    public string GetIndentUnit(string uri)
+    {
+        try
+        {
+            return formatter.GetIndentUnit(ResolveFormattingPath(uri));
+        }
+        catch (OperationCanceledException)
+        {
+            return DefaultIndentUnit;
+        }
+        catch (Exception ex)
+        {
+            incidents?.RecordException(ex, "FluentLanguageServer.GetIndentUnit", uri);
+            return DefaultIndentUnit;
+        }
+    }
+
+    private string? ResolveFormattingPath(string uri)
+    {
+        if (!string.IsNullOrWhiteSpace(DocumentFilePath))
+        {
+            return DocumentFilePath;
+        }
+
+        if (Uri.TryCreate(uri, UriKind.Absolute, out Uri? parsed) && parsed.IsFile)
+        {
+            return parsed.LocalPath;
+        }
+
+        return Path.IsPathRooted(uri) ? uri : null;
+    }
 
     /// <inheritdoc />
     public CompletionList GetCompletions(string uri, Position position, CancellationToken cancellationToken = default)
     {
-        var snapshot = store.GetSnapshot(uri, cancellationToken);
-        if (snapshot is null)
+        try
         {
-            return new CompletionList(
-                IsIncomplete: false,
-                Items: Array.Empty<LspCompletionItem>(),
-                ReplaceRange: null,
-                Context: "Raíz",
-                Caret: position,
-                Version: null);
-        }
+            var snapshot = store.GetSnapshot(uri, cancellationToken);
+            if (snapshot is null)
+            {
+                return CreateEmptyCompletionList(position);
+            }
 
-        // Un documento vacío sigue siendo un contexto raíz válido: Ctrl+Espacio
-        // debe ofrecer los constructores canónicos aun antes de escribir código.
-        return ContextualCompletionProvider.GetCompletions(snapshot, position, cancellationToken);
+            // Un documento vacío sigue siendo un contexto raíz válido: Ctrl+Espacio
+            // debe ofrecer los constructores canónicos aun antes de escribir código.
+            return ContextualCompletionProvider.GetCompletions(snapshot, position, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // El usuario sigue escribiendo: la solicitud en vuelo ya no
+            // interesa. El IDE descarta la lista por no llevar versión.
+            return CreateEmptyCompletionList(position);
+        }
     }
+
+    private static CompletionList CreateEmptyCompletionList(Position position) =>
+        new(
+            IsIncomplete: false,
+            Items: Array.Empty<LspCompletionItem>(),
+            ReplaceRange: null,
+            Context: "Raíz",
+            Caret: position,
+            Version: null);
 
     /// <inheritdoc />
     public Hover? GetHover(string uri, Position position)
@@ -805,6 +966,21 @@ public sealed class FluentLanguageServer : ILanguageService
     public IReadOnlyList<LspCodeAction> GetCodeActions(
         string uri,
         CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return GetCodeActionsCore(uri, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // El usuario sigue escribiendo: no hay acciones que ofrecer.
+            return Array.Empty<LspCodeAction>();
+        }
+    }
+
+    private IReadOnlyList<LspCodeAction> GetCodeActionsCore(
+        string uri,
+        CancellationToken cancellationToken)
     {
         var snapshot = store.GetSnapshot(uri, cancellationToken);
         if (snapshot is null)

@@ -17,7 +17,15 @@ public partial class CommandPaletteItem : ObservableObject, ICommandPaletteItem
     public static bool IsDarkTheme { get; set; } = true;
 
     public string Command { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Descripción del comando. Es observable para que los comandos con
+    /// estado (como «Formatear al guardar») reflejen el cambio sin reabrir
+    /// la paleta.
+    /// </summary>
+    [ObservableProperty]
+    public partial string Description { get; set; } = string.Empty;
+
     public string Shortcut { get; set; } = string.Empty;
     public string Category { get; set; } = "Comandos (/)";
     public string IconGlyph { get; set; } = "\uE756";
