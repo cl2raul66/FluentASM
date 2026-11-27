@@ -36,6 +36,9 @@ internal sealed class EditorKeyboardHandler
 
         // La navegación del overlay se atiende en PreviewKeyDown para que
         // Ningún control pueda consumir antes las flechas o Intro.
+        // Ctrl+P no se atiende aquí: la paleta de comandos la abre y cierra
+        // MainPage desde OnEditorPreviewKeyDown, que se ejecuta antes que
+        // este manejador y marca el evento como atendido.
 
         // Global editor shortcuts
         if (e.Key == VirtualKey.Tab)
@@ -58,13 +61,6 @@ internal sealed class EditorKeyboardHandler
         {
             e.Handled = true;
             _vm.ExecuteCommand("/build");
-        }
-        else if (isCtrl && e.Key == VirtualKey.P)
-        {
-            e.Handled = true;
-            _vm.ToggleCommandPalette();
-            if (_vm.IsCommandPaletteOpen)
-                _editor.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
         }
         else if (isCtrl && isShift && e.Key == VirtualKey.O)
         {

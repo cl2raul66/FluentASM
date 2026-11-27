@@ -1,3 +1,4 @@
+using System;
 using FluentASM.Lsp.Protocol;
 using FluentASM_IDE.Models;
 using FluentASM_IDE.Common.Services;
@@ -19,6 +20,19 @@ namespace FluentASM_IDE;
 public sealed partial class MainPage : Page
 {
     #region Fields
+
+    /// <summary>
+    /// Altura real de una línea del editor, en DIP. Equivale al interlineado
+    /// exacto de 16,5 pt aplicado al <see cref="RichEditBox"/> (16,5 pt × 4/3)
+    /// y al <c>LineHeight="22"</c> del margen de números de línea.
+    /// </summary>
+    private const double EditorLineHeight = 22.0;
+
+    /// <summary>
+    /// Padding superior real del <see cref="RichEditBox"/> y del margen de
+    /// números de línea, en DIP.
+    /// </summary>
+    private const double EditorTopPadding = 8.0;
 
     public MainPageViewModel ViewModel { get; } = new();
 
@@ -166,7 +180,20 @@ public sealed partial class MainPage : Page
 
         // Asegurar foco para atajos de teclado de página (Ctrl+O, Ctrl+P, etc.).
         this.Focus(FocusState.Programmatic);
-        this.GotFocus += (_, _) => EditorBox.Focus(FocusState.Programmatic);
+        this.GotFocus += (_, _) =>
+        {
+            // GotFocus se emite de forma asíncrona y se propaga desde
+            // cualquier descendiente que reciba el foco. Con la paleta
+            // abierta, el foco pertenece a su caja de búsqueda: sin esta
+            // guarda la página devolvía el foco al editor en cuanto el
+            // evento llegaba hasta ella y la paleta perdía el foco.
+            if (ViewModel.IsCommandPaletteOpen)
+            {
+                return;
+            }
+
+            EditorBox.Focus(FocusState.Programmatic);
+        };
     }
 
     private void ProcessLaunchArguments()
@@ -812,7 +839,7 @@ public sealed partial class MainPage : Page
             ViewModel.ToggleCommandPalette();
             if (ViewModel.IsCommandPaletteOpen)
             {
-                CommandInputBox.Focus(FocusState.Programmatic);
+                CommandPaletteControl.FocusInput();
             }
 
             return;
@@ -1486,8 +1513,15 @@ public sealed partial class MainPage : Page
 
         if (!positioned)
         {
+            // Fallback geométrico puro: no depende de ningún elemento visual.
+            // La métrica es la real del editor (padding superior de 8 DIP y
+            // altura de línea de 22 DIP), por lo que el resultado es idéntico
+            // al que daba antes el margen del overlay de línea activa.
             left = 16;
-            top = ViewModel.ActiveLineMargin.Top + 22;
+            top = EditorTopPadding
+                + (ViewModel.CurrentLine - 1) * EditorLineHeight
+                - ViewModel.ScrollOffset
+                + EditorLineHeight;
         }
 
         if (EditorHost.ActualWidth > 0 && IntelliSenseControl.ActualWidth > 0)
@@ -1735,58 +1769,21 @@ public sealed partial class MainPage : Page
 
     #region Command Palette Events (UI-only, delegated to ViewModel)
 
-    private void OnBackdropPointerPressed(object sender, PointerRoutedEventArgs e)
-        => ViewModel.CloseCommandPalette();
+    /// <summary>
+    /// El control de la paleta decide qué comando se elige; la página lo
+    /// ejecuta a través del ViewModel.
+    /// </summary>
+    private void OnPaletteCommandExecuted(object sender, CommandPaletteItem item)
+        => ViewModel.ExecutePaletteItem(item);
 
-    private void OnPaletteContainerClicked(object sender, PointerRoutedEventArgs e)
-        => e.Handled = true;
-
-    private void OnEscBadgeClicked(object sender, PointerRoutedEventArgs e)
+    /// <summary>
+    /// Al cerrarse la paleta el foco vuelve al editor, con independencia de
+    /// cómo se haya cerrado (Escape, clic en el backdrop, badge o comando).
+    /// </summary>
+    private void OnPaletteClosed(object sender, EventArgs e)
     {
         ViewModel.CloseCommandPalette();
-        e.Handled = true;
-    }
-
-    private void OnPaletteItemHover(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe && fe.DataContext is CommandPaletteItem item)
-            foreach (var c in ViewModel.FilteredCommands) c.IsActive = (c == item);
-    }
-
-    private void OnPaletteItemUnhover(object sender, PointerRoutedEventArgs e) { }
-
-    private void OnPaletteItemClicked(object sender, PointerRoutedEventArgs e)
-    {
-        if (sender is FrameworkElement fe && fe.DataContext is CommandPaletteItem item)
-            ViewModel.ExecutePaletteItem(item);
-    }
-
-    private void OnCommandTextChanged(object sender, Microsoft.UI.Xaml.Controls.TextChangedEventArgs e)
-    {
-        if (sender is TextBox tb) ViewModel.CommandQuery = tb.Text;
-    }
-
-    private void OnCommandInputKeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        if (e.Key == VirtualKey.Escape)
-        {
-            ViewModel.CloseCommandPalette();
-            e.Handled = true;
-            EditorBox.Focus(FocusState.Programmatic);
-        }
-        else if (e.Key == VirtualKey.Down)
-        {
-            ViewModel.SelectNextPaletteItem(); e.Handled = true;
-        }
-        else if (e.Key == VirtualKey.Up)
-        {
-            ViewModel.SelectPrevPaletteItem(); e.Handled = true;
-        }
-        else if (e.Key == VirtualKey.Enter)
-        {
-            ViewModel.ExecuteActivePaletteItem(); e.Handled = true;
-            EditorBox.Focus(FocusState.Programmatic);
-        }
+        EditorBox.Focus(FocusState.Programmatic);
     }
 
     private void OnPageKeyDown(object sender, KeyRoutedEventArgs e)
@@ -1812,7 +1809,7 @@ public sealed partial class MainPage : Page
             CancelPendingCompletionRequest();
             ViewModel.ToggleCommandPalette();
             if (ViewModel.IsCommandPaletteOpen)
-                EditorBox.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
+                CommandPaletteControl.FocusInput();
             e.Handled = true;
         }
         else if (isCtrl && (int)e.Key == 190) // 190 = OemPeriod (tecla punto normal)

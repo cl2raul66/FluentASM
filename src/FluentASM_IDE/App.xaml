@@ -36,7 +36,6 @@
 
                     <Color x:Key="TitleBarBackgroundColor">#C01B1C1C</Color>
                     <Color x:Key="TitleBarBorderColor">#333E484E</Color>
-                    <Color x:Key="EditorActiveLineColor">#262626</Color>
                     <Color x:Key="GutterDividerColor">#14FFFFFF</Color>
                     <Color x:Key="GutterTextColor">#70889299</Color>
                     <Color x:Key="PaletteBackdropColor">#66000000</Color>
@@ -67,7 +66,6 @@
 
                     <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="{StaticResource TitleBarBackgroundColor}" />
                     <SolidColorBrush x:Key="TitleBarBorderBrush" Color="{StaticResource TitleBarBorderColor}" />
-                    <SolidColorBrush x:Key="EditorActiveLineBrush" Color="{StaticResource EditorActiveLineColor}" />
                     <SolidColorBrush x:Key="GutterDividerBrush" Color="{StaticResource GutterDividerColor}" />
                     <SolidColorBrush x:Key="GutterTextBrush" Color="{StaticResource GutterTextColor}" />
                     <SolidColorBrush x:Key="PaletteBackdropBrush" Color="{StaticResource PaletteBackdropColor}" />
@@ -103,7 +101,6 @@
 
                     <Color x:Key="TitleBarBackgroundColor">#DDF3F3F5</Color>
                     <Color x:Key="TitleBarBorderColor">#20000000</Color>
-                    <Color x:Key="EditorActiveLineColor">#EFF2F6</Color>
                     <Color x:Key="GutterDividerColor">#18000000</Color>
                     <Color x:Key="GutterTextColor">#8A9099</Color>
                     <Color x:Key="PaletteBackdropColor">#38000000</Color>
@@ -134,7 +131,6 @@
 
                     <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="{StaticResource TitleBarBackgroundColor}" />
                     <SolidColorBrush x:Key="TitleBarBorderBrush" Color="{StaticResource TitleBarBorderColor}" />
-                    <SolidColorBrush x:Key="EditorActiveLineBrush" Color="{StaticResource EditorActiveLineColor}" />
                     <SolidColorBrush x:Key="GutterDividerBrush" Color="{StaticResource GutterDividerColor}" />
                     <SolidColorBrush x:Key="GutterTextBrush" Color="{StaticResource GutterTextColor}" />
                     <SolidColorBrush x:Key="PaletteBackdropBrush" Color="{StaticResource PaletteBackdropColor}" />
