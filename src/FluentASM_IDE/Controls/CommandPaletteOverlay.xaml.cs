@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using FluentASM_IDE.Models;
+using FluentASM_IDE.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -13,11 +14,12 @@ namespace FluentASM_IDE.Controls;
 /// <summary>
 /// Superficie modal de la paleta de comandos.
 /// <para>
-/// El control no conoce el ViewModel: expone estado mediante propiedades de
-/// dependencia (<see cref="IsOpen"/>, <see cref="ItemsSource"/>,
-/// <see cref="CommandQuery"/> y <see cref="SelectedItem"/>) y notifica los
-/// dos hechos que la página necesita observar: la ejecución de un comando
-/// (<see cref="CommandExecuted"/>) y el cierre (<see cref="Closed"/>).
+/// El control recibe su <see cref="CommandPaletteViewModel"/> por propiedad de
+/// dependencia y expone el estado de presentación (<see cref="IsOpen"/>,
+/// <see cref="ItemsSource"/>, <see cref="CommandQuery"/> y
+/// <see cref="SelectedItem"/>) para que el host lo enlace. La ejecución del
+/// comando la resuelve el ViewModel mediante mensajería; el control solo
+/// notifica el cierre (<see cref="Closed"/>) para devolver el foco al editor.
 /// </para>
 /// </summary>
 public sealed partial class CommandPaletteOverlay : UserControl
@@ -37,6 +39,10 @@ public sealed partial class CommandPaletteOverlay : UserControl
     public static readonly DependencyProperty SelectedItemProperty =
         DependencyProperty.Register(nameof(SelectedItem), typeof(CommandPaletteItem), typeof(CommandPaletteOverlay),
             new PropertyMetadata(null, OnSelectedItemChangedStatic));
+
+    public static readonly DependencyProperty ViewModelProperty =
+        DependencyProperty.Register(nameof(ViewModel), typeof(CommandPaletteViewModel), typeof(CommandPaletteOverlay),
+            new PropertyMetadata(null));
 
     /// <summary>Abre o cierra la paleta. Enlazable en modo TwoWay.</summary>
     public bool IsOpen
@@ -66,8 +72,12 @@ public sealed partial class CommandPaletteOverlay : UserControl
         set => SetValue(SelectedItemProperty, value);
     }
 
-    /// <summary>Se produce cuando el usuario elige un comando de la lista.</summary>
-    public event EventHandler<CommandPaletteItem>? CommandExecuted;
+    /// <summary>ViewModel que ejecuta el comando elegido y cierra la paleta.</summary>
+    public CommandPaletteViewModel? ViewModel
+    {
+        get => (CommandPaletteViewModel?)GetValue(ViewModelProperty);
+        set => SetValue(ViewModelProperty, value);
+    }
 
     /// <summary>Se produce cuando la paleta se cierra.</summary>
     public event EventHandler? Closed;
@@ -327,7 +337,7 @@ public sealed partial class CommandPaletteOverlay : UserControl
         CommandPaletteItem? item = FindActiveItem() ?? ItemsSource?.FirstOrDefault();
         if (item is not null)
         {
-            CommandExecuted?.Invoke(this, item);
+            ViewModel?.Execute(item);
         }
     }
 
@@ -391,15 +401,7 @@ public sealed partial class CommandPaletteOverlay : UserControl
     {
         if (sender is FrameworkElement element && element.DataContext is CommandPaletteItem item)
         {
-            CommandExecuted?.Invoke(this, item);
-        }
-    }
-
-    private void OnCommandTextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (sender is TextBox textBox && !string.Equals(textBox.Text, CommandQuery, StringComparison.Ordinal))
-        {
-            CommandQuery = textBox.Text;
+            ViewModel?.Execute(item);
         }
     }
 

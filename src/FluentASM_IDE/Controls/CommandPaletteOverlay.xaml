@@ -66,8 +66,7 @@
                             IsTabStop="True"
                             KeyDown="OnCommandInputKeyDown"
                             PlaceholderText="Escribe un comando con '/' o busca ayuda... (ej. /problema, /reanalizar, Gpr)"
-                            Text="{x:Bind CommandQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                            TextChanged="OnCommandTextChanged" />
+                            Text="{x:Bind CommandQuery, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
                         <Border
                             Grid.Column="2"
