@@ -1,5 +1,7 @@
+using FluentASM.Lsp.Diagnostics;
 using FluentASM_IDE.Services;
 using FluentASM_IDE.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 
@@ -33,7 +35,9 @@ public sealed partial class MainWindow : Window
         AppWindow.Title = MainPageViewModel.WindowTitle;
 
         // Colocar la ventana antes de mostrarla evita el parpadeo inicial.
-        _geometryService = new WindowGeometryService(this, App.Incidents);
+        _geometryService = new WindowGeometryService(
+            this,
+            App.Services.GetRequiredService<IncidentRecorder>());
         _geometryService.ApplyStartupPlacement();
         Closed += (_, _) => _geometryService.Dispose();
 

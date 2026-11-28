@@ -17,9 +17,9 @@ internal sealed record FormatResult(string Text, IReadOnlyList<TextEdit> Edits);
 /// </summary>
 internal sealed class FormatCommandHandler
 {
-    private readonly IMainPageViewModel viewModel;
+    private readonly IEditorViewModel viewModel;
 
-    public FormatCommandHandler(IMainPageViewModel viewModel)
+    public FormatCommandHandler(IEditorViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         this.viewModel = viewModel;

@@ -12,15 +12,16 @@ using Windows.UI.Core;
 namespace FluentASM_IDE.Services;
 
 /// <summary>
-/// Maneja atajos de teclado y navegación del editor, desacoplando la lógica de <see cref="MainPage"/>.
+/// Maneja atajos de teclado y navegación del editor, desacoplando la lógica de
+/// la vista del editor.
 /// </summary>
 internal sealed class EditorKeyboardHandler
 {
     private readonly RichEditBox _editor;
-    private readonly IMainPageViewModel _vm;
+    private readonly IEditorViewModel _vm;
     private readonly ICodeEditor _codeEditor;
 
-    public EditorKeyboardHandler(RichEditBox editor, IMainPageViewModel vm, ICodeEditor codeEditor)
+    public EditorKeyboardHandler(RichEditBox editor, IEditorViewModel vm, ICodeEditor codeEditor)
     {
         _editor = editor;
         _vm = vm;
@@ -36,6 +37,8 @@ internal sealed class EditorKeyboardHandler
 
         // La navegación del overlay se atiende en PreviewKeyDown para que
         // Ningún control pueda consumir antes las flechas o Intro.
+        // Ctrl+P, Ctrl+O y Ctrl+S son atajos globales del shell: se dejan
+        // llegar a él en lugar de consumirse aquí.
 
         // Global editor shortcuts
         if (e.Key == VirtualKey.Tab)
@@ -52,24 +55,17 @@ internal sealed class EditorKeyboardHandler
         else if (e.Key == VirtualKey.F5)
         {
             e.Handled = true;
-            _vm.ExecuteCommand("/run");
+            _vm.RequestShellCommand(ShellCommands.Run);
         }
         else if (isCtrl && e.Key == VirtualKey.B)
         {
             e.Handled = true;
-            _vm.ExecuteCommand("/build");
-        }
-        else if (isCtrl && e.Key == VirtualKey.P)
-        {
-            e.Handled = true;
-            _vm.ToggleCommandPalette();
-            if (_vm.IsCommandPaletteOpen)
-                _editor.Focus(FocusState.Programmatic); // CommandInputBox focused via XAML
+            _vm.RequestShellCommand(ShellCommands.Build);
         }
         else if (isCtrl && isShift && e.Key == VirtualKey.O)
         {
             e.Handled = true;
-            _vm.ExecuteCommand("/simbolos");
+            _vm.RequestShellCommand(ShellCommands.Symbols);
         }
         else if (isCtrl && e.Key == VirtualKey.Decimal)
         {

@@ -29,10 +29,10 @@ miCalculadoraCli
                 })
             })
 
-            rt.define(d->{
+            rt.define(d -> {
                 d.id(restar)
                 d.returns(Gpr0)
-                d.run((arg1<Bit:8>)->{                  
+                d.run((arg1<Bit:64>, arg2) -> {                  
                     Gpr0.copy(arg1)                                        
                     Ipr.flowStackJump()
                 })

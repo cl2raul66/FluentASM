@@ -1,7 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CommunityToolkit.Mvvm.Messaging;
+using FluentASM.Lsp;
 using FluentASM.Lsp.Diagnostics;
+using FluentASM.Lsp.Server;
+using FluentASM_IDE.Services;
+using FluentASM_IDE.ViewModels;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
@@ -32,10 +39,11 @@ public partial class App : Application
     public static Microsoft.UI.Dispatching.DispatcherQueue DispatcherQueue { get; private set; } = null!;
 
     /// <summary>
-    /// Registro de Sucesos compartido por la ventana y el resto del IDE. Una
-    /// única instancia evita aperturas concurrentes del mismo archivo JSONL.
+    /// Contenedor de servicios y ViewModels del IDE. Es el único punto de
+    /// composición global; los consumidores resuelven sus dependencias desde
+    /// aquí en lugar de crear instancias o consultar estado estático.
     /// </summary>
-    public static IncidentRecorder Incidents { get; } = new();
+    public static IServiceProvider Services { get; private set; } = null!;
 
     /// <summary>
     /// The native window handle (HWND). Use as owner of native dialogs (for
@@ -67,6 +75,50 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        Services = ConfigureServices();
+    }
+
+    /// <summary>
+    /// Compone el grafo de dependencias del IDE. Los servicios compartidos se
+    /// registran como singletons y los ViewModels se resuelven desde el mismo
+    /// contenedor, sin depender de estado estático adicional.
+    /// </summary>
+    private static IServiceProvider ConfigureServices()
+    {
+        var services = new ServiceCollection();
+
+        services.AddLogging(builder =>
+        {
+            builder.SetMinimumLevel(LogLevel.Debug);
+            builder.AddDebug();
+        });
+
+        services.AddSingleton<IMessenger>(WeakReferenceMessenger.Default);
+        services.AddSingleton<IncidentRecorder>(_ => new IncidentRecorder());
+
+        services.AddSingleton<ISettingsService, SettingsService>();
+        services.AddSingleton<IFolderPickerService>(
+            _ => new FolderPickerService(() => WindowHandle));
+        services.AddSingleton<IDialogService>(
+            _ => new DialogService(() => Window));
+
+        services.AddSingleton<ProjectService>();
+        services.AddSingleton<QuickFixService>();
+        services.AddSingleton<FluentLanguageServer>(provider =>
+            new FluentLanguageServer(
+                provider.GetRequiredService<ILoggerFactory>(),
+                provider.GetRequiredService<IncidentRecorder>()));
+        services.AddSingleton<ILanguageService>(provider =>
+            provider.GetRequiredService<FluentLanguageServer>());
+        services.AddSingleton<IFormattingService>(provider =>
+            provider.GetRequiredService<FluentLanguageServer>());
+
+        services.AddSingleton<EditorViewModel>();
+        services.AddSingleton<MainPageViewModel>();
+        services.AddSingleton<StatusDockViewModel>();
+        services.AddSingleton<CommandPaletteViewModel>();
+
+        return services.BuildServiceProvider();
     }
 
     /// <summary>

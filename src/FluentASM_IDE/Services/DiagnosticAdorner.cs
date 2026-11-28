@@ -16,7 +16,7 @@ namespace FluentASM_IDE.Services;
 
 /// <summary>
 /// Encapsula toda la lógica de adornos de diagnóstico (subrayados, colores, Flyout hover)
-/// para mantener <see cref="MainPage"/> limpia y enfocada en coordinación de alto nivel.
+/// para mantener el componente de editor limpio y enfocado en coordinación de alto nivel.
 /// </summary>
 /// <remarks>
 /// Usa <see cref="Flyout"/> con <see cref="FlyoutShowMode.Standard"/> para que el usuario pueda
@@ -32,7 +32,7 @@ public sealed class DiagnosticAdorner
     private static readonly Color InfoColor = Color.FromArgb(255, 189, 200, 207);
 
     private readonly RichEditBox _editor;
-    private readonly IMainPageViewModel _vm;
+    private readonly IEditorViewModel _vm;
     private readonly DispatcherTimer _hoverTimer;
     private readonly Flyout _flyout;
     private readonly StackPanel _flyoutContent;
@@ -48,7 +48,7 @@ public sealed class DiagnosticAdorner
     private bool _isLoaded;
     private bool _flyoutOpenedByKeyboard;
 
-    public DiagnosticAdorner(RichEditBox editor, IMainPageViewModel vm)
+    public DiagnosticAdorner(RichEditBox editor, IEditorViewModel vm)
     {
         _editor = editor;
         _vm = vm;

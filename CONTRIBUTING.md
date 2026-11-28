@@ -375,6 +375,16 @@ Para debates internos, usa documentos locales con prefijos `proposal-`, `idea-` 
   3. **Respeto a *Windows Snap* y persistencia mínima diferida:** Si el usuario mueve, redimensiona o acopla la ventana con *Snap*, el servicio no la recentra mientras sus límites visibles quepan en `WorkArea`. En `LocalFolder/window-state.json` (estado efímero de aplicación, ajeno al workspace) solo se persiste `IsMaximized`; recordar dimensiones elegidas por el usuario queda diferido hasta definir el almacenamiento de ajustes del editor.
   4. **Tipografía base del editor:** `RichEditBox` y la columna de números de línea (`LineNumbersText`) usan `FontSize="16"` sincronizado en `MainPage.xaml`.
 
+### Decisión 0012 — Arquitectura MVVM modular, DI, mensajería tipada, Settings de aplicación y tema unificado en `FluentASM_IDE` (2026-11-27)
+
+* **Contexto:** Tras completar la base funcional del editor de proyecto único (Fases 1A–1E), `MainPage.xaml.cs` seguía concentrando la fontanería del editor (`RichEditBox`, resaltado, `ICodeEditor`, `IntelliSenseOverlay`) y servicios UI directos, dificultando la incorporación ordenada de los paneles de Fase 2.
+* **Decisión:**
+  1. **Contenedor DI y ViewModels por componente:** `App.xaml.cs` configura `Microsoft.Extensions.DependencyInjection` (`IServiceProvider`, con versión fijada explícitamente en `FluentASM_IDE.csproj`). `MainPageViewModel` coordina el *shell* y expone los ViewModels hijos (`EditorViewModel`, `StatusDockViewModel`, `CommandPaletteViewModel`) enlazados mediante `{x:Bind}` desde `MainPage.xaml`, evitando *Service Locator* dentro de los `UserControl`.
+  2. **Mensajería desacoplada:** `CommunityToolkit.Mvvm` (`[ObservableProperty]`, `[RelayCommand]`) gobierna cada par Vista ↔ ViewModel; `WeakReferenceMessenger` se reserva exclusivamente para mensajes tipados (`record`) entre componentes independientes, asegurando despacho a `DispatcherQueue` cuando procedan de hilos secundarios.
+  3. **Servicios UI y preferencias de aplicación:** Los diálogos modales y selección de carpetas se abstraen tras `IDialogService` e `IFolderPickerService` (delegando en el selector nativo Win32 de `Helpers/NativeMethods.cs`). `ISettingsService` persiste únicamente `LastOpenedFolder` mediante `Microsoft.Windows.Storage.ApplicationData` (`GetDefault()` en MSIX y `GetForUnpackaged(...)` en *unpackaged*, alineado con `Package.appxmanifest`), sin reabrir proyectos automáticamente al iniciar y manteniendo `window-state.json` separado bajo la `Decisión 0011`.
+  4. **Encapsulación del Editor:** `Controls/CodeEditorControl` encapsula `RichEditBox`, numeración de líneas, fachada `ICodeEditor`, `EditorUndoHistory`, `AutoPairAssist` e `IntelliSenseOverlay`, sin enlazar el texto completo mediante `TwoWay` string binding en XAML.
+  5. **Tema temporal unificado:** `App.xaml` conserva ambos `ThemeDictionaries` (`Light` y `Dark`) apuntando a los valores claros y fija `RequestedTheme="Light"` mientras no se diseñe la paleta oscura, evitando inconsistencias con controles nativos del sistema.
+
 ## CI-CD (Integración y Despliegue Continuos)
 
 GitHub Actions **no se ejecuta en cada Pull Request**: así no se consumen minutos de ejecución por cambios que aún están en revisión. La validación es local y obligatoria antes de abrir el PR:
