@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Models;
-using FluentASM_IDE.ViewModels;
 using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -30,14 +29,14 @@ public sealed class HoverService
     private const double HoverMoveTolerance = 3.0;
 
     private readonly RichEditBox _editor;
-    private readonly MainPageViewModel _vm;
+    private readonly IEditorViewModel _vm;
     private readonly Flyout _flyout;
     private readonly TextBlock _flyoutContent;
     private readonly DispatcherTimer _hoverTimer;
     private Point _lastPointerPosition;
     private bool _hasUserInteracted;
 
-    public HoverService(RichEditBox editor, MainPageViewModel vm)
+    public HoverService(RichEditBox editor, IEditorViewModel vm)
     {
         _editor = editor;
         _vm = vm;

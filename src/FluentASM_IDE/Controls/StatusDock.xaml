@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<UserControl
+    x:Class="FluentASM_IDE.Controls.StatusDock"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Border
+        Height="28"
+        Padding="12,0"
+        Background="{ThemeResource StatusDockBackgroundBrush}"
+        BorderBrush="{ThemeResource TitleBarBorderBrush}"
+        BorderThickness="0,1,0,0">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!--  Left Status Telemetry  -->
+            <StackPanel
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8">
+                <!--  Pulse Dot + Status Text  -->
+                <StackPanel
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal"
+                    Spacing="6">
+                    <Ellipse
+                        x:Name="StatusPulseDot"
+                        Width="6"
+                        Height="6"
+                        VerticalAlignment="Center"
+                        Fill="{ThemeResource PrimaryBrush}" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontFamily="{StaticResource CodeFontFamily}"
+                        FontSize="11"
+                        FontWeight="Medium"
+                        Foreground="{ThemeResource OnSurfaceBrush}"
+                        Text="{x:Bind ViewModel.StatusText, Mode=OneWay}" />
+                </StackPanel>
+
+                <!--  Divider  -->
+                <Rectangle
+                    Width="1"
+                    Height="12"
+                    VerticalAlignment="Center"
+                    Fill="{ThemeResource OutlineVariantBrush}" />
+
+                <!--  File Name  -->
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontFamily="{StaticResource CodeFontFamily}"
+                    FontSize="11"
+                    Foreground="{ThemeResource OnSurfaceVariantBrush}"
+                    Text="{x:Bind ViewModel.DocumentTitle, Mode=OneWay}" />
+
+                <!--  Divider  -->
+                <Rectangle
+                    Width="1"
+                    Height="12"
+                    VerticalAlignment="Center"
+                    Fill="{ThemeResource OutlineVariantBrush}" />
+
+                <!--  Contadores reales de errores y advertencias  -->
+                <Button
+                    Height="24"
+                    Padding="6,2"
+                    AutomationProperties.Name="{x:Bind ViewModel.DiagnosticErrorSummary, Mode=OneWay}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Command="{x:Bind ViewModel.GoToFirstErrorCommand}"
+                    ToolTipService.ToolTip="{x:Bind ViewModel.DiagnosticErrorSummary, Mode=OneWay}">
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="4">
+                        <FontIcon
+                            FontSize="13"
+                            Foreground="{x:Bind ViewModel.DiagnosticErrorBrush, Mode=OneWay}"
+                            Glyph="&#xE783;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontFamily="{StaticResource CodeFontFamily}"
+                            FontSize="11"
+                            Foreground="{x:Bind ViewModel.DiagnosticErrorBrush, Mode=OneWay}"
+                            Text="Errores" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontFamily="{StaticResource CodeFontFamily}"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Foreground="{x:Bind ViewModel.DiagnosticErrorBrush, Mode=OneWay}"
+                            Text="{x:Bind ViewModel.DiagnosticErrorCount, Mode=OneWay}" />
+                    </StackPanel>
+                </Button>
+
+                <Button
+                    Height="24"
+                    Padding="6,2"
+                    AutomationProperties.Name="{x:Bind ViewModel.DiagnosticWarningSummary, Mode=OneWay}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Command="{x:Bind ViewModel.GoToFirstWarningCommand}"
+                    ToolTipService.ToolTip="{x:Bind ViewModel.DiagnosticWarningSummary, Mode=OneWay}">
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="4">
+                        <FontIcon
+                            FontSize="13"
+                            Foreground="{x:Bind ViewModel.DiagnosticWarningBrush, Mode=OneWay}"
+                            Glyph="&#xE7BA;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontFamily="{StaticResource CodeFontFamily}"
+                            FontSize="11"
+                            Foreground="{x:Bind ViewModel.DiagnosticWarningBrush, Mode=OneWay}"
+                            Text="Advertencias" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontFamily="{StaticResource CodeFontFamily}"
+                            FontSize="11"
+                            FontWeight="SemiBold"
+                            Foreground="{x:Bind ViewModel.DiagnosticWarningBrush, Mode=OneWay}"
+                            Text="{x:Bind ViewModel.DiagnosticWarningCount, Mode=OneWay}" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+
+            <!--  Right Telemetry Coordinates & Architecture  -->
+            <StackPanel
+                Grid.Column="1"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Orientation="Horizontal"
+                Spacing="8">
+                <!--  Format Document (Ctrl+K, Ctrl+D / Shift+Alt+F)  -->
+                <Button
+                    Height="24"
+                    Padding="6,2"
+                    AutomationProperties.Name="Formatear documento o selección"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="OnFormatButtonClick"
+                    ToolTipService.ToolTip="Formatear documento o selección (Ctrl+K, Ctrl+D / Shift+Alt+F)">
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="4">
+                        <FontIcon
+                            FontSize="13"
+                            Foreground="{ThemeResource PrimaryBrush}"
+                            Glyph="&#xE8A1;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontFamily="{StaticResource CodeFontFamily}"
+                            FontSize="11"
+                            Foreground="{ThemeResource OnSurfaceBrush}"
+                            Text="Formatear" />
+                    </StackPanel>
+                </Button>
+
+                <!--  Format On Save (Ctrl+S)  -->
+                <ToggleButton
+                    Height="24"
+                    Padding="6,2"
+                    AutomationProperties.Name="Formatear al guardar"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    IsChecked="{x:Bind ViewModel.FormatOnSave, Mode=TwoWay}"
+                    ToolTipService.ToolTip="Formatear el documento al guardar (Ctrl+S)">
+                    <StackPanel
+                        VerticalAlignment="Center"
+                        Orientation="Horizontal"
+                        Spacing="4">
+                        <FontIcon
+                            FontSize="13"
+                            Foreground="{ThemeResource OnSurfaceBrush}"
+                            Glyph="&#xE74E;" />
+                        <TextBlock
+                            VerticalAlignment="Center"
+                            FontFamily="{StaticResource CodeFontFamily}"
+                            FontSize="11"
+                            Foreground="{ThemeResource OnSurfaceBrush}"
+                            Text="Al guardar" />
+                    </StackPanel>
+                </ToggleButton>
+
+                <Rectangle
+                    Width="1"
+                    Height="12"
+                    VerticalAlignment="Center"
+                    Fill="{ThemeResource OutlineVariantBrush}" />
+
+                <!--  Real-time Cursor Ln/Col  -->
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontFamily="{StaticResource CodeFontFamily}"
+                    FontSize="11"
+                    Foreground="{ThemeResource OnSurfaceVariantBrush}"
+                    Text="{x:Bind ViewModel.CursorPositionFormatted, Mode=OneWay}" />
+
+                <Rectangle
+                    Width="1"
+                    Height="12"
+                    VerticalAlignment="Center"
+                    Fill="{ThemeResource OutlineVariantBrush}" />
+
+                <!--  Encoding  -->
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontFamily="{StaticResource CodeFontFamily}"
+                    FontSize="11"
+                    Foreground="{ThemeResource OnSurfaceBrush}"
+                    Text="{x:Bind ViewModel.Encoding, Mode=OneWay}" />
+
+                <Rectangle
+                    Width="1"
+                    Height="12"
+                    VerticalAlignment="Center"
+                    Fill="{ThemeResource OutlineVariantBrush}" />
+
+                <!--  Line Ending  -->
+                <TextBlock
+                    VerticalAlignment="Center"
+                    FontFamily="{StaticResource CodeFontFamily}"
+                    FontSize="11"
+                    Foreground="{ThemeResource OnSurfaceVariantBrush}"
+                    Text="{x:Bind ViewModel.LineEnding, Mode=OneWay}" />
+
+                <Rectangle
+                    Width="1"
+                    Height="12"
+                    VerticalAlignment="Center"
+                    Fill="{ThemeResource OutlineVariantBrush}" />
+
+                <!--  Target Architecture Badge  -->
+                <Border
+                    Padding="6,1"
+                    Background="{ThemeResource BadgeBackgroundBrush}"
+                    BorderBrush="{ThemeResource BadgeBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4">
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontFamily="{StaticResource CodeFontFamily}"
+                        FontSize="11"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource PrimaryBrush}"
+                        Text="{x:Bind ViewModel.Architecture, Mode=OneWay}" />
+                </Border>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

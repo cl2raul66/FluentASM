@@ -1,7 +1,6 @@
 using System;
 using FluentASM_IDE.Common.Services;
 using FluentASM_IDE.Models;
-using FluentASM_IDE.ViewModels;
 using FluentASM.Lsp.Protocol;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -21,13 +20,13 @@ namespace FluentASM_IDE.Services;
 /// </summary>
 public sealed class OutlineService
 {
-    private readonly MainPageViewModel _vm;
+    private readonly IEditorViewModel _vm;
     private readonly RichEditBox _editor;
     private readonly Flyout _flyout;
     private readonly StackPanel _stack;
     private bool _isOpen;
 
-    public OutlineService(MainPageViewModel vm, RichEditBox editor)
+    public OutlineService(IEditorViewModel vm, RichEditBox editor)
     {
         _vm = vm;
         _editor = editor;
